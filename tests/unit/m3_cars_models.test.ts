@@ -280,6 +280,37 @@ describe('imported car bodies', () => {
     console.log(rows.join('\n'));
   });
 
+  it('the sedan\'s tail panel and grille stay in front of its paint when the tail and nose are dented 8 cm', () => {
+    // The kit follows the body on a finer grid than the body's own refinement, so a dent pulls the panel under the
+    // body's coarser chords; the dark patches stand 8 mm proud to keep a moderate dent from burying them.
+    const s = VEHICLE_SPECS.sedan;
+    const m = carModel('sedan')!;
+    const v = view('sedan');
+    const car = new Vehicle(1, 'sedan', 0, 0, 0, 0, 0xb03a2e);
+    v.bind(car);
+    v.sync(car, 1 / 60, 0, 0);
+    const half = s.length / 2;
+    const tailY = (m.tail[0]!.at.y + m.tail[1]!.at.y) / 2;
+    const headY = (m.head[0]!.at.y + m.head[1]!.at.y) / 2;
+    car.dents.push({ lx: 0, ly: tailY, lz: -half + 0.05, nx: 0, nz: 1, depth: 0.08 }, { lx: 0, ly: headY, lz: half - 0.05, nx: 0, nz: -1, depth: 0.08 });
+    car.dentVersion++;
+    v.sync(car, 1 / 60, 0, 0);
+    v.group.updateMatrixWorld(true);
+    const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
+    for (const [y, end, w] of [[tailY, -1, 0.3], [headY, 1, 0.25]] as const) {
+      let ext = 0;
+      let n = 0;
+      for (let x = -w; x <= w + 1e-6; x += 0.05) {
+        for (const dy of [-0.02, 0, 0.02]) {
+          const hit = new THREE.Raycaster(new THREE.Vector3(x, y + dy, end * (half + 2)), new THREE.Vector3(0, 0, -end)).intersectObjects(parts, false)[0];
+          n++;
+          if (hit?.object.name === 'exterior') ext++;
+        }
+      }
+      expect(ext / n, end > 0 ? 'grille' : 'tail panel').toBeGreaterThanOrEqual(0.85);
+    }
+  });
+
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
     for (const kind of MODEL_KINDS) {
       const v = view(kind);

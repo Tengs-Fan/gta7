@@ -872,7 +872,9 @@ function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
     const xs = steps(x0, x1, 0.05);
     return steps(y0, y1, 0.04).map((y) => xs.map((x) => at(x, y)));
   };
-  // The grille: between the head lamps' inner edges, from over the plate to the lamps' tops.
+  // The grille: between the head lamps' inner edges, from over the plate to the lamps' tops. The end patches stand
+  // 8 mm proud: a dent bends them on their fine grid and the body on its coarser one, and at 4 mm an 8 cm dent sank
+  // a third of the sedan's grille under the paint.
   const lampY = f.head.reduce((y, l) => y + l.at.y, 0) / f.head.length;
   const lampH = f.head.reduce((h, l) => h + l.size[1], 0) / f.head.length;
   const inner = Math.min(...f.head.map((l) => Math.abs(l.at.x) - l.size[0] / 2)) - 0.03;
@@ -881,14 +883,14 @@ function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
   if (inner > 0.15 && gTop - gBot > 0.06) {
     const x0 = -inner;
     const x1 = inner;
-    kit.patch(band(atFront, x0, x1, gBot, gTop), 0.004, 'dark', true);
+    kit.patch(band(atFront, x0, x1, gBot, gTop), 0.008, 'dark', true);
     // Satin slats across it and a bar along its top.
     const slats = Math.max(2, Math.floor((gTop - gBot) / 0.045));
     for (let i = 1; i <= slats; i++) {
       const y = gBot + ((gTop - gBot) * i) / (slats + 1);
-      kit.patch(band(atFront, x0 + 0.03, x1 - 0.03, y - 0.006, y + 0.006), 0.009, 'metal', false);
+      kit.patch(band(atFront, x0 + 0.03, x1 - 0.03, y - 0.006, y + 0.006), 0.013, 'metal', false);
     }
-    kit.patch(band(atFront, x0, x1, gTop - 0.004, gTop + 0.016), 0.011, 'metal', true);
+    kit.patch(band(atFront, x0, x1, gTop - 0.004, gTop + 0.016), 0.015, 'metal', true);
   }
   const rp = f.plates.rear;
   // A dark panel joining the tail lamps under a satin bar, so they read as one cluster across the tail (where the
@@ -899,8 +901,8 @@ function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
   const tTop = tailY + tailH * 0.3;
   const tBot = Math.max(tailY - tailH * 0.3, rp.y1 + 0.03);
   if (f.tail.length > 1 && tIn > 0.15 && tTop - tBot > 0.04) {
-    kit.patch(band(atRear, -tIn, tIn, tBot, tTop), 0.004, 'dark', true, 0.95);
-    kit.patch(band(atRear, -tIn, tIn, tTop - 0.002, tTop + 0.02), 0.009, 'metal', true, 0.95);
+    kit.patch(band(atRear, -tIn, tIn, tBot, tTop), 0.008, 'dark', true, 0.95);
+    kit.patch(band(atRear, -tIn, tIn, tTop - 0.002, tTop + 0.02), 0.013, 'metal', true, 0.95);
   }
   // Exhaust tips 4 cm over the foot of the tail (the lowest height where a ray along the car meets its end): on the
   // right (-x), and both sides on the sports and muscle cars.
