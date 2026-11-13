@@ -472,8 +472,8 @@ The county's models redrawn (the farmsteads' tin, porches and cupolas, the hedge
 | the highway's south leg by the fields | 248 | 250 | 1.53 M | 1.56 M |
 | a pickup on the highway's north leg | 281 | 283 | 1.71 M | 1.75 M |
 
-Across the 39 views the triangles rose 1.0 to 5.7% (median 2.3%), most of it the sun's cascades drawing the hedgerows again; the two over 5% are the elevator's (5.5% and 5.7%, a third of it the elevator's own 2,800 triangles and their shadow).
-Frame rates on the RTX 5090 were 35 to 61 fps in both runs, with other agents' browsers on the GPU, so they are not compared; Medium, Low and the software fallback draw the barns, the elevator and the shoulders (`tiers.mjs`; the software tier at 13 to 24 fps under the same load).
+Across the 39 views the triangles rose 1.0 to 5.7% (median 2.3%), most of it the sun's cascades drawing the hedgerows again; the two over 5% (5.5% and 5.7%) are the two that frame the elevator, whose own 2,800 triangles more the cascades draw again too.
+Frame rates on the RTX 5090 were 44 to 60 fps before and 35 to 61 after, with other agents' browsers on the GPU, so they are not compared; Medium, Low and the software fallback draw the barns, the elevator and the shoulders (`tiers.mjs`; the software tier at 13 to 24 fps under the same load).
 
 ## Software fallback
 
