@@ -358,6 +358,6 @@ describe('single player is unchanged by the multiplayer core (VAL-MPSIM-010)', (
     const now = `${JSON.stringify(recordSpTrace({ streetCrime: true }))}\n`;
     const hash = createHash('sha256').update(now).digest('hex');
     console.log(`[mpsim-010] streetCrime trace sha256 ${hash}`);
-    expect(hash).toBe('40bed1e6d60a8ca52ce8cfe40440e87ba5bc6c15dd4ca46793f59da1e9ce69d0');
+    expect(hash).toBe('aebab5f6295e646be05fa8a8781e72a2a69cdf453fbf4a4e140fe9c05f8f6df4');
   }, 120_000);
 });

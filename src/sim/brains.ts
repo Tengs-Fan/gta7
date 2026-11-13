@@ -59,6 +59,10 @@ export interface PedBrain {
   provoked: boolean;
   /** A driver who got out of his car angry after the player hit it (angryDrivers.ts), and the car he left. */
   angryCar: Vehicle | null;
+  /** Out of the way of a car bearing down on him (PedSystem.dodge): seconds of the dash left, and its unit direction. */
+  dodge: number;
+  dodgeX: number;
+  dodgeZ: number;
 }
 
 export function makeBrain(mode: PedMode): PedBrain {
@@ -91,5 +95,8 @@ export function makeBrain(mode: PedMode): PedBrain {
     turfAggroAt: -Infinity,
     provoked: false,
     angryCar: null,
+    dodge: 0,
+    dodgeX: 0,
+    dodgeZ: 0,
   };
 }

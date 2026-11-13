@@ -5,7 +5,7 @@ import { clamp, moveAngleTowards } from '../core/math';
 import { SWIM_DEPTH, WATER_Y } from '../world/constants';
 import { makeBrain, type PedBrain } from './brains';
 import { MAX_STEP } from './characterPhysics';
-import type { Character } from './entities';
+import type { Character, Vehicle } from './entities';
 import { gangAt, setGang } from './gangs';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
@@ -72,6 +72,33 @@ const AHEAD_SEEN = 75;
 const AHEAD_BEHIND = 60;
 const NEAR_SEEN = 55;
 
+/**
+ * People get out of the way of a car a player is driving at them. Someone walking, waiting to cross or standing about
+ * who is in the path of one going faster than DODGE_SPEED m/s (23 km/h: slower than that it is a car creeping round a
+ * corner, whose driver can stop for him and for whom he need not run; when he ran from those too, a driver who
+ * stopped for him and he for the driver did it six times over at one crossing) and within DODGE_MARGIN m of its
+ * flanks notices it
+ * DODGE_NOTICE m ahead of its bumper, up to DODGE_NOTICE_SPREAD m sooner by who he is, and dashes DODGE_TIME s at
+ * DODGE_RUN m/s to the side he is on, never into the sea, and stands there DODGE_REST s and until the car has gone
+ * DODGE_CLEAR m by or stopped (DODGE_REST_MAX s at most). The notice is a distance and not a time: at a crawl everyone steps clear,
+ * at 70 km/h it is half a second's warning and some are clipped, and flat out nobody makes it. (They walked their
+ * routes into the bonnet until round 8 put half as many again on the pavements, where every one of them hit is a call
+ * to the police.)
+ */
+const DODGE_SPEED = 6.5;
+const DODGE_NOTICE = 7;
+const DODGE_NOTICE_SPREAD = 4;
+const DODGE_MARGIN = 0.55;
+/** A car turning faster than this (rad/s) is judged by the ring it sweeps, not by the line it is on (see PedSystem.dodge). */
+const DODGE_TURN = 0.12;
+/** Within this far (m) of a lane's centre line he is on the carriageway, and dashes across the lane for a kerb. */
+const DODGE_LANE = 2;
+const DODGE_RUN = 5.4;
+const DODGE_TIME = 0.55;
+const DODGE_REST = 2.5;
+const DODGE_CLEAR = 6;
+const DODGE_REST_MAX = 8;
+
 /** populate(): nobody starts nearer the arriving player than this (m), and those further than ARRIVE_FAR m from him are let go first. */
 const ARRIVE_NEAR = 9;
 const ARRIVE_FAR = 110;
@@ -79,6 +106,8 @@ const ARRIVE_FAR = 110;
 export class PedSystem {
   /** True while populate() fills the pavements: a spawn then takes no account of the players' view. */
   private arriving = false;
+  /** The cars players are driving faster than DODGE_SPEED this step, with the unit direction they travel in (see dodge). */
+  private readonly oncoming: Array<{ v: Vehicle; ux: number; uz: number }> = [];
   private timer = 0;
   private screamCooldown = 0;
   density = 1;
@@ -382,12 +411,20 @@ export class PedSystem {
       const p = s.character;
       return !s.parked && p.aiming && isGun(p.inventory.current) && p.state === 'normal';
     });
+    this.oncoming.length = 0;
+    for (const s of sim.players) {
+      const v = s.parked ? null : s.character.vehicle;
+      const speed = v ? Math.hypot(v.vel.x, v.vel.z) : 0;
+      if (v && v.driver === s.character && speed > DODGE_SPEED) this.oncoming.push({ v, ux: v.vel.x / speed, uz: v.vel.z / speed });
+    }
     for (const c of sim.characters) {
       if (c.removed || !c.brain || c.isLaw || c.isPlayer) continue;
       if (c.state !== 'normal' && c.state !== 'swimming') {
         c.moveSpeed = 0;
+        c.brain.dodge = 0;
         continue;
       }
+      if (c.state === 'normal' && this.dodge(c, c.brain, dt)) continue;
       for (const s of aiming) {
         if (c.brain.mode !== 'wander' && c.brain.mode !== 'idle' && c.brain.mode !== 'cross') break;
         this.checkAimedAt(c, s);
@@ -422,6 +459,100 @@ export class PedSystem {
       b.mode = 'cower';
       b.modeTimer = sim.rng.range(2.5, 4.5);
     } else this.flee(c, p.pos.x, p.pos.z, p);
+  }
+
+  /**
+   * Out of the way of a car a player is driving at him (see DODGE_SPEED); true while he dashes and while he stands
+   * clear after it, which is all he does then. PedBrain.dodge is the dash's seconds left while positive, and minus the
+   * seconds he has stood clear while negative.
+   */
+  private dodge(c: Character, b: PedBrain, dt: number): boolean {
+    const sim = this.sim;
+    if (b.dodge < 0) {
+      // Standing clear: DODGE_REST s at least (a driver who has stopped for him has that long to go on by: let go at
+      // once he walked back into the path of a car that set off again as he stood, to dash and walk back again,
+      // six times at one corner), and for as long as a player's car is still moving within DODGE_CLEAR m of him
+      // (up to DODGE_REST_MAX s).
+      b.dodge -= dt;
+      let passing = false;
+      for (const s of sim.players) {
+        const v = s.parked ? null : s.character.vehicle;
+        if (v && Math.hypot(v.vel.x, v.vel.z) > 1 && Math.hypot(v.pos.x - c.pos.x, v.pos.z - c.pos.z) < DODGE_CLEAR) passing = true;
+      }
+      if (-b.dodge < DODGE_REST || (passing && -b.dodge < DODGE_REST_MAX)) {
+        c.moveSpeed = 0;
+        return true;
+      }
+      b.dodge = 0;
+      return false;
+    }
+    if (b.dodge === 0) {
+      if (this.oncoming.length === 0 || (b.mode !== 'wander' && b.mode !== 'cross' && b.mode !== 'idle')) return false;
+      const notice = DODGE_NOTICE + ((c.id % 5) / 4) * DODGE_NOTICE_SPREAD;
+      const reach = DODGE_RUN * DODGE_TIME;
+      for (const o of this.oncoming) {
+        const dx = c.pos.x - o.v.pos.x;
+        const dz = c.pos.z - o.v.pos.z;
+        const front = dx * o.ux + dz * o.uz;
+        if (front < 0 || front > notice + o.v.halfL + 2) continue;
+        // How far to the side of its line he is: positive to the side (uz, -ux) points to, the side a rising heading turns to.
+        const off = dx * o.uz - dz * o.ux;
+        let nx: number;
+        let nz: number;
+        if (Math.abs(o.v.angVel) > DODGE_TURN) {
+          // The car is turning: its path is the ring its body sweeps round the centre of its turn, and the way out of
+          // it is along the ring's radius, inwards from inside its line and outwards from outside. (Judged by the
+          // straight line it is on at the moment, he would dash to the side it is turning to, into its way.)
+          const turn = Math.sign(o.v.angVel);
+          const speed = Math.hypot(o.v.vel.x, o.v.vel.z);
+          const r = Math.max(3, speed / Math.abs(o.v.angVel));
+          // From the centre of the turn to him, and to the car.
+          const px = dx - o.uz * turn * r;
+          const pz = dz + o.ux * turn * r;
+          const d = Math.hypot(px, pz);
+          if (d < 1e-3 || Math.abs(d - r) > o.v.halfW + DODGE_MARGIN) continue;
+          // How far round the ring ahead of the car's bumper he is.
+          const ahead = r * Math.atan2(front, r - off * turn) - o.v.halfL;
+          if (ahead < 0 || ahead > notice) continue;
+          const way = d < r ? -1 : 1;
+          nx = (px / d) * way;
+          nz = (pz / d) * way;
+        } else {
+          if (front - o.v.halfL > notice || Math.abs(off) > o.v.halfW + DODGE_MARGIN) continue;
+          // To the side he is on (dead ahead of it: one or the other, by who he is).
+          const side = Math.abs(off) > 0.15 ? Math.sign(off) : c.id % 2 ? 1 : -1;
+          nx = o.uz * side;
+          nz = -o.ux * side;
+        }
+        // On a carriageway he makes for a kerb: across the lane he stands in, whichever way lies nearer the way out of
+        // the car's path. (Out of a turning car's path alone, he dashed down the street it was turning into.)
+        const on = sim.roads.nearestLane(c.pos.x, c.pos.z);
+        if (on.dist < DODGE_LANE) {
+          const way = on.lane.dz * nx - on.lane.dx * nz >= 0 ? 1 : -1;
+          nx = on.lane.dz * way;
+          nz = -on.lane.dx * way;
+        }
+        // Unless that way lies the sea: then the other way, if that is dry.
+        if (sim.world.waterDepth(c.pos.x + nx * reach, c.pos.z + nz * reach) > -0.2) {
+          nx = -nx;
+          nz = -nz;
+          if (sim.world.waterDepth(c.pos.x + nx * reach, c.pos.z + nz * reach) > -0.2) continue;
+        }
+        b.dodge = DODGE_TIME;
+        b.dodgeX = nx;
+        b.dodgeZ = nz;
+        break;
+      }
+      if (b.dodge === 0) return false;
+    }
+    b.dodge -= dt;
+    c.moveX = b.dodgeX;
+    c.moveZ = b.dodgeZ;
+    c.moveSpeed = DODGE_RUN;
+    c.heading = moveAngleTowards(c.heading, Math.atan2(b.dodgeX, b.dodgeZ), 14 * dt);
+    // The dash done, he stands clear (from the next step on).
+    if (b.dodge <= 0) b.dodge = -1e-6;
+    return true;
   }
 
   think(c: Character, b: PedBrain, dt: number): void {

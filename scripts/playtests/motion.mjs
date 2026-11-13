@@ -8,7 +8,7 @@
 // report.json gets one note, "motion <json>", with a summary per segment and the samples.
 
 /** Runs in the page: installs window.__auto, a pure-pursuit driver that presses the real keys. */
-function install(g) {
+export function install(g) {
   const sim = g.sim;
   const roads = sim.roads;
   const key = (code, down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code.replace('Key', '').toLowerCase(), bubbles: true }));
@@ -26,6 +26,8 @@ function install(g) {
     corner: 9,
     /** +1 when the D key raises the heading, -1 when it lowers it: found by calibrate(). */
     sign: 0,
+    /** Brake for people on foot in the way (off: the motion check's careless driver, who only minds cars). */
+    people: false,
     path: [],
     at: 0,
     samples: [],
@@ -123,6 +125,18 @@ function install(g) {
           }
         }
       }
+      // Somebody on foot in the way: brake for him, as a driver does (with auto.people off, the careless one this was).
+      let waiting = false;
+      if (auto.people) {
+        const stop = 5 + speed * 0.7;
+        for (const c of sim.characters) {
+          if (c === sim.player || c.vehicle || !c.alive) continue;
+          const dx = c.pos.x - v.pos.x;
+          const dz = c.pos.z - v.pos.z;
+          const along = dx * fx + dz * fz;
+          if (along > 1.5 && along < stop && Math.abs(dx * fz - dz * fx) < 1.7) waiting = true;
+        }
+      }
       const err = wrap(Math.atan2(tx - v.pos.x, tz - v.pos.z) - v.heading) * auto.sign;
       // Slow for the sharpest bend within braking distance.
       let want = auto.cruise;
@@ -132,6 +146,7 @@ function install(g) {
         d += Math.hypot(p[i + 1].x - p[i].x, p[i + 1].z - p[i].z);
       }
       if (blocked) want = Math.min(want, 6);
+      if (waiting) want = 0;
       if (best >= p.length - 3) want = 0;
       // Wedged against something: back out for a moment, steering the other way.
       if (auto.unstick > 0) {

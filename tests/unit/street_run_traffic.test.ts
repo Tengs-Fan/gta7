@@ -23,9 +23,10 @@ const MAX_IMPACTS = 0.6;
  * 16 seeds' mean was 3.4 s, past 3, before the county and is 3.6 s now; the six here go from 2.7 s to 3.3 s.
  */
 // Dockside: 3.5 until round 8, whose fuller streets thin out as a run starts (TrafficSystem.sparse) from the far end,
-// leaving the cars round the start: the bot waits 6.3 s a lap behind them (3.3 s before) for the same laps (median
-// 48.7 s from 47.9 s, gold in four of six from five) and no impact at all (0.17 a lap before).
-const MAX_CRAWL: Readonly<Record<string, number>> = { magnolia: 3, coastline: 3, dockside: 7 };
+// leaving the cars round the start, and whose people get out of the racer's way (PedSystem.dodge): the bot waits 3.8 s
+// a lap (3.3 s before round 8) for the same laps (median 47.3 s from 47.9 s, gold in five of six as before) and no
+// impact at all (0.17 a lap before).
+const MAX_CRAWL: Readonly<Record<string, number>> = { magnolia: 3, coastline: 3, dockside: 4.5 };
 
 interface Lap {
   seed: number;
