@@ -83,7 +83,7 @@ It has weight: it falls up to 0.8 m behind a car that pulls away and closes up t
 The motion check (`scripts/playtests/motion.mjs`, see the README) measured the car at 141 px of a 1600 px frame at rest and 115 px above 72 km/h before, and 242 px and 222 px now.
 
 Round 8 on 2026-11-13 (`--scenario perf`, 1600x900, the machine otherwise idle): on the RTX 5090 at High every one of the 18 scenes at 60 fps, 205 to 1,009 draw calls, no console errors.
-On the Radeon iGPU at Medium the 18 scenes average 48.7 fps on this build against 49.1 on `a746489` (single runs, which differ by 2 to 3 fps a scene from one run to the next): the new-game street 34 from 36, downtown 40 from 40, the four-star pursuit 41 from 41.
+On the Radeon iGPU at Medium this build runs about 1 fps under `a746489`: the twelve scenes that are neither capped at 60 fps nor the one outlier (beach-dusk, 56 against 47) average 43.3 fps against 44.7, all 18 average 48.7 against 49.1, and the driving scenes were 1 to 3 fps lower in each of three runs (single runs, which differ by 2 to 3 fps a scene from one to the next): the new-game street 34 from 36, downtown 40 from 40, the four-star pursuit 41 from 41, the valley pass drive 39 from 41.
 That is with Medium taking 80% of the fuller streets' traffic and 70% of their crowd, and five samples in the speed blur; at 90% of both the same three scenes ran at 33, 38 and 38.
 
 ## Night lights

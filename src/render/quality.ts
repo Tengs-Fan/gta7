@@ -43,7 +43,8 @@ export interface TierSpec {
   /**
    * The share of the sim's traffic and of its crowd this tier runs (TrafficSystem.density, PedSystem.density). Medium
    * and Low took 90% and 75% of both until round 8 filled the lone player's streets; of those fuller streets they take
-   * less, more of the cars than of the people, which leaves them a little busier than they were and as fast.
+   * less, more of the cars than of the people, which leaves them a little busier than they were at about a frame a
+   * second less on an integrated GPU (docs/graphics.md).
    */
   trafficDensity: number;
   pedDensity: number;

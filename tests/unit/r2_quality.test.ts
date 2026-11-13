@@ -255,8 +255,8 @@ describe('Auto tier pick (pickTier)', () => {
 
 // Round 8 filled the streets (38 cars and 60 people round a lone player at noon, from 26 and 40), and Medium and Low take
 // a smaller share of that than the 90% and 75% they took of the old numbers: 80% and 70% on Medium (30 cars, 42 people,
-// from 23 and 36) and 65% and 55% on Low (25 and 33, from 20 and 30), which kept the Radeon iGPU's Medium within its
-// run-to-run spread of the build before (18 scenes: 48.7 fps on average from 49.1).
+// from 23 and 36) and 65% and 55% on Low (25 and 33, from 20 and 30), which keeps the Radeon iGPU's Medium about 1 fps
+// under the build before (docs/graphics.md); at 90% of both its city scenes ran 2 to 3 fps under it.
 describe('tier table', () => {
   it('High is the original look, Low drops MSAA, shadows, bloom and dynamic lights', () => {
     expect(QUALITY.high).toMatchObject({ dprCap: 1.5, renderScale: 1, msaa: true, aa: 'msaa', grade: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, trafficDensity: 1, pedDensity: 1 });
