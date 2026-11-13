@@ -97,7 +97,7 @@ async function inField(page: Page, at: [number, number], heading: number): Promi
   await page.waitForTimeout(1500);
 }
 
-/** The lit field above the car as the canvas shows it (a box of x 0.3 to 0.7 and y 0.38 to 0.52 from the top: beyond the roof, below the horizon), with the lamps set to `lights`: mean and brightest sRGB luma, and the share over 200. */
+/** The lit field above the car as the canvas shows it (a box of x 0.3 to 0.7 and y 0.46 to 0.6 from the top: beyond the roof, below the horizon, which round 8's lower camera on its longer lens brought down to 0.4, with the lamps along it), with the lamps set to `lights`: mean and brightest sRGB luma, and the share over 200. */
 const patch = (page: Page, lights: string) =>
   page.evaluate((lights) => {
     const g = (window as Api).__gta7;
@@ -108,7 +108,7 @@ const patch = (page: Page, lights: string) =>
     const w = gl.drawingBufferWidth;
     const h = gl.drawingBufferHeight;
     const x0 = Math.round(w * 0.3);
-    const y0 = Math.round(h * 0.48);
+    const y0 = Math.round(h * 0.4);
     const bw = Math.round(w * 0.4);
     const bh = Math.round(h * 0.14);
     const px = new Uint8Array(4 * bw * bh);
@@ -137,7 +137,7 @@ const cruise = (page: Page, speed: number, secs: number) =>
       const w = gl.drawingBufferWidth;
       const h = gl.drawingBufferHeight;
       const x0 = Math.round(w * 0.3);
-      const y0 = Math.round(h * 0.48);
+      const y0 = Math.round(h * 0.4);
       const bw = Math.round(w * 0.4);
       const bh = Math.round(h * 0.14);
       const px = new Uint8Array(4 * bw * bh);
