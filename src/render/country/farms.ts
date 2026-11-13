@@ -479,13 +479,13 @@ function hedgeTexture(): THREE.Texture {
 }
 
 /** A hedgerow's cross-section, from the foot on one side over the top to the other: (across, up) as fractions of its half-thickness and height. */
-const HEDGE_PROFILE: ReadonlyArray<readonly [number, number]> = [[-0.9, -0.05], [-1, 0.42], [-0.86, 0.8], [-0.42, 1], [0.42, 1], [0.86, 0.8], [1, 0.42], [0.9, -0.05]];
+const HEDGE_PROFILE: ReadonlyArray<readonly [number, number]> = [[-0.9, -0.05], [-1, 0.5], [-0.55, 0.97], [0.55, 0.97], [1, 0.5], [0.9, -0.05]];
 
 /**
- * A hedgerow along `h`: pillows 1.4 to 2.8 m long, each overlapping the last by a third, a little thicker or thinner,
+ * A hedgerow along `h`: pillows 1.6 to 3.2 m long, each overlapping the last by a third, a little thicker or thinner,
  * taller or lower than its neighbours and tapering to its ends, so the run reads as clipped shrubs rather than a wall
- * (26 triangles a metre, against the box and lumps' 9 it was). Its leaves' uvs are projected on the run's length and
- * the profile's height.
+ * (23,000 triangles for the county's and the valley's hedgerows, against the 5,000 of the boxes and lumps they were).
+ * Its leaves' uvs are projected on the run's length and the profile's height.
  */
 function hedgeRun(g: GeoBuilder, rng: Rng, h: Rect): void {
   const alongX = h.maxX - h.minX > h.maxZ - h.minZ;
@@ -497,7 +497,7 @@ function hedgeRun(g: GeoBuilder, rng: Rng, h: Rect): void {
   const n = HEDGE_PROFILE.length;
   const pillows: Array<{ a: number; l: number; t: number; top: number; lean: number }> = [];
   for (let a = -0.2; a < len - 0.3; ) {
-    const l = Math.min(len + 0.2 - a, rng.range(1.4, 2.8));
+    const l = Math.min(len + 0.2 - a, rng.range(1.6, 3.2));
     pillows.push({ a, l, t: half * rng.range(0.94, 1.1), top: HEDGE_H + rng.range(-0.18, 0.22), lean: rng.range(-0.12, 0.12) });
     a += l * rng.range(0.6, 0.72);
   }
