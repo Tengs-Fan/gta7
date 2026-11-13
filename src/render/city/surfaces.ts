@@ -5,14 +5,14 @@
 
 import * as THREE from 'three';
 import { registerDebug } from '../../debug';
-import { BEACH_W, CURB_H, LANE_W, SAND_DROP, WATER_Y } from '../../world/constants';
+import { BEACH_W, CURB_H, LANE_W, SAND_DROP, SIDEWALK_W, WATER_Y } from '../../world/constants';
 import type { StaticWorld } from '../../world/staticWorld';
 import { assets } from '../assets';
 import { cloudNoiseTexture, groundSurface, type GroundTex } from '../textures';
 import { countyShore, seaDrawnDepth, surfPhases, type CountyShore } from '../sea';
 import { SURF_SWASH_GLSL } from '../waves';
 
-export type GroundDetail = 'road' | 'lot' | 'kerb' | 'curb' | 'grass' | 'sand' | 'plain';
+export type GroundDetail = 'road' | 'lot' | 'kerb' | 'curb' | 'grass' | 'sand' | 'paving' | 'plain';
 export type AnisoTier = 'high' | 'medium' | 'low' | 'software';
 
 /** Anisotropic filtering per tier, capped by the GPU (min(cap, maxAnisotropy)). */
@@ -46,6 +46,9 @@ export const PBR_SURFACES: Readonly<Partial<Record<GroundDetail, PbrSpec>>> = {
   grass: { set: 'leafy_grass', tile: 3, tint: [0.52, 1.02, 0.56], normalScale: 1 },
   sand: { set: 'coast_sand_01', tile: 4, tint: [2.3, 2.38, 2.5], normalScale: 0.8 },
 };
+
+/** Width (m) of the kerbstone band along the kerb edge of every sidewalk. */
+export const KERBSTONE_W = 0.3;
 
 /** Lawns spill this far (m) onto the paving where they meet a sidewalk; the shader frays the strip. */
 export const LAWN_OVERHANG = 0.18;
@@ -135,29 +138,73 @@ ${lanes ? `  if ( vGround.w > 0.5 ) {
     float track = exp( - pow( ( abs( off ) - 0.85 ) / 0.3, 2.0 ) ) * smoothstep( 0.3, 0.7, br + 0.25 );
     float nearJ = 1.0 - smoothstep( 6.0, 30.0, min( vGround.y, vGround.z ) );
     float oil = exp( - pow( off / 0.38, 2.0 ) ) * ( 0.35 + 0.65 * nearJ ) * smoothstep( 0.35, 0.65, oilN );
-    tone *= ( 1.0 + 0.12 * track ) * ( 1.0 - 0.32 * oil );
-    gRough -= 0.1 * track + 0.14 * oil;
+    // Grit and dust swept to the edge, in the 0.6 m beside the gutter (vGround.w - |across| is the distance to the kerb).
+    float grit = ( 1.0 - smoothstep( 0.3, 0.9 + 0.5 * br, vGround.w - a ) ) * ( 0.6 + 0.4 * oilN );
+    tone *= ( 1.0 + 0.12 * track ) * ( 1.0 - 0.32 * oil ) * ( 1.0 + 0.16 * grit );
+    gRough -= 0.1 * track + 0.14 * oil - 0.06 * grit;
   }` : ''}
   diffuseColor.rgb *= tone;
 }`;
 
-/** Sidewalks: grime gathered along the kerb edge of the rectangle vGround (its sides are the kerbs), and faint stains. */
+/**
+ * Sidewalks, out from the kerb edge of the rectangle vGround (its sides are the kerbs): on a block's (or the city's) ring
+ * a band of pale kerbstones with a joint behind it, flags whose tone changes from one to the next (a few relaid, a few
+ * weathered), grime gathered along the kerb, and faint stains. A tactile pad where a crossing lands (ground.ts) carries its
+ * kerb rectangle reversed (minX > maxX) and is drawn as buff paving studded with domes.
+ */
 const FS_KERB = /* glsl */ `
 {
-  float d = abs( gRect( gp ) );
+  bool pad = vGround.x > vGround.z;
+  vec4 kr = pad ? vGround.zwxy : vGround;
+  vec2 lo2 = gp - kr.xy;
+  vec2 hi2 = kr.zw - gp;
+  float d = abs( min( min( lo2.x, hi2.x ), min( lo2.y, hi2.y ) ) );
+  float jaa = gpx * 0.75;
+  // Kerbstones line a block's ring; a quay's strips (narrower than two sidewalks) abut one another and keep plain flags.
+  float ring = step( ${n(2 * SIDEWALK_W)}, min( kr.z - kr.x, kr.w - kr.y ) );
+  // Flags on the texture's 1 m joints: each its own tone and warmth, about one in twenty relaid paler, one in fifteen weathered
+  // darker and warmer.
+  vec2 flag = floor( gp );
+  float relaid = step( 0.95, gHash( flag + 7.7 ) );
+  float stain = step( 0.93, gHash( flag + 1.3 ) );
+  vec3 flagTone = mix( 0.86, 1.1, gHash( flag ) ) * mix( vec3( 1.02, 1.0, 0.96 ), vec3( 0.97, 0.99, 1.03 ), gHash( flag + 3.1 ) );
+  flagTone *= ( 1.0 + 0.14 * relaid ) * mix( vec3( 1.0 ), vec3( 0.84, 0.8, 0.74 ), stain );
+  flagTone = mix( flagTone, vec3( 1.0 ), smoothstep( 0.25, 0.6, gpx ) );
+  // Kerbstones: paler, cooler granite with a fine speckle, smoother than the flags, a mortar joint behind them.
+  float stone = ring * ( 1.0 - smoothstep( ${n(KERBSTONE_W)} - jaa, ${n(KERBSTONE_W)} + jaa, d ) );
+  float speck = mix( mix( 0.88, 1.1, gN( gp * 3.7 + 0.21 ) ), 1.0, smoothstep( 0.04, 0.12, gpx ) );
+  float joint = ring * clamp( 0.03 / gpx, 0.0, 1.0 ) * ( 1.0 - smoothstep( 0.015, 0.015 + jaa, abs( d - ${n(KERBSTONE_W)} ) ) );
+  diffuseColor.rgb *= mix( flagTone, vec3( 1.2, 1.2, 1.22 ) * speck, stone ) * ( 1.0 - 0.55 * joint );
+  gRough -= 0.1 * stone;
+  if ( pad ) {
+    // Domes 6.5 cm apart, shaded on their far side, fading to the pad's flat tone once they are smaller than a pixel.
+    vec2 dc = fract( gp / 0.065 ) - 0.5;
+    float dome = ( 1.0 - smoothstep( 0.2, 0.32, length( dc ) ) ) * ( 1.0 - smoothstep( 0.006, 0.014, gpx ) );
+    diffuseColor.rgb = vec3( 0.86, 0.66, 0.34 ) * ( 1.0 - 0.22 * dome * ( 0.5 + dc.y ) ) * mix( 0.9, 1.05, gN( gp * 0.37 + 0.4 ) );
+    gRough += 0.05;
+  }
   float nk = gN( gp * 0.31 + 0.11 ) * 0.6 + gN( gp * 1.13 + 0.57 ) * 0.4;
-  float grime = clamp( ( 1.0 - smoothstep( 0.1, 0.42 + 0.3 * nk, d ) ) * ( 0.75 + 0.5 * nk ), 0.0, 1.0 );
+  // The rain washes the kerbstones' tops; the grime gathers in their joint and on the flags behind.
+  float grime = clamp( ( 1.0 - smoothstep( 0.1, 0.42 + 0.3 * nk, d ) ) * ( 0.75 + 0.5 * nk ), 0.0, 1.0 ) * ( 1.0 - 0.45 * relaid ) * ( 1.0 - 0.65 * stone );
   float macro = gN( gp * 0.043 + 0.77 );
-  diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.5, 0.46, 0.4 ), grime ) * mix( 0.94, 1.05, macro );
+  diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.5, 0.46, 0.4 ), grime * 0.8 ) * mix( 0.94, 1.05, macro );
 }`;
 
-/** Kerb faces and gutters: road dirt, heaviest at the foot of the kerb. */
+/**
+ * Kerb faces and gutters: road dirt, heaviest at the foot of the kerb. A kerb face is the front of the kerbstones, so it
+ * takes their joints every metre (on the flags' lattice, where the joints on top fall).
+ */
 const FS_CURB = /* glsl */ `
 {
   float nc = gN( gp * 0.47 + vGroundPos.y * 1.7 ) * 0.6 + gN( gp * 1.9 + 0.2 ) * 0.4;
   float low = 1.0 - smoothstep( 0.0, 0.15, vGroundPos.y );
   float grime = clamp( 0.3 + 0.45 * low + 0.6 * ( nc - 0.5 ), 0.0, 1.0 );
   diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.55, 0.52, 0.47 ), grime );
+  vec3 cn = normalize( cross( dFdx( vGroundPos ), dFdy( vGroundPos ) ) );
+  float face = 1.0 - smoothstep( 0.3, 0.6, abs( cn.y ) );
+  float along = abs( cn.x ) > abs( cn.z ) ? gp.y : gp.x;
+  float cjoint = face * clamp( 0.02 / gpx, 0.0, 1.0 ) * ( 1.0 - smoothstep( 0.008, 0.008 + gpx * 0.75, abs( fract( along + 0.5 ) - 0.5 ) ) );
+  diffuseColor.rgb *= ( 1.0 - 0.5 * cjoint ) * mix( 1.0, 1.12, face * smoothstep( 0.06, 0.14, vGroundPos.y ) );
 }`;
 
 /** Lawns: dry and lush patches, and where a lawn meets a sidewalk (the rectangle vGround) a soil band and a frayed overhang. */
@@ -210,6 +257,19 @@ const FS_SAND = /* glsl */ `
   diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.78, 0.8, 0.8 ), gFoam );
 }`;
 
+/**
+ * Plazas, forecourts and park paths: the texture's 0.75 m pavers each take their own tone, about one in twenty-five
+ * weathered darker and warmer, under the plain surface's broad variation; the per-paver tone fades out before it would shimmer.
+ */
+const FS_PAVING = /* glsl */ `
+{
+  vec2 pv = floor( gp / 0.75 );
+  float fade = 1.0 - smoothstep( 0.2, 0.45, gpx );
+  float stain = step( 0.96, gHash( pv + 4.2 ) );
+  vec3 tone = mix( 0.88, 1.08, gHash( pv ) ) * mix( vec3( 1.03, 1.0, 0.95 ), vec3( 0.96, 0.99, 1.04 ), gHash( pv + 2.7 ) ) * mix( vec3( 1.0 ), vec3( 0.84, 0.8, 0.74 ), stain );
+  diffuseColor.rgb *= mix( vec3( 1.0 ), tone, fade ) * mix( 0.9, 1.06, gN( gp * 0.05 + 0.3 ) ) * mix( 0.95, 1.03, gN( gp * 0.21 + 0.8 ) );
+}`;
+
 const FS_PLAIN = /* glsl */ `
 {
   diffuseColor.rgb *= mix( 0.92, 1.06, gN( gp * 0.05 + 0.3 ) ) * mix( 0.96, 1.03, gN( gp * 0.21 + 0.8 ) );
@@ -241,6 +301,7 @@ const ALBEDO: Record<GroundDetail, string> = {
   curb: FS_CURB,
   grass: FS_GRASS,
   sand: FS_SAND,
+  paving: FS_PAVING,
   plain: FS_PLAIN,
 };
 
@@ -252,6 +313,7 @@ const FALLBACK: Record<GroundDetail, { tex: GroundTex; tile: number }> = {
   curb: { tex: 'concrete', tile: 2 },
   grass: { tex: 'grass', tile: 8 },
   sand: { tex: 'sand', tile: 8 },
+  paving: { tex: 'plaza', tile: 6 },
   plain: { tex: 'plaza', tile: 6 },
 };
 
