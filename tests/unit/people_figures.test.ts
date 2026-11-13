@@ -231,7 +231,7 @@ describe('the figure in the crowd', () => {
       expect(parts(cv).hips!.shape![0]).toBe(shape);
       if (shape === 1) {
         women++;
-        // Cut to the man's torso, a jacket's panels and a badge are not put on hers.
+        // Cut to the man's torso, a jacket's panels are not put on hers.
         expect(d.jacketTrim).toBe(0);
         // Her shoulders are drawn narrower.
         const sh = [0, 1].map((i) => origin(matrixAt(parts(cv).upperArm!, i)));
@@ -265,7 +265,11 @@ describe('the figure in the crowd', () => {
     const cv = new CrowdView();
     cv.sync([sim.player], sim.player.pos.x, sim.player.pos.z, 1 / 60, sim.player.id);
     expect(parts(cv).torso!.shape![0]).toBe(0);
-    for (const c of row(120, 'cop').people) expect(drawn(c).shortLeg).toBe(0);
+    for (const c of row(120, 'cop').people) {
+      const d = drawn(c);
+      // Man or woman, an officer wears the badge.
+      expect([d.shortLeg, d.badge]).toEqual([0, 1]);
+    }
     for (const c of row(60, 'swat').people) {
       const d = drawn(c);
       expect([d.sleeve, d.shortLeg]).toEqual([0, 0]);
