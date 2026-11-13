@@ -4,23 +4,26 @@
 // bot reached the buyer's street with a median of 26.2 s left where it had 38.0 s. Now a clock sends the streets back to
 // what it was set on at once (TrafficSystem.onTheClock: the old numbers of cars and people, those over them out of
 // view let go, nobody jumping clear), and the median is 37.7 s.
-// (Vera's Rush Hour was measured the same way and is no yardstick: the bot gets home in 3 of 24 seeds before round 8,
-// 3 of 24 as it landed and 4 of 24 now, missing the stops' five metres whatever the streets hold.)
+// Vera's Rush Hour, three envelopes and the way back on a 185 s clock, is driven the same way. Its stops are five
+// metres wide and the bot's lane is not always the stop's (left to itself it gets home in 3 or 4 of 24 seeds on any
+// build), so it is set down on each stop it comes within ten metres of. Home with 15 s or more to spare: 12 of 24
+// seeds before round 8, 7 of 24 as round 8 first landed, 13 of 24 now (home at all: 16, 16 and 22).
 
 import { describe, expect, it } from 'vitest';
 import type { Vehicle } from '../../src/sim/entities';
-import { missionSpots } from '../../src/sim/missions/spots';
+import { chapter2Spots, missionSpots } from '../../src/sim/missions/spots';
 import type { Sim } from '../../src/sim/sim';
 import type { Lane, Turn } from '../../src/world/roads';
 import { input, makeSim, step, teleport } from './helpers';
 import { fleeBot } from './r2_police_helpers';
+import { CHAPTER1 } from './story2_helpers';
 
 const SEEDS = Array.from({ length: 24 }, (_, k) => k + 1);
 const DT = 1 / 60;
 /** The bot's top speed (m/s): a player in no great hurry, not the racer the street runs are tuned on. */
 const CRUISE = 22;
 
-/** Of the seconds left on the clock per seed (-1: never made it): how many made it, and the median and least of those. */
+/** Of the seconds left on the clock per seed (-1: never made it): how many made it, the median and least of those, and how many of them had under 15 s left. */
 function stats(spare: readonly number[]): { made: number; median: number; least: number; tight: number } {
   const made = spare.filter((x) => x >= 0).sort((a, b) => a - b);
   const mid = made.length >> 1;
@@ -120,4 +123,55 @@ describe('a mission against the clock leaves room on the fuller streets', () => 
     expect(s.median).toBeGreaterThanOrEqual(32);
     expect(s.tight).toBeLessThanOrEqual(3);
   }, 240_000);
+
+  it('Rush Hour: three envelopes and the way back, the bot set down on each stop it comes within 10 m of', () => {
+    const rows: string[] = [];
+    const spare: number[] = [];
+    for (const seed of SEEDS) {
+      const sim = setup(seed, [...CHAPTER1, 'shadow_play', 'room_service', 'showroom', 'off_the_road']);
+      const spots = chapter2Spots(sim.world);
+      startMission(sim, 'rush_hour');
+      stepUntil(sim, () => sim.missions.active!.objectiveText === 'Get in the Thunderhoof', 30);
+      const car = sim.missions.active!.vehicles[0]!;
+      getIn(sim, car);
+      stepUntil(sim, () => sim.missions.active!.objectiveText.startsWith('Collect the envelope (stop 1'), 3);
+      const allowed = sim.missions.active!.timer!.endsAt - sim.time;
+      const stops = [...spots.pickupStops, spots.curb];
+      const legs: string[] = [];
+      let left = -1;
+      let lost = '';
+      for (let i = 0; i < stops.length && !lost; i++) {
+        const stop = stops[i]!;
+        const from = sim.time;
+        const drive = driver(sim, car, () => stop, 7);
+        const near = () => Math.hypot(car.pos.x - stop.x, car.pos.z - stop.z) < 10;
+        const running = () => sim.missions.active?.def.id === 'rush_hour' && !!sim.missions.active.timer;
+        while (!near() && running()) step(sim, DT, drive(DT));
+        if (!running()) {
+          lost = `out of time on the way to stop ${i + 1}, ${Math.hypot(car.pos.x - stop.x, car.pos.z - stop.z).toFixed(0)} m off, car ${car.health.toFixed(0)}`;
+          break;
+        }
+        legs.push((sim.time - from).toFixed(0));
+        if (i === stops.length - 1) left = sim.missions.active!.timer!.endsAt - sim.time;
+        // The stop is five metres wide and wants the car under 32 km/h: the bot's lane is not always the stop's, so
+        // it is set down on it (ten metres at most, the same on every build) and the envelope changes hands.
+        car.pos.x = stop.x;
+        car.pos.z = stop.z;
+        car.pos.y = sim.world.groundHeight(stop.x, stop.z);
+        car.heading = stop.heading;
+        car.vel.x = 0;
+        car.vel.z = 0;
+        car.angVel = 0;
+        step(sim, 0.2);
+      }
+      rows.push(`seed ${seed}: clock ${allowed.toFixed(0)} s, legs ${legs.join(' + ')} s, ${lost || `home with ${left.toFixed(1)} s left`}`);
+      spare.push(left);
+    }
+    console.log(`[timed] Rush Hour, bot at ${CRUISE} m/s at most:\n${rows.join('\n')}\n[timed] Rush Hour summary: ${summary(spare)}`);
+    // The bot loses a minute or more behind something in a third of the seeds on the streets the clock was set on
+    // (before round 8: 16 of 24 home, 12 of them with 15 s or more left); the fuller streets left 7 with that much.
+    const s = stats(spare);
+    expect(s.made).toBeGreaterThanOrEqual(14);
+    expect(s.made - s.tight).toBeGreaterThanOrEqual(10);
+  }, 900_000);
 });

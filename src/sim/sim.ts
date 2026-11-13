@@ -84,6 +84,11 @@ export interface StreetCrime {
 }
 
 const PHYSICS_STEP = 1 / 120;
+/**
+ * The change of speed (m/s) in one blow from which a crash can finish a bike off (see onVehicleImpact). A bike at rest
+ * squeezed against a stopped car by one arriving at V takes blows of up to 1.35 V: 21 m/s at 58 km/h, 54 m/s at 144.
+ */
+const BIKE_WRECK_DV = 24;
 /** A player who comes down into deep water from higher than `fall` m over it dived: `pay` dollars, once a game day. */
 const CLIFF_DIVE = { fall: 8, pay: 100 } as const;
 
@@ -588,7 +593,12 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     const rammer = other ? this.slotOf(other.driver) : undefined;
     const playerRammed = !!rammer && otherRammed;
     if (deltaV > 2.5) {
-      const dmg = (deltaV - 2.5) * v.spec.health * 0.022 * v.spec.durability;
+      let dmg = (deltaV - 2.5) * v.spec.health * 0.022 * v.spec.durability;
+      // A bike is thrown about where a car crumples: between the car that hit it and the one stopped ahead of it a
+      // scooter takes thirty blows, each a full crash to something its weight, and a 29 km/h bump at the tail of a
+      // queue left it burning under the bonnet of whoever bumped it. Short of BIKE_WRECK_DV in one blow a crash leaves
+      // it a wreck that still stands, not a fire.
+      if (v.spec.class === 'bike' && deltaV < BIKE_WRECK_DV) dmg = Math.min(dmg, v.health - 1);
       const before = v.health;
       // Ramming someone else's car makes the player responsible for its destruction.
       this.combat.damageVehicle(v, dmg, playerRammed ? rammer!.character : null, 'impact');

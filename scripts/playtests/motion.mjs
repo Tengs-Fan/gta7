@@ -28,6 +28,9 @@ export function install(g) {
     sign: 0,
     /** Brake for people on foot in the way (off: the motion check's careless driver, who only minds cars). */
     people: false,
+    /** What it is doing this tick, for a replay's log: aiming round a car in its way, stopping for someone on foot. */
+    rounding: false,
+    waiting: false,
     path: [],
     at: 0,
     samples: [],
@@ -109,6 +112,7 @@ export function install(g) {
       let tz = p[ahead].z;
       const reach = 10 + speed * 0.9;
       let blocked = false;
+      auto.rounding = false;
       for (const o of sim.vehicles) {
         if (o === v) continue;
         const dx = o.pos.x - v.pos.x;
@@ -122,6 +126,7 @@ export function install(g) {
             tx = o.pos.x + fz * s * 3.4 + fx * 4;
             tz = o.pos.z - fx * s * 3.4 + fz * 4;
             blocked = along < 6 + speed * 0.25;
+            auto.rounding = true;
           }
         }
       }
@@ -146,6 +151,7 @@ export function install(g) {
         d += Math.hypot(p[i + 1].x - p[i].x, p[i + 1].z - p[i].z);
       }
       if (blocked) want = Math.min(want, 6);
+      auto.waiting = waiting;
       if (waiting) want = 0;
       if (best >= p.length - 3) want = 0;
       // Wedged against something: back out for a moment, steering the other way.

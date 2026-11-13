@@ -85,11 +85,46 @@ export default async function (t) {
     const t0 = performance.now();
     const log = (window.__incidents = []);
     const at = () => +((performance.now() - t0) / 1000).toFixed(1);
+    // The three seconds before a hit, ten times a second: the car's speed and turn rate, what the driver was doing
+    // (r: going round a car, w: stopping for someone) and, of everyone within 30 m, how far ahead of the car and to
+    // its right he was, what he was about (his brain's mode), his dodge state and his pace.
+    const past = [];
+    setInterval(() => {
+      const v = sim.player.vehicle;
+      if (!v) return;
+      const fx = Math.sin(v.heading);
+      const fz = Math.cos(v.heading);
+      const a = window.__auto;
+      const row = { t: at(), car: [+Math.hypot(v.vel.x, v.vel.z).toFixed(1), +v.angVel.toFixed(2), (a.rounding ? 'r' : '') + (a.waiting ? 'w' : '')], who: {} };
+      for (const c of sim.characters) {
+        if (c.removed || c.isPlayer || !c.alive || c.vehicle) continue;
+        const dx = c.pos.x - v.pos.x;
+        const dz = c.pos.z - v.pos.z;
+        if (dx * dx + dz * dz > 900) continue;
+        row.who[c.id] = [+(dx * fx + dz * fz).toFixed(1), +(dx * fz - dz * fx).toFixed(1), c.brain?.mode ?? c.owner, +(c.brain?.dodge ?? 0).toFixed(2), +c.speed.toFixed(1)];
+      }
+      past.push(row);
+      if (past.length > 30) past.shift();
+    }, 100);
     const hit = sim.onCharacterHitByVehicle.bind(sim);
     sim.onCharacterHitByVehicle = (c, v, rel, nx, nz) => {
-      if (v === sim.player.vehicle) log.push({ t: at(), what: 'hit a person', rel: +rel.toFixed(1), speed: +Math.hypot(v.vel.x, v.vel.z).toFixed(1), forward: +v.forwardSpeed.toFixed(1), unstick: window.__auto.unstick > 0 });
+      if (v === sim.player.vehicle)
+        log.push({
+          t: at(),
+          what: 'hit a person',
+          rel: +rel.toFixed(1),
+          speed: +Math.hypot(v.vel.x, v.vel.z).toFixed(1),
+          forward: +v.forwardSpeed.toFixed(1),
+          unstick: window.__auto.unstick > 0,
+          lane: +sim.roads.nearestLane(c.pos.x, c.pos.z).dist.toFixed(1),
+          before: past.filter((r) => r.who[c.id]).map((r) => [r.t, ...r.car, ...r.who[c.id]]),
+        });
       return hit(c, v, rel, nx, nz);
     };
+    // The streets he drives through: how many people jumped clear of him, and whether the game counted him on a clock
+    // (a job or a mission's timer, when the fuller streets and the dodge are off; the first job has neither).
+    window.__streets = { dodged: 0, samples: 0, onTheClock: 0 };
+    sim.events.on('pedDodge', () => window.__streets.dodged++);
     const commit = sim.wanted.commit.bind(sim.wanted);
     sim.wanted.commit = (type, x, z) => {
       log.push({ t: at(), what: 'charged', type, level: sim.wanted.level });
@@ -131,6 +166,8 @@ export default async function (t) {
       const a = window.__auto;
       const st = g.state();
       const d = v ? Math.hypot(v.pos.x - m.x, v.pos.z - m.z) : -1;
+      window.__streets.samples++;
+      if (g.sim.traffic.onTheClock) window.__streets.onTheClock++;
       return { d, done: st.missionsDone.includes('wheels'), mission: st.mission, at: a.at, len: a.path.length, wanted: st.wanted, objective: st.objective, health: v ? Math.round(v.health) : -1 };
     }, marker);
     passed = s.done;
@@ -174,6 +211,7 @@ export default async function (t) {
     window.__auto.release();
   });
   t.note('incidents ' + JSON.stringify(await t.page.evaluate(() => window.__incidents)));
+  t.note('streets ' + JSON.stringify(await t.page.evaluate(() => window.__streets)));
   t.note(passed ? `"Wheels" passed at ${since()} s, the car at ${last?.health} health` : `"Wheels" NOT passed after ${since()} s (${JSON.stringify(last)})`);
   await t.wait(1500);
   await t.shot('passed');
