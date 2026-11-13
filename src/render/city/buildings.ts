@@ -9,14 +9,14 @@ import {
   type Block, type Building, type FacadeStyle, type Side, type Tier,
 } from '../../world/layout';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from '../geo';
-import { facadeRelief } from '../cityArchitecture';
+import { facadeRelief, trimColors } from '../cityArchitecture';
 import { drawLandmark, landmarkTowers } from './landmarks';
 import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
 import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
 import { DECOR_PROGRAM, NIGHT_HASH, createFacadeMaterial, facadeTexturesOf, withBuildingFog } from './facadeShader';
 import {
-  CELLS, CELL_DESIGN, DOOR_U, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
-  signTexture, storefrontAtlas, storefrontUv, swatchUv,
+  CELLS, CELL_DESIGN, DOOR_OPENING, DOOR_U, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
+  signTexture, storefrontAtlas, storefrontUv, swatchUv, type DoorOpening,
 } from '../textures';
 import type { CityView } from './index';
 
@@ -280,7 +280,7 @@ export function buildBuildings(view: CityView): void {
     const baseY = CURB_H + (street.size > 0 ? b.groundH : 0);
     for (const t of b.tiers) {
       const uv = { kind: 'facade' as const, w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY };
-      if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, b, block, t, street, uv, color);
+      if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, relief, b, block, t, street, uv, color);
       else gb.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color, top: false });
       facadeRelief(relief, b, t, baseY, color);
       if (b.roof === 'gable' && t === b.tiers[b.tiers.length - 1]) gable(roofs, t, b, color);
@@ -341,7 +341,7 @@ export function buildBuildings(view: CityView): void {
  * ground floor and the band below becomes shop, lobby, house or loading-bay frontage; the other
  * walls stay full height.
  */
-function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: GeoBuilder, b: Building, block: Block, t: Tier, street: Set<Side>, uv: UvMode, color: RGB): void {
+function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: GeoBuilder, relief: GeoBuilder, b: Building, block: Block, t: Tier, street: Set<Side>, uv: UvMode, color: RGB): void {
   const w = t.maxX - t.minX;
   const d = t.maxZ - t.minZ;
   const lot = block.lot;
@@ -356,6 +356,8 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
   const def = specialDef(b, block);
   const poi = def ? view.world.layout.pois.find((p) => p.id === def.id) : undefined;
   const top = t.y0 + b.groundH;
+  const piers = b.ground !== 'house';
+  const { trim } = trimColors(b, color);
   for (const wl of walls) {
     if (!street.has(wl.side)) {
       gb.wall(wl.x0, wl.z0, wl.x1, wl.z1, t.y0, t.y1, uv, color, wl.u);
@@ -363,8 +365,42 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
     }
     gb.wall(wl.x0, wl.z0, wl.x1, wl.z1, top, t.y1, uv, color, wl.u);
     const main = wl.side === entrance;
-    frontage(view, front, decor, b, wl, t.y0, top, color, main, main && poi ? poi : null);
+    const edges = frontage(view, front, decor, b, wl, t.y0, top, color, main, main && poi ? poi : null);
+    if (piers) for (const e of edges.slice(1, -1)) pilaster(relief, wl, e, t.y0, top, trim);
   }
+  // A pier on every corner of the band that turns onto a street wall, clasping the corner as the piers above do.
+  if (piers) {
+    for (const [x, z, sx, sz, a, c] of [
+      [t.minX, t.maxZ, -1, 1, 'W', 'S'],
+      [t.maxX, t.maxZ, 1, 1, 'S', 'E'],
+      [t.maxX, t.minZ, 1, -1, 'E', 'N'],
+      [t.minX, t.minZ, -1, -1, 'N', 'W'],
+    ] as const) {
+      if (!street.has(a) && !street.has(c)) continue;
+      const xs = [x + sx * PIER_OUT, x - sx * (PIER_W - PIER_OUT)];
+      const zs = [z + sz * PIER_OUT, z - sz * (PIER_W - PIER_OUT)];
+      relief.box(Math.min(...xs), t.y0 - 0.02, Math.min(...zs), Math.max(...xs), top - 0.07, Math.max(...zs), { uv: TRIM_UV, color: trim, top: false });
+    }
+  }
+}
+
+/** Width (m) of the piers between the bays of a ground floor, and how far they stand out from the wall. */
+export const PIER_W = 0.32;
+export const PIER_OUT = 0.1;
+const TRIM_UV = { kind: 'world', scale: 3 } as const;
+
+/** A pier `along` metres down a street wall's band, from the pavement to under the band's cornice. */
+function pilaster(g: GeoBuilder, wl: TierWall, along: number, y0: number, y1: number, color: RGB): void {
+  const len = Math.hypot(wl.x1 - wl.x0, wl.z1 - wl.z0);
+  const ux = (wl.x1 - wl.x0) / len;
+  const uz = (wl.z1 - wl.z0) / len;
+  const nx = -uz;
+  const nz = ux;
+  const cx = wl.x0 + ux * along;
+  const cz = wl.z0 + uz * along;
+  const xs = [cx - ux * (PIER_W / 2) - nx * 0.05, cx + ux * (PIER_W / 2) + nx * PIER_OUT];
+  const zs = [cz - uz * (PIER_W / 2) - nz * 0.05, cz + uz * (PIER_W / 2) + nz * PIER_OUT];
+  g.box(Math.min(...xs), y0 - 0.02, Math.min(...zs), Math.max(...xs), y1 - 0.07, Math.max(...zs), { uv: TRIM_UV, color, top: false });
 }
 
 /** The side that gets the main door: a special's entrance side, else the street side nearest its lot edge (then the longest). */
@@ -381,10 +417,10 @@ function entranceSide(b: Building, block: Block, walls: TierWall[]): Side {
 
 /**
  * Frontage quads (about 6.5 m each, see frontageSplit) for the band of one street-facing wall, plus
- * their awnings, canopies and porches. The entrance wall's door stands in front of `marker` (a
- * special's POI) or in the middle of the wall.
+ * their awnings, canopies and porches; returns the quads' edges along the wall. The entrance wall's
+ * door stands in front of `marker` (a special's POI) or in the middle of the wall.
  */
-function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Building, wl: TierWall, y0: number, y1: number, wallColor: RGB, entrance: boolean, marker: { x: number; z: number } | null): void {
+function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Building, wl: TierWall, y0: number, y1: number, wallColor: RGB, entrance: boolean, marker: { x: number; z: number } | null): number[] {
   const len = Math.hypot(wl.x1 - wl.x0, wl.z1 - wl.z0);
   const ux = (wl.x1 - wl.x0) / len;
   const uz = (wl.z1 - wl.z0) / len;
@@ -420,7 +456,8 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
           const fascia = y0 + (y1 - y0) * (1 - SHOP_FASCIA_FRAC);
           const display = storefrontUv(PAWN, SHOP_FASCIA_FRAC, 1);
           front.seed = seed(FRONT_LAMP);
-          quadUv(front, ax, az, bx, bz, y0, fascia, door && split.mirror ? mirrored(display) : display, WHITE);
+          const flip = door && split.mirror;
+          frontQuad(front, ax, az, bx, bz, y0, fascia, flip ? mirrored(display) : display, flip, WHITE, DOOR_OPENING[PAWN], { w: CELL_DESIGN.shop.w, h: CELL_DESIGN.shop.h * (1 - SHOP_FASCIA_FRAC) });
           quadUv(front, ax, az, bx, bz, fascia, y1, swatchUv(SWATCHES.gunFascia), WHITE);
           continue;
         }
@@ -459,8 +496,70 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
     // quad is mirrored when that brings its door to its spot.
     const flip = door ? split.mirror : ((LOBBY_GLASS as readonly number[]).includes(cell) || cell === CELLS.houseWindows) && i % 2 === 1;
     const uv = storefrontUv(cell);
-    quadUv(front, ax, az, bx, bz, y0, y1, flip ? mirrored(uv) : uv, tint);
+    frontQuad(front, ax, az, bx, bz, y0, y1, flip ? mirrored(uv) : uv, flip, tint, DOOR_OPENING[cell], cellDesign(cell));
   }
+  return split.edges;
+}
+
+/** The frontage (width, height in metres) an atlas cell is drawn for. */
+function cellDesign(cell: number): { w: number; h: number } {
+  if (cell < CELLS.lobbyRevolving) return CELL_DESIGN.shop;
+  if (cell === CELLS.rollup) return CELL_DESIGN.rollup;
+  if (cell === CELLS.houseDoorA || cell === CELLS.houseDoorB || cell === CELLS.houseWindows) return CELL_DESIGN.house;
+  return CELL_DESIGN.lobby;
+}
+
+/**
+ * A frontage quad (as quadUv), its doorway set back by the opening's depth behind the wall, with reveals either side,
+ * a soffit over it and a threshold under it, each taking the cell's colour just outside the doorway. `design` is the
+ * part of the cell the quad shows, in metres as drawn; `mirror` says the quad's uv run the other way.
+ */
+function frontQuad(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, uv: readonly [number, number, number, number], mirror: boolean, color: RGB, opening: DoorOpening | undefined, design: { w: number; h: number }): void {
+  if (!opening) {
+    quadUv(g, ax, az, bx, bz, y0, y1, uv, color);
+    return;
+  }
+  const seg = Math.hypot(bx - ax, bz - az);
+  const ux = (bx - ax) / seg;
+  const uz = (bz - az) / seg;
+  // Outward normal of the wall; the doorway is set back along -n.
+  const nx = -uz;
+  const nz = ux;
+  const band = y1 - y0;
+  const [u0, v0, u1, v1] = uv;
+  const U = (s: number) => u0 + ((u1 - u0) * clamp(s, 0, seg)) / seg;
+  const V = (h: number) => v0 + ((v1 - v0) * clamp(h, 0, band)) / band;
+  const sx = seg / design.w;
+  const sy = band / design.h;
+  const s0 = mirror ? seg - opening.x1 * sx : opening.x0 * sx;
+  const s1 = mirror ? seg - opening.x0 * sx : opening.x1 * sx;
+  const h0 = opening.y0 * sy;
+  const h1 = opening.y1 * sy;
+  const d = opening.depth;
+  const P = (s: number, h: number, o: number): [number, number, number] => [ax + ux * s - nx * o, y0 + h, az + uz * s - nz * o];
+  const quad = (a: [number, number, number], b: [number, number, number], c: [number, number, number], e: [number, number, number], uvs: number[]) => g.quad(...a, ...b, ...c, ...e, uvs, color);
+  const piece = (sa: number, sb: number, ha: number, hb: number, o: number) => {
+    if (sb - sa < 1e-4 || hb - ha < 1e-4) return;
+    quad(P(sa, ha, o), P(sb, ha, o), P(sb, hb, o), P(sa, hb, o), [U(sa), V(ha), U(sb), V(ha), U(sb), V(hb), U(sa), V(hb)]);
+  };
+  // The wall round the doorway, then the door set back.
+  piece(0, s0, 0, band, 0);
+  piece(s1, seg, 0, band, 0);
+  piece(s0, s1, h1, band, 0);
+  piece(s0, s1, 0, h0, 0);
+  piece(s0, s1, h0, h1, d);
+  const out = 0.03;
+  // Reveals, facing into the doorway.
+  const ul = U(s0 - out);
+  const ur = U(s1 + out);
+  quad(P(s0, h0, 0), P(s0, h0, d), P(s0, h1, d), P(s0, h1, 0), [ul, V(h0), ul, V(h0), ul, V(h1), ul, V(h1)]);
+  quad(P(s1, h0, d), P(s1, h0, 0), P(s1, h1, 0), P(s1, h1, d), [ur, V(h0), ur, V(h0), ur, V(h1), ur, V(h1)]);
+  // Soffit (facing down) and threshold (facing up, just clear of the ground under the building).
+  const vs = V(h1 + out);
+  quad(P(s0, h1, d), P(s1, h1, d), P(s1, h1, 0), P(s0, h1, 0), [U(s0), vs, U(s1), vs, U(s1), vs, U(s0), vs]);
+  const vt = V(h0 > 0 ? h0 - out : 0.01);
+  const lift = h0 > 0 ? 0 : 0.006;
+  quad(P(s0, h0 + lift, 0), P(s1, h0 + lift, 0), P(s1, h0 + lift, d), P(s0, h0 + lift, d), [U(s0), vt, U(s1), vt, U(s1), vt, U(s0), vt]);
 }
 
 /** Awning depth (m) out from the wall over a frontage whose wall stands `gap` m from its lot edge. */

@@ -25,6 +25,17 @@ export function corniceProjection(b: Building): number {
   }
 }
 
+/**
+ * The trim of a building whose walls take `color`: its bands and piers, and the lighter cap of its cornices. The darker
+ * aluminium on curtain walls reads as structure; pale stone catches the sun on masonry.
+ */
+export function trimColors(b: Building, color: RGB): { trim: RGB; cap: RGB } {
+  const glass = b.style === 'glassBlue' || b.style === 'glassTeal';
+  const finish: RGB = b.style === 'brick' ? [0.55, 0.47, 0.37] : b.style === 'office' ? [0.48, 0.43, 0.35] : b.style === 'warehouse' ? [0.28, 0.31, 0.34] : [0.68, 0.64, 0.56];
+  const trim: RGB = glass ? [0.15, 0.19, 0.23] : [color[0] * finish[0], color[1] * finish[1], color[2] * finish[2]];
+  return { trim, cap: glass ? [0.3, 0.36, 0.39] : scaleRgb(trim, 1.12) };
+}
+
 /** Sills, cornices and structural piers give the window atlases a real silhouette. */
 export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number, color: RGB): void {
   const width = t.maxX - t.minX;
@@ -32,11 +43,8 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   if (Math.min(width, depth) < 3) return;
   const glass = b.style === 'glassBlue' || b.style === 'glassTeal';
   const first = Math.max(t.y0, baseY);
-  // The darker aluminum on curtain walls reads as structure; pale stone catches
-  // the sun on masonry. Keep all street-level doorways completely clear.
-  const finish: RGB = b.style === 'brick' ? [0.55, 0.47, 0.37] : b.style === 'office' ? [0.48, 0.43, 0.35] : b.style === 'warehouse' ? [0.28, 0.31, 0.34] : [0.68, 0.64, 0.56];
-  const trim: RGB = glass ? [0.15, 0.19, 0.23] : [color[0] * finish[0], color[1] * finish[1], color[2] * finish[2]];
-  const cap: RGB = glass ? [0.3, 0.36, 0.39] : scaleRgb(trim, 1.12);
+  // Keep all street-level doorways completely clear.
+  const { trim, cap } = trimColors(b, color);
   const band = (y: number, h: number, out: number, c: RGB): void => {
     g.box(t.minX - out, y, t.minZ - out, t.maxX + out, y + h, t.maxZ + out, { uv: UV, color: c, bottom: true });
   };
