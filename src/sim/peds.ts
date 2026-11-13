@@ -72,8 +72,9 @@ const AHEAD_SEEN = 75;
 const AHEAD_BEHIND = 60;
 const NEAR_SEEN = 55;
 
-/** populate(): nobody starts nearer the arriving player than this (m). */
+/** populate(): nobody starts nearer the arriving player than this (m), and those further than ARRIVE_FAR m from him are let go first. */
 const ARRIVE_NEAR = 9;
+const ARRIVE_FAR = 110;
 
 export class PedSystem {
   /** True while populate() fills the pavements: a spawn then takes no account of the players' view. */
@@ -125,8 +126,15 @@ export class PedSystem {
     const me = sim.activePlayers()[0] ?? sim.players[0]!;
     this.arriving = true;
     try {
+      // The crowd streamed round where he was a moment ago is out of his reach now, and would fill the count: those
+      // further off than the crowd streams (ARRIVE_FAR) go, as streaming lets them go over the next seconds.
+      const pp = me.pos();
       let count = 0;
-      for (const c of sim.characters) if (!c.removed && !c.persistent && !c.isPlayer && c.alive && c.owner === 'ped') count++;
+      for (const c of [...sim.characters]) {
+        if (c.removed || c.persistent || c.isPlayer || !c.alive || c.owner !== 'ped') continue;
+        if (Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) > ARRIVE_FAR) sim.removeCharacter(c);
+        else count++;
+      }
       for (let tries = this.targetCount * 3; count < this.targetCount && tries > 0; tries--) if (this.trySpawn(me)) count++;
     } finally {
       this.arriving = false;

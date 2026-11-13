@@ -38,6 +38,8 @@ const ROAD_AHEAD_CARS = 3;
 /** populate(): no moving car starts nearer the arriving player than this (m), no parked one nearer than ARRIVE_PARKED. */
 const ARRIVE_NEAR = 28;
 const ARRIVE_PARKED = 10;
+/** populate(): traffic further than this (m) from where he arrives is let go first (it streams no further out than 165 m). */
+const ARRIVE_FAR = 175;
 /** Half the width (m) of the strip along his road that counts as it (see roadAheadCars). */
 const ROAD_AHEAD_HALF = 12;
 /**
@@ -278,8 +280,15 @@ export class TrafficSystem {
     this.refreshNearLanes();
     this.arriving = true;
     try {
+      // The traffic streamed round where he was a moment ago (the street he died in) is out of his reach now, and
+      // would fill the count: it goes, as streaming lets it go over the next seconds, to make room here.
+      const pp = this.anchorPos();
       let count = 0;
-      for (const v of sim.vehicles) if (!v.removed && v.owner === 'traffic' && v.driver) count++;
+      for (const v of [...sim.vehicles]) {
+        if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver) continue;
+        if (Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) > ARRIVE_FAR) sim.removeVehicle(v);
+        else count++;
+      }
       for (let tries = this.targetCount * 3; count < this.targetCount && tries > 0; tries--) if (this.trySpawnTraffic(ARRIVE_NEAR, 165)) count++;
       this.streamParked();
     } finally {

@@ -21,6 +21,8 @@
 // start on the road ahead of him from 170 m out, the crowd streams ahead of him when he drives, and the streets fill at
 // once as he comes out of the hospital or the station (Sim.populate), so who is where differs from the first spawn on.
 // With the police after him or on a Street Run the traffic's numbers are the old ones. Both seeds still end as they did.
+// (Recorded again once the fill let go of the traffic and the crowd left where he died, which had filled the count and
+// left the hospital's street empty.)
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
