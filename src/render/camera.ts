@@ -516,6 +516,16 @@ export class CameraController {
     this.camera.position.set(0, 80, 200);
   }
 
+  /**
+   * The views that return before update() sets the camera's up vector (the title's, the train's, the scope's) stand
+   * level: the chase camera's lean (see CHASE_ROLL) does not outlive it, as it did for whoever quit to the title or
+   * raised a scope a moment after a corner.
+   */
+  private level(): void {
+    this.roll = 0;
+    this.camera.up.set(0, 1, 0);
+  }
+
   /** Mouse / stick look input in pixels (or equivalent). */
   look(dx: number, dy: number): void {
     // Through a scope the mouse turns the view as much on screen as without it.
@@ -732,7 +742,9 @@ export class CameraController {
       this.target.lerp(new THREE.Vector3(v.pos.x + v.vel.x * ahead, v.pos.y + s.height * CHASE_TARGET_Y + this.seaLift, v.pos.z + v.vel.z * ahead), ease);
       this.desired.set(this.target.x - Math.sin(yaw) * back, this.target.y + boom.up, this.target.z - Math.cos(yaw) * back);
       const lead = CHASE_LEAD + CHASE_LEAD_SPEED * k;
-      this.chaseLook.set(this.target.x + Math.sin(yaw) * lead, this.target.y + 0.3 + Math.tan(this.orbitPitch) * (boom.back + lead), this.target.z + Math.cos(yaw) * lead);
+      // The player's look up or down moves the look point by half the angle (the boom's own rise and fall, see
+      // chaseOffset, does the rest): at the upper limit the car is still in the bottom of the frame.
+      this.chaseLook.set(this.target.x + Math.sin(yaw) * lead, this.target.y + 0.3 + Math.tan(this.orbitPitch * 0.5) * (boom.back + lead), this.target.z + Math.cos(yaw) * lead);
       this.dir.copy(this.chaseLook).sub(this.desired).normalize();
       lookFrom = this.target.clone();
       fovTarget = chaseFov(this.baseFov, speed);
@@ -919,6 +931,7 @@ export class CameraController {
    * the beam. The train is where the timetable puts it at sim time, so the view glides with it.
    */
   private railView(sim: ViewState, dt: number): void {
+    this.level();
     const m = sim.world.layout.monorail;
     const s = trainAt(m, sim.time);
     const lead = s.z + s.dir * (CAR_LENGTH + CAR_GAP);
@@ -945,6 +958,7 @@ export class CameraController {
    * levels eases quickly.
    */
   private scopeView(dt: number, p: { pos: V3; appearance: { height: number } }, zoom: number, sway: number, was: boolean): void {
+    this.level();
     const cam = this.camera;
     this.scoped = true;
     this.noiseT += dt;
@@ -1266,6 +1280,7 @@ export class CameraController {
   }
 
   private updateTitle(dt: number): void {
+    this.level();
     this.titleT += dt;
     const a = this.titleT * 0.045 + 0.6;
     const r = 260;

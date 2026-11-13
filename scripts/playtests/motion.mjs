@@ -3,6 +3,7 @@
 // screen, the cars and people in view, the police). With --video the whole run is recorded.
 //
 //   node scripts/playtest.mjs --script scripts/playtests/motion.mjs --video --out /tmp/motion
+//   MOTION_HOUR=22 node scripts/playtest.mjs --script scripts/playtests/motion.mjs --video --out /tmp/motion-night
 //
 // report.json gets one note, "motion <json>", with a summary per segment and the samples.
 
@@ -232,6 +233,9 @@ function install(g) {
   window.__auto = auto;
 }
 
+/** The hour the cruise and the sprint run at (MOTION_HOUR, 10.5 by default; the chase is at dusk). */
+const HOUR = Number(process.env.MOTION_HOUR ?? 10.5);
+
 const summary = (samples) => {
   const mean = (f) => +(samples.reduce((a, s) => a + f(s), 0) / Math.max(1, samples.length)).toFixed(1);
   const fast = samples.filter((s) => s.speed > 20);
@@ -271,12 +275,12 @@ const summary = (samples) => {
 export default async function (t) {
   await t.boot();
   await t.newGame();
-  await t.game((g) => {
+  await t.game((g, hour) => {
     // No god mode: it spares the car as well, and the damage a crash does is part of what this measures.
     g.setClockRate(0);
-    g.setTime(10.5);
+    g.setTime(hour);
     g.spawnVehicle('sedan', true);
-  });
+  }, HOUR);
   await t.page.evaluate(`(${install.toString()})(window.__gta7)`);
   await t.wait(600);
   // Which way D turns: drive off, steer, compare headings.

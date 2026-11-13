@@ -223,10 +223,11 @@ export class TrafficSystem {
   /**
    * The streets as they were before round 8 filled them: fewer cars, and none started in view on the road ahead (see
    * ROAD_AHEAD). In a room, whose server's tick and bandwidth are sized for those numbers and where somebody else may be
-   * looking; with the police after him and on a job against the clock (a street run, a fare), which are tuned on them.
+   * looking; with the police after him, on a job (a street run, a fare) and while a story mission's clock is running
+   * (a delivery's countdown), all of which are tuned on them.
    */
   private get sparse(): boolean {
-    return this.sim.multiplayer || this.anchor.wanted.level > 0 || this.sim.activities.job !== null;
+    return this.sim.multiplayer || this.anchor.wanted.level > 0 || this.sim.activities.job !== null || !!this.sim.missions.active?.timer;
   }
 
   get targetCount(): number {

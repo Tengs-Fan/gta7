@@ -316,6 +316,32 @@ describe('the speed camera (P34)', () => {
     }
   });
 
+  it('leans into a turn, and stands level again on the title screen (round 8)', () => {
+    const { sim, v, cam } = cruise('sports', 30, 1);
+    expect(cam.camera.up.x).toBe(0);
+    // Turning at 0.5 rad/s at 30 m/s: 15 m/s^2 of cornering, past the lean's cap.
+    v.angVel = 0.5;
+    for (let i = 0; i < 90; i++) cam.update(DT, sim, false);
+    const up = cam.camera.up.clone();
+    expect(Math.acos(up.y)).toBeGreaterThan(0.03);
+    expect(Math.acos(up.y)).toBeLessThanOrEqual(0.045 + 1e-9);
+    // The other way round the other way.
+    v.angVel = -0.5;
+    for (let i = 0; i < 90; i++) cam.update(DT, sim, false);
+    expect(Math.sign(cam.camera.up.x * up.x + cam.camera.up.z * up.z)).toBe(-1);
+    // Camera shake off: no lean.
+    cam.shakeEnabled = false;
+    for (let i = 0; i < 90; i++) cam.update(DT, sim, false);
+    expect(Math.acos(cam.camera.up.y)).toBeLessThan(1e-3);
+    // Quit to the title mid-corner: level at once.
+    cam.shakeEnabled = true;
+    for (let i = 0; i < 90; i++) cam.update(DT, sim, false);
+    expect(Math.acos(cam.camera.up.y)).toBeGreaterThan(0.03);
+    cam.mode = 'title';
+    cam.update(DT, sim, false);
+    expect(cam.camera.up.toArray()).toEqual([0, 1, 0]);
+  });
+
   it('adds no shake, rumble or kick while paused (dt = 0)', () => {
     const { sim, cam } = cruise('sports', 50, 1);
     cam.addShake(2);
