@@ -636,6 +636,27 @@ export const DOOR_U: Readonly<Record<number, number>> = {
   [CELLS.houseDoorB]: HOUSE_DOOR_U.b,
 };
 
+/**
+ * The doorway of every cell with a door, in metres on the cell as drawn (x from its left edge, y up from its bottom),
+ * and how far (m) the building draws it set back behind the frontage. The reveals take the colour just outside it:
+ * the shop's pier, the lobby's stone surround, the house's white casing. The revolving door's drum stands flush.
+ */
+export interface DoorOpening {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  depth: number;
+}
+
+export const DOOR_OPENING: Readonly<Record<number, DoorOpening>> = {
+  ...Object.fromEntries(SHOP_DESIGNS.map((d, i) => [i, { x0: shopDoorX(d), x1: shopDoorX(d) + SHOP_DOOR_W, y0: 0, y1: SHOP_DOOR_H + 0.04, depth: 0.45 }])),
+  [CELLS.lobbyDoors]: { x0: CELL_DESIGN.lobby.w / 2 - 0.95, x1: CELL_DESIGN.lobby.w / 2 + 0.95, y0: 0, y1: 2.8, depth: 0.6 },
+  [CELLS.bank]: { x0: 1.85, x1: CELL_DESIGN.lobby.w - 1.85, y0: 0, y1: CELL_DESIGN.lobby.h - 2.8, depth: 0.5 },
+  [CELLS.houseDoorA]: { x0: CELL_DESIGN.house.w * HOUSE_DOOR_U.a - 0.5, x1: CELL_DESIGN.house.w * HOUSE_DOOR_U.a + 0.5, y0: HOUSE_SILL, y1: HOUSE_SILL + 2.1, depth: 0.14 },
+  [CELLS.houseDoorB]: { x0: CELL_DESIGN.house.w * HOUSE_DOOR_U.b - 0.5, x1: CELL_DESIGN.house.w * HOUSE_DOOR_U.b + 0.5, y0: HOUSE_SILL, y1: HOUSE_SILL + 2.1, depth: 0.14 },
+};
+
 function drawShop(p: Pair, d: ShopDesign): void {
   const { m, e } = p;
   const W = CELL_DESIGN.shop.w;
