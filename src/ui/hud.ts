@@ -69,7 +69,9 @@ const ROUTE_OBJECTIVE = '#ffd23d';
 
 // What the DOM shows initially; bind() returns to these for every new session.
 const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' });
-const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, delta: 0, hurt: 0, objective: 0, gate: 0 });
+const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, delta: 0, hurt: 0, objective: 0, gate: 0, controls: 0 });
+/** How long the controls line stays up after getting in or out of a vehicle (or a new device or binding) before it fades. */
+const CONTROLS_SECONDS = 8;
 /** Elements shown with the 'show' class for a while. */
 const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'delta', 'big'];
 /**
@@ -230,7 +232,7 @@ export class Hud {
         <div class="bars"><div class="bar health" data-el="hbar"><i data-el="health"></i></div><div class="bar armor" data-el="abar"><i data-el="armor"></i></div></div>
         <div class="money" data-el="money">$0</div>
         <div class="money-delta" data-el="delta"></div>
-        <div class="stars" data-el="stars">${STAR.repeat(5)}</div>
+        <div class="stars hidden" data-el="stars">${STAR.repeat(5)}</div>
         <div class="status hidden" data-el="status"></div>
         <div class="evade hidden" data-el="evade"><i data-el="evadeFill"></i></div>
         <div class="scanner" data-el="scanner"></div>
@@ -244,7 +246,6 @@ export class Hud {
         <strong data-el="navDistance"></strong>
       </div>
       <div class="drive-panel hidden" data-el="drive">
-        <div class="drive-name" data-el="vname"></div>
         <div class="drive-speed"><strong data-el="speed">000</strong><span>KM/H</span></div>
         <div class="drive-condition"><span data-el="conditionLabel">CONDITION</span><b data-el="condition"></b></div>
         <div class="drive-meter"><i data-el="conditionFill"></i></div>
@@ -981,12 +982,16 @@ export class Hud {
       this.shown.flash = flash;
       el.stars!.querySelectorAll('svg').forEach((s, i) => s.classList.toggle('on', i < stars));
       el.stars!.classList.toggle('flash', flash);
+      // Five empty stars say nothing: the row appears with the first star.
+      el.stars!.classList.toggle('hidden', stars === 0);
     }
     const status = this.statusText(sim);
     if (status !== this.shown.status) {
       this.shown.status = status;
       el.status!.textContent = status;
       el.status!.classList.toggle('hidden', !status);
+      // A mission's clock is what the player is racing: it reads as large as the money.
+      el.status!.classList.toggle('timer', !!sim.missions.active?.timer);
     }
     this.updatePolice(dt, sim);
     this.updateToasts(dt);
@@ -1043,6 +1048,12 @@ export class Hud {
     const turn: keyof typeof NAV_PATHS = !gate ? 'bearing' : instruction === 'Finish' ? 'finish' : instruction === 'Left' ? 'left' : instruction === 'Right' ? 'right' : 'straight';
     const name = gate ? turn === 'finish' ? 'Finish line' : turn === 'left' ? 'Turn left' : turn === 'right' ? 'Turn right' : 'Straight ahead' : this.waypoint ? 'Your waypoint' : objective?.label || (offer ? contactById(offer.giver).name : active?.def.title || 'Objective');
     const label = race ? turn === 'finish' ? 'FINAL GATE' : `GATE ${race.checkpoint + 1} / ${race.course.checkpoints.length}` : this.waypoint ? 'WAYPOINT' : active ? 'MISSION ROUTE' : sim.activities.busy ? 'ACTIVITY ROUTE' : 'NEXT CONTACT';
+    // The contact who has work is a standing suggestion, not a task: the card says it quietly, and not at all while
+    // the next-step line says it across the screen.
+    const contact = label === 'NEXT CONTACT';
+    const o = el.objective!;
+    el.navigation!.classList.toggle('quiet', contact);
+    if (contact && o.classList.contains('next') && o.classList.contains('show')) el.navigation!.classList.add('hidden');
     const detail = gate ? gate.label.split(' · ').slice(1).join(' · ') || race!.course.name : '';
     const text = `${label}:${name}:${detail}`;
     if (text !== this.navigationText) {
@@ -1074,7 +1085,7 @@ export class Hud {
     this.switchState = v ? v.lights : 'auto';
   }
 
-  /** Speed, mechanical condition and a compact reminder of the controls for the current device. */
+  /** Speed, mechanical condition and a short-lived reminder of the controls for the current device. */
   private updateDriving(sim: ViewState): void {
     const v = this.me(sim).character.vehicle;
     const el = this.el;
@@ -1083,7 +1094,6 @@ export class Hud {
     this.root.classList.toggle('in-vehicle', inVehicle);
     el.drive!.classList.toggle('hidden', !v || this.me(sim).down);
     if (v) {
-      if (el.vname!.textContent !== v.spec.name) el.vname!.textContent = v.spec.name;
       const speed = String(Math.round(v.speed * 3.6)).padStart(3, '0');
       if (el.speed!.textContent !== speed) el.speed!.textContent = speed;
       const condition = Math.max(0, Math.min(1, v.condition));
@@ -1096,9 +1106,13 @@ export class Hud {
     // A boat has no handbrake. On AzuraLink his control is locked: F only skips the ride.
     const boat = v?.spec.class === 'boat';
     const riding = !!monorailRide(sim, this.me(sim));
+    // The line is a reminder for the moment the controls change: it fades once read, except on a train ride, where F is the one thing to do.
+    el.quickControls!.classList.toggle('faded', this.timers.controls <= 0 && !riding);
     const mode = `${this.device}:${inVehicle}:${boat}:${riding}:${this.keys.keymap.version}`;
     if (mode === this.controlMode) return;
     this.controlMode = mode;
+    this.timers.controls = CONTROLS_SECONDS;
+    el.quickControls!.classList.remove('faded');
     const line = riding
       ? '<span><kbd>F</kbd> Skip ride</span>'
       : inVehicle
@@ -1345,17 +1359,6 @@ export class Hud {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-    // Health / armour ring.
-    const hp = Math.max(0, this.me(sim).character.health) / this.me(sim).character.maxHealth;
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.arc(cx, cy, W / 2 - 3, Math.PI * 0.6, Math.PI * 1.4);
-    ctx.stroke();
-    ctx.strokeStyle = hp > 0.5 ? '#6fd36f' : '#e2453c';
-    ctx.beginPath();
-    ctx.arc(cx, cy, W / 2 - 3, Math.PI * 1.4 - Math.PI * 0.8 * hp, Math.PI * 1.4);
-    ctx.stroke();
   }
 
   /**

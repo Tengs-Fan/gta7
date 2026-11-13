@@ -266,6 +266,15 @@ body {
   letter-spacing: 1px;
 }
 
+.status.timer {
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.1;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Police: how close the player is to losing the stars (while they flash), and the dispatch line. */
 .evade {
   width: 160px;
@@ -1950,6 +1959,18 @@ body {
   margin-top: 3px;
 }
 
+/* The contact who has work (no task running): a line of text over the street rather than a panel. */
+.navigation.quiet {
+  width: auto;
+  background: none;
+  border-left-color: transparent;
+  text-shadow: var(--outline);
+}
+
+.navigation.quiet .nav-arrow svg {
+  filter: drop-shadow(0 0 1.5px #000);
+}
+
 .navigation.race {
   width: 300px;
   padding: 12px 14px;
@@ -1985,14 +2006,6 @@ body {
   padding: 12px 15px;
   background: linear-gradient(135deg, rgba(14, 23, 27, 0.84), rgba(14, 23, 27, 0.65));
   border-top: 2px solid var(--accent);
-}
-
-.drive-name {
-  font-size: 12px;
-  letter-spacing: 1.8px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--muted);
 }
 
 .drive-speed {
@@ -2070,6 +2083,11 @@ body {
   font-weight: 600;
   color: var(--text);
   text-shadow: 0 1px 4px #142024;
+  transition: opacity 0.8s;
+}
+
+.quick-controls.faded {
+  opacity: 0;
 }
 
 .quick-controls > span {
@@ -2087,7 +2105,7 @@ body {
 }
 
 .hud.in-vehicle .zone {
-  bottom: 234px;
+  bottom: 220px;
   max-width: 240px;
   font-size: 23px;
 }
@@ -2126,7 +2144,7 @@ body {
   .radar { width: 150px; height: 150px; }
   .drive-panel { bottom: 72px; }
   .drive-speed strong { font-size: 42px; }
-  .hud.in-vehicle .zone { bottom: 216px; }
+  .hud.in-vehicle .zone { bottom: 202px; }
   .runs-panel h2 { font-size: 35px; }
   .runs-panel .runs-intro { font-size: 16px; margin-bottom: 12px; }
   .course-menu button[data-description] { padding-top: 6px; padding-bottom: 7px; font-size: 22px; }
@@ -2182,10 +2200,9 @@ body {
   .drive-panel { right: 18px; width: 135px; bottom: 81px; padding: 9px 11px; }
   .drive-speed strong { font-size: 36px; }
   .drive-speed { gap: 6px; }
-  .drive-name { font-size: 10px; letter-spacing: 1px; }
   .drive-condition { letter-spacing: 0; font-size: 9px; }
   .quick-controls { right: 18px; bottom: 26px; max-width: 152px; }
-  .hud.in-vehicle .zone { right: 18px; bottom: 218px; max-width: 160px; font-size: 19px; }
+  .hud.in-vehicle .zone { right: 18px; bottom: 204px; max-width: 160px; font-size: 19px; }
   .objective { font-size: 18px; padding: 5px 10px; }
   .objective.next { font-size: 16px; }
   .keys { grid-template-columns: 1fr; }
@@ -2209,7 +2226,7 @@ body {
   .drive-panel { bottom: 69px; }
   .drive-speed strong { font-size: 32px; }
   .drive-condition { margin-top: 3px; }
-  .hud.in-vehicle .zone { bottom: 198px; }
+  .hud.in-vehicle .zone { bottom: 184px; }
   .help { font-size: 15px; }
   .subtitle { font-size: 19px; }
   /* A crowded cluster (armour, a job line, stars with the evade bar and a four-line DISPATCH) must still leave room
