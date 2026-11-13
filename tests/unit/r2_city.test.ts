@@ -382,13 +382,16 @@ describe('round 2 city: ground-floor geometry', () => {
       const label = `building ${w.b.id} (${w.b.ground}) ${w.side}`;
       const quads = onWall(fr, w);
       expect(quads.length, label).toBeGreaterThan(0);
-      // The quads tile the wall from end to end and from the curb to the top of the band.
-      const covered = new Set<string>();
-      for (const q of quads) covered.add(`${q.lo.toFixed(3)}:${q.hi.toFixed(3)}`);
-      const length = [...covered].reduce((sum, k) => {
-        const [lo, hi] = k.split(':').map(Number) as [number, number];
-        return sum + (hi - lo);
-      }, 0);
+      // The quads tile the wall from end to end and from the curb to the top of the band: the union of their spans along
+      // it (a doorway splits its quad into the wall round it, so spans overlap) is the wall's length.
+      const spans = quads.map((q) => [q.lo, q.hi] as const).sort((a, b) => a[0] - b[0]);
+      let length = 0;
+      let end = -Infinity;
+      for (const [lo, hi] of spans) {
+        if (hi <= end) continue;
+        length += hi - Math.max(lo, end);
+        end = hi;
+      }
       expect(length, label).toBeCloseTo(w.hi - w.lo, 2);
       expect(Math.min(...quads.map((q) => q.minY)), label).toBeCloseTo(CURB_H, 3);
       expect(Math.max(...quads.map((q) => q.maxY)), label).toBeCloseTo(top, 3);
