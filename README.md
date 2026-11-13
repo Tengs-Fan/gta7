@@ -157,7 +157,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   Modelled guns (slide or receiver, grip, trigger guard, sights, hollow muzzle; magazine, pump, handguard, stock or scope per gun) on the sim's weapon points; the muzzle flash rides the gun's recoil.
   Explosions: a volumetric fireball (noise-shaded puffs, HDR core) scaled to the blast, spark streaks, modelled debris that settles on the ground, a dense dark smoke plume from burning wrecks, scorch marks draped on the ground (not on the sea), and a burnt (soot, char, bare metal) wreck material for cars, bikes and boats.
   Lighting: the city is lit by a sky HDRI blended with the time-of-day sky (smooth dawn and dusk kept); at night a warm city glow on the sky, a lifted black level so streets read, street lamps that lay a broad, soft pool of their own light on the ground, lamp haze that grows in rain and wet-road reflections in each light's colour, strong at grazing angles and faint under your feet as on real wet asphalt, traffic signals included; a golden sunset; darker garage interiors; ambient occlusion at the foot of walls and contact shadows under people.
-- **Day and night.** A day lasts 24 minutes.
+- **Day and night.** A day lasts 24 minutes, and a new game starts at five in the afternoon: the first minutes play through the golden hour and the lights come on about the end of the first job.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
   Shops stay open late: about two thirds are lit at 22:30, then they close one by one until shortly after 02:00.
 - **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Boats under way leave a foam trail and a spreading V wake that fade over ten seconds, and throw spray off the bow (High and Medium). Weather is visual only: it does not change grip or traffic.
@@ -167,11 +167,14 @@ To play with friends on your network, run the optional multiplayer server (see [
   Boats heave and pitch on the swell, and a speedboat run fast through rough water leaves the crests and slams down in spray; swimmers ride it, and the camera with them.
   Wakes, splashes, rounds and rockets fired into the sea, a car's wading spray and the Gull Regatta's buoys all go on the water as it is drawn.
   The waves are drawn only: under them the sea is flat, so they never push a boat or a swimmer about.
-- **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns (judging a fast player car by when it gets there, not only how near it is), honks, overtakes, steers round cars left empty in the road and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
+- **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns (judging a fast player car by when it gets there, not only how near it is), honks, overtakes, steers round cars left empty in the road and backs out of blockages, from about 18 cars around you late at night to 42 at rush hour (14 to 30, as before, with the police after you, on a job against the clock and in multiplayer, which are tuned on those).
+  The streets are full where you look: when you drive, the crowd on the pavements and the traffic on your road stream in ahead of you (cars from 170 m out, both ways) and let go behind you, and the city is already going about its day when you start a game, load one or walk out of the hospital or the station.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the street gangs: Los Tiburones (teal; Docks and Westside) and Los Halcones (red and gold; Southgate), each with its own cars and turf, shown on the map.
   Walk into their turf with a gun out, or attack one of them, and the whole crew comes for you; now and then the two gangs fight it out where their turfs meet.
   Hit someone or open fire with no police around and a bystander may pull out his phone, and a few seconds later you are wanted unless you stop him first; ram another car hard and its driver may jump out to fight you or run for it.
 - **Driving.** Sixteen vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser, Riot Van, an ambulance and a fire truck, the Viper 600 sport bike and the Zippa 50 scooter, and the Marlin speedboat and Puffin dinghy, and you can steal any road vehicle, even with someone inside.
+  The chase camera rides close and low behind the car on a longer lens than you have on foot; the lens opens with speed while the camera closes in, so the car keeps its size as the street streaks past, and it falls behind as you pull away, closes up as you brake and leans into a turn.
+  Above 90 km/h the edges of the frame streak (not on Low, nor with Camera shake off).
   Arcade handling with handbrake drifts, skid marks and tire smoke, and the body rocks on its springs over curbs and bumps and rolls with the slope on Hillcrest Green's hill; cars dent, lose their lamps and glass, spark along walls, catch fire when they land on their roof and blow up, and you can see who is inside through the glass.
   Headlights come on by themselves in the dark (and under dark skies), and L, or B on a gamepad, switches a vehicle's lamps on or off: on by day they show as running lights, and each vehicle keeps its switch when you get out and back in.
   At night headlights light the road ahead the way a lamp does, adding the same light to a dark county road and to lamp-lit asphalt, so a car's beam under a street lamp reads as lit road, not as a light shining at you.
@@ -330,7 +333,7 @@ The map's legend toggles are remembered with the settings.
 | Graphics quality | Auto, Low, Medium, High | Auto |
 | Master volume, Music (radio), Sound effects | 0–100% each | 80%, 60%, 85% |
 | Mouse sensitivity (the right stick too) | 0.20–3.00 | 1.00 |
-| Field of view (wider at speed in a vehicle, narrower when aiming) | 55–90° | 68° |
+| Field of view (in a vehicle 10° under it at rest, opening by 17° at speed; narrower when aiming) | 55–90° | 68° |
 | Invert look Y (mouse and right stick) | On / Off | Off |
 | Tutorial hints (first-time hints) | On / Off | On |
 | Weather (Always clear ramps the sky to clear and keeps it so) | Dynamic, Always clear | Dynamic |
@@ -338,7 +341,7 @@ The map's legend toggles are remembered with the settings.
 | Resolution scale | 50–100% | 100% |
 | FPS cap | 30, 60, Unlimited | Unlimited |
 | Subtitle size | Small, Normal, Large | Normal |
-| Camera shake | On / Off | On |
+| Camera shake (off: also no lean in turns and no speed blur) | On / Off | On |
 | Key bindings | rebind any keyboard action (a key another action uses is refused, naming it; arrows, Esc, Enter, Backspace, right Shift, number keys and +/- keep their jobs); RESET TO DEFAULTS | |
 | DELETE SAVE | deletes one slot, asks first | |
 
@@ -565,7 +568,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-212 files with 3250 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
+212 files with 3251 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, the traffic signals (each countdown against its junction's cycle, every walk head against what the people it faces may do and the crosswalk ends none of them faces, the arms' clearance over the tallest vehicle and every chase camera at rest on either zoom, the heads' backs, the lit buffers' uploads and the software tier's cull), combat, the camera with your back to a wall, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, the Gull Regatta, the Coyote Ridge Hill Climb and the Gravel Gulch scramble (a scripted lap or run sets each one's medals), Dry Creek (its stores, busts walking out of the Sheriff's Office, people on its boardwalks, Gas & Grits going up) and the Moonbeam Drive-In (its bill on the clock and on a multiplayer client's, its bays, the SHHH), properties, gangs, roadblocks and witnesses, Turbine Row and Smuggler's Key (the older colliders and pickups kept as they were), Las Lomas County's landscape (its rises off every road, plot and verge, its sight cores buried, the lines of sight it hides, the cars and people that climb it, its near and far ground), Las Lomas Valley (Coyote Pass's floor and walls, a route car through the pass and round the loop, the traffic and the sheriff's cruisers on it, a lake no swell or boat reaches), its countryside's life (crows lifting off a car or the player and settling, the dairy's dog on its line, the crop-duster's sorties, the combine's circuit and the balloon's dawn as functions of the clocks, what each draws, and the engines, caws and barks), its beaches in the sea shader, its roadside oddities (the telephone poles on flat dry ground and clear of every road, junction, drive and ramp lane, and see-through to sight and the camera, the statics, mailboxes and signs on open land, a sign's collider as wide as its board, the batch of every make of them that falls when a car hits it, the crop circle's pattern and the payphone's rings, answer, cooldown, lines, the bell cut on an answer and the order saved) and the atlas that grows with the places' boards, saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), this README's Controls table against the real key bindings, and the mission 3 asset pipeline and families (the manifest and licenses, the asset library and its warm-up, characters, cars, bikes and boats, buildings, ground and water, props, lighting, guns and effects, and the car reflection cube), with the real models loaded from disk.
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -618,6 +621,14 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
 | `--headed` | show the browser window | headless |
 | `--pointer-lock` | allow pointer lock (adds `lock=1`) | off |
 | `--intro` | keep Mama Lou's opening call | off (adds `intro=0`) |
+| `--video` | record the whole run to `<out>/video.webm` | off |
+
+`scripts/playtests/motion.mjs` is a custom script that judges the game in motion: an autopilot drives the player's car with the real keys along a route through Midtown and Downtown (a cruise, a flat-out sprint, a three-star chase), and the page logs ten times a second what a player sees: the speed, the camera's distance and field of view, how wide the car is on screen, the cars and people in view, the police, the sim's and the renderer's time.
+`report.json` gets a summary per segment and the samples, and with `--video` the run to look at.
+
+```sh
+node scripts/playtest.mjs --script scripts/playtests/motion.mjs --video --out /tmp/motion
+```
 
 ### Several checkouts at once
 

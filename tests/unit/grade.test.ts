@@ -33,11 +33,14 @@ describe('gradeAt', () => {
     expect(maxDelta(gradeAt(-1), gradeAt(23))).toBeLessThan(1e-9);
   });
 
-  it('is near neutral at noon in clear weather', () => {
+  it('keeps noon in clear weather near its white balance, with fuller colour and a firmer curve than ungraded (round 8)', () => {
     const g = gradeAt(12);
     for (const c of g.tint) expect(Math.abs(c - 1)).toBeLessThanOrEqual(0.03);
-    expect(g.sat).toBeGreaterThanOrEqual(1);
-    expect(g.sat).toBeLessThanOrEqual(1.1);
+    // It was all but neutral (1.03 and 1.02) and the city read as a model of itself; not so far as to look painted.
+    expect(g.sat).toBeGreaterThanOrEqual(1.08);
+    expect(g.sat).toBeLessThanOrEqual(1.16);
+    expect(g.contrast).toBeGreaterThanOrEqual(1.05);
+    expect(g.contrast).toBeLessThanOrEqual(1.12);
     expect(gradeAt(12, CLEAR_WEATHER)).toEqual(g);
   });
 

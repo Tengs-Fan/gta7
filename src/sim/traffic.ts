@@ -330,6 +330,7 @@ export class TrafficSystem {
     }
     // A fast player leaves the cars streamed around him behind, and at the target count none spawn
     // where he is going: retire the furthest one well behind him, out of view, to make room.
+    let recycled = false;
     if (count >= this.targetCount && fast) {
       const behind: Array<{ v: Vehicle; d: number }> = [];
       for (const v of sim.vehicles) {
@@ -344,13 +345,16 @@ export class TrafficSystem {
       if (gone) {
         sim.removeVehicle(gone.v);
         count--;
+        recycled = true;
       }
     }
-    // Over the count (the streets have just gone sparse, see `sparse`, or the hour has turned): the furthest cars out
-    // of view go, two at a time, or a run would start in the traffic the streets held a moment before.
-    for (let n = 0; n < 2 && count > this.targetCount; n++) {
+    // Over the count round a player who is not driving fast (the streets have just gone sparse, see `sparse`, as he
+    // lines up for a run, or the hour has turned): the furthest car out of view that is as far off as one recycled,
+    // whichever way, goes too, one a refresh, so the streets thin out to their number in a few seconds and not over
+    // the minutes its cars take to drive away. (Driving fast, the cars ahead of him are the ones he is about to meet.)
+    if (!recycled && !fast && count > this.targetCount) {
       let gone: Vehicle | null = null;
-      let far = 0;
+      let far = RECYCLE_BEHIND;
       for (const v of sim.vehicles) {
         if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || v.driver === me) continue;
         const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
@@ -359,9 +363,10 @@ export class TrafficSystem {
           gone = v;
         }
       }
-      if (!gone) break;
-      sim.removeVehicle(gone);
-      count--;
+      if (gone) {
+        sim.removeVehicle(gone);
+        count--;
+      }
     }
     let spawned = 0;
     while (count < this.targetCount && spawned < 2) {

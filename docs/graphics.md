@@ -60,11 +60,27 @@ The sky's image-based light (the baked environment map) is re-baked whenever the
 
 ## Finish pass: colour grade and anti-aliasing
 
-Every hardware tier ends its effects with `FinishPass` (`src/render/finishPass.ts`): High runs contact shadows, bloom, finish; Medium bloom, finish; Low finish alone. It works in linear HDR before three's own ACES and sRGB output, so tone mapping and colours stay the same pipeline on every tier. The grade (`gradeAt(hours, weather?)` in `src/render/grade.ts`) is keyframed over the day: noon is near neutral, golden hour (18:24) is warmer, and night is cooler, slightly desaturated, with a stronger vignette. It applies a luminance-normalised white balance, saturation, contrast in log space around mid grey, a small split tone and a vignette; no parameter moves more than 1e-3 per game minute, midnight included. Cloud lowers saturation and contrast and rain deepens the vignette, from the sim's weather.
+Every hardware tier ends its effects with `FinishPass` (`src/render/finishPass.ts`): High runs contact shadows, bloom, finish; Medium bloom, finish; Low finish alone. It works in linear HDR before three's own ACES and sRGB output, so tone mapping and colours stay the same pipeline on every tier. The grade (`gradeAt(hours, weather?)` in `src/render/grade.ts`) is keyframed over the day: the day (9:00 to 16:00) has fuller colour and a firmer curve (saturation 1.12, contrast 1.08), sunlit faces a little warm against shadows a little cool (it was all but neutral, and the city read as a model of itself), golden hour (18:24) is warmer, and night is cooler, slightly desaturated, with a stronger vignette. It applies a luminance-normalised white balance, saturation, contrast in log space around mid grey, a small split tone and a vignette; no parameter moves more than 1e-3 per game minute, midnight included. Cloud lowers saturation and contrast and rain deepens the vignette, from the sim's weather.
 
 High and Medium keep 4x MSAA from the WebGL context. Low uses FXAA inside the same pass: three's `FXAAShader`, patched to detect edges and blend in a reversible tone-mapped proxy (`c / (1 + max(c))`), so edges against bright lamps are not biased toward the light and HDR values are not clamped. The module throws on load if the patch no longer matches three's shader. Software renderers and GPUs without half-float targets have an LDR output where three allows no effects, so they get neither FXAA nor the grade. Tier switches only change the pass's uniforms (no shader rebuild). `__gta7.setPost({ aa, grade, vignette })` overrides it until the next quality change, and `state().render.post` reports `{ aa, grade, vignette }`.
 
 On the M4 Pro at 1920x1080 High the perf playtest stayed at 60 fps in all four segments (final frames 5.3–6.8 ms).
+
+The pass also draws the rush of speed (`FinishPass.rush`, `rushAt(speed)`): in the player's car from 90 km/h, full from 205 km/h, the frame streaks towards the point the road runs to, not at all in the tall oval that holds the car and the street ahead and most at the edges.
+It takes ten samples along each streak on High and five on Medium (ten cost the Radeon iGPU 3 fps), started at a per-pixel offset so their spacing shows as grain; there is none on Low, nor with Camera shake off.
+
+What reaches the bloom is capped at `BLOOM_CEIL` (6, scene-linear, hue kept; `capBloom` patches `UnrealBloomPass`'s high-pass shader and throws if three's shader no longer has the line).
+The sun's highlight on a car's clearcoat is a few pixels dozens of times brighter than anything else in the frame, and uncapped it bloomed into a white blob that hid the car.
+
+## Chase camera
+
+`chaseOffset` (`src/render/camera.ts`) is where the camera settles behind a vehicle, and `chaseFov` its lens: at rest 3.7 m plus 0.62 of the vehicle's length back and 1.0 m plus 0.58 of its height up, on a lens 10 degrees under the Field of view setting, so a car fills about a seventh of the frame's width (an eleventh on the 68 degree lens it had, from 5.2 m plus 0.72 of the length).
+With speed the lens opens by up to 17 degrees while the boom closes in 14% and drops 20%, so the car keeps most of its size as the street stretches past it; the boom used to back away 18% as the lens widened, and its follow point trailed the car by its speed over 18 (2.8 m at 180 km/h), which together shrank the car by a third.
+The follow point now aims that much ahead, so it keeps up with the car at any steady speed and still eases out a jolt.
+The camera looks at the road 9 m ahead of the car (16 m at full speed), which puts the car in the frame's lower third and the horizon above the middle.
+It has weight: it falls up to 0.8 m behind a car that pulls away and closes up to 0.55 m on one that brakes, for a change of pace only (it catches up with a car that keeps pulling), and it leans into a turn by up to 2.6 degrees (not with Camera shake off).
+
+The motion check (`scripts/playtests/motion.mjs`, see the README) measured the car at 141 px of a 1600 px frame at rest and 115 px above 72 km/h before, and 242 px and 222 px now.
 
 ## Night lights
 
