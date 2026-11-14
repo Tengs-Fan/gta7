@@ -14,6 +14,7 @@ import { prism } from '../city/rooftops';
 import { box, cyl, ModelBuilder } from '../furniture';
 import type { RGB } from '../geo';
 import { canvas, glowTexture, toTexture } from '../textures/misc';
+import { beam } from './farms';
 import type { CountryView } from './index';
 import { DIRT_Y, type PlacesKit } from './kit';
 import { SIGN_GLOW } from './town';
@@ -309,7 +310,27 @@ export function buildDriveIn(view: CountryView, kit: PlacesKit): { update: (nigh
   for (const [z0, z1] of [[sc.z0 - 0.5, sc.z0], [sc.z1, sc.z1 + 0.5]] as const) boxC(p.plain, f.minX - 0.03, sc.y0 - 0.5, z0, f.minX, sc.y1 + 0.5, z1, [0.92, 0.92, 0.9]);
   boxC(p.plain, f.minX - 0.03, sc.y0 - 0.5, sc.z0, f.minX, sc.y0, sc.z1, [0.92, 0.92, 0.9]);
   boxC(p.plain, f.minX - 0.03, sc.y1, sc.z0, f.minX, sc.y1 + 0.5, sc.z1, [0.92, 0.92, 0.9]);
-  for (let z = f.minZ + 2; z < f.maxZ; z += 6) boxC(p.plain, f.maxX, 0, z - 0.2, f.maxX + 2.6, 0.6, z + 0.2, [0.3, 0.3, 0.3]);
+  // A cap along the top, and the base under the picture in boards with the name across them.
+  boxC(p.plain, f.minX - 0.25, sc.y1 + 0.5, f.minZ - 0.25, f.maxX + 0.25, sc.y1 + 0.85, f.maxZ + 0.25, [0.16, 0.17, 0.17]);
+  // The scaffold behind it, to the city, under the name's board (12.25 m up): a raking strut from each footing up the
+  // back, a post up it, girts and braces across them, and a ladder up past the board's end.
+  const steel: RGB = [0.36, 0.37, 0.38];
+  const top = sc.y1 - 3.5 - 2.25 - 0.3;
+  const struts: number[] = [];
+  for (let z = f.minZ + 2; z < f.maxZ; z += 6) {
+    boxC(p.plain, f.maxX, 0, z - 0.2, f.maxX + 2.6, 0.6, z + 0.2, [0.3, 0.3, 0.3]);
+    beam(p.plain, [f.maxX + 2.4, 0.6, z], [f.maxX + 0.12, top, z], 0.24, steel);
+    beam(p.plain, [f.maxX + 0.12, 0.6, z], [f.maxX + 0.12, top, z], 0.22, steel);
+    struts.push(z);
+  }
+  for (const y of [4, 8]) {
+    const o = f.maxX + 0.12 + (2.28 * (top - y)) / (top - 0.6);
+    beam(p.plain, [o, y, struts[0]!], [o, y, struts[struts.length - 1]!], 0.14, steel);
+    for (let k = 0; k + 1 < struts.length; k++) beam(p.plain, [f.maxX + 0.14, y, struts[k]!], [f.maxX + 0.14, y + 3.6, struts[k + 1]!], 0.08, steel);
+  }
+  const lz = f.maxZ - 1.2;
+  for (const dz of [-0.22, 0.22]) boxC(p.plain, f.maxX + 0.1, 0.6, lz + dz - 0.03, f.maxX + 0.16, sc.y1 + 0.5, lz + dz + 0.03, steel);
+  for (let y = 0.9; y < sc.y1 + 0.4; y += 0.4) boxC(p.plain, f.maxX + 0.1, y, lz - 0.22, f.maxX + 0.16, y + 0.04, lz + 0.22, steel);
   const back = kit.atlas.band(192, (ctx) => {
     const glow = ctx.canvas !== kit.atlas.canvas;
     ctx.fillStyle = glow ? '#000' : '#1b2238';
@@ -325,12 +346,17 @@ export function buildDriveIn(view: CountryView, kit: PlacesKit): { update: (nigh
     ctx.fillText('DRIVE-IN · LAS LOMAS COUNTY', 512, 160, 980);
   }, true);
   kit.board(p, back, 24, 4.5, f.maxX + 0.03, sc.y1 - 3.5, zc, Math.PI / 2);
+  kit.board(p, back, 17, 3.2, f.minX - 0.04, (sc.y0 - 0.5) / 2, zc, -Math.PI / 2);
 
   // The booth: a white block with a flat roof, its projector's window to the screen.
   const b = d.booth;
   boxC(p.plain, b.minX, 0, b.minZ, b.maxX, 4.4, b.maxZ, [0.93, 0.92, 0.88]);
   boxC(p.plain, b.minX - 0.3, 4.4, b.minZ - 0.3, b.maxX + 0.3, 4.65, b.maxZ + 0.3, [0.2, 0.55, 0.6]);
   boxC(p.plain, b.maxX, 2.6, zc - 0.6, b.maxX + 0.04, 3.4, zc + 0.6, [0.05, 0.05, 0.06]);
+  // A teal band round it under the roof, a window either side of the projector's, its door to the lot behind.
+  boxC(p.plain, b.minX - 0.03, 3.7, b.minZ - 0.03, b.maxX + 0.03, 4.0, b.maxZ + 0.03, [0.2, 0.55, 0.6]);
+  for (const dz of [-2.4, 2.4]) boxC(p.plain, b.maxX, 1.4, (b.minZ + b.maxZ) / 2 + dz - 0.5, b.maxX + 0.05, 2.6, (b.minZ + b.maxZ) / 2 + dz + 0.5, [0.16, 0.2, 0.24]);
+  boxC(p.plain, b.minX - 0.05, 0, (b.minZ + b.maxZ) / 2 - 0.5, b.minX, 2.2, (b.minZ + b.maxZ) / 2 + 0.5, [0.2, 0.55, 0.6]);
   // The stand: cream with a teal roof, its counter to the lot and its sign over it.
   const st = d.stand;
   boxC(p.plain, st.minX, 0, st.minZ, st.maxX, 3.5, st.maxZ, [0.95, 0.9, 0.78]);
@@ -343,6 +369,14 @@ export function buildDriveIn(view: CountryView, kit: PlacesKit): { update: (nigh
     ctx.fillRect(40, 10, 944, 60);
   }, true);
   kit.board(p, counter, st.maxX - st.minX - 1, 1.6, (st.minX + st.maxX) / 2, 1.6, st.maxZ + 0.03, 0);
+  // The counter's ledge under the hatch, a frame round it, a red skirt along the foot of the walls, teal corner boards.
+  const red: RGB = [0.62, 0.16, 0.13];
+  const teal: RGB = [0.2, 0.55, 0.6];
+  boxC(p.plain, st.minX + 0.4, 0.82, st.maxZ, st.maxX - 0.4, 0.92, st.maxZ + 0.45, [0.85, 0.85, 0.82]);
+  for (const x of [st.minX + 0.4, st.maxX - 0.52]) boxC(p.plain, x, 0.8, st.maxZ, x + 0.12, 2.45, st.maxZ + 0.1, teal);
+  boxC(p.plain, st.minX + 0.4, 2.4, st.maxZ, st.maxX - 0.4, 2.55, st.maxZ + 0.12, teal);
+  boxC(p.plain, st.minX - 0.04, 0, st.minZ - 0.04, st.maxX + 0.04, 0.6, st.maxZ + 0.04, red);
+  for (const x of [st.minX, st.maxX]) for (const z of [st.minZ, st.maxZ]) boxC(p.plain, x - 0.1, 0, z - 0.1, x + 0.1, 3.5, z + 0.1, teal);
   const menu = kit.atlas.band(128, (ctx) => {
     const glow = ctx.canvas !== kit.atlas.canvas;
     ctx.fillStyle = glow ? '#000' : '#c42a2a';

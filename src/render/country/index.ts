@@ -99,6 +99,10 @@ export class CountryView {
     this.valley = new ValleyView(this, wind);
     this.ranch = new RanchView(this);
     this.valley.lit.push(this.farms.material);
+    // Hollister Farm's farmhouse porch, in the city's attractions mesh (render/city/attractions.ts), takes the headlights
+    // as the county's porches do: its deck and step are ground a car comes up to.
+    const attractions = city.group.getObjectByName('attractions') as THREE.Mesh;
+    this.valley.lit.push(attractions.material as THREE.MeshStandardMaterial);
     const kit = new PlacesKit();
     this.animated.push(buildTown(this, kit));
     const driveIn = buildDriveIn(this, kit);

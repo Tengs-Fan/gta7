@@ -129,7 +129,7 @@ Each flat-ground assumption is kept like this:
 
 Two cells are rebuilt once the city stands, by `buildAttractions` in `src/world/attractions.ts`, a pass modelled on `drown()`:
 
-- **Hollister Farm** on cell (3,0), between the canal and Gull Bay: a gravel lane from a gate on Hillcrest Rd, the farmhouse, a red barn, a silo, forty pumpkins and a corn maze either side of the lane's mown aisle, with a hay-bale kicker on the lane that throws a car down the aisle.
+- **Hollister Farm** on cell (3,0), between the canal and Gull Bay: a gravel lane from a gate on Hillcrest Rd, the farmhouse (a city house the farm's renderer gives the county's farmhouse porch, shallow enough that Old Man Hollister stands clear of its step), a red barn (a garage, under the county's gambrel roof), a silo, forty pumpkins and a corn maze either side of the lane's mown aisle, with a hay-bale kicker on the lane that throws a car down the aisle.
 - **Eternal Palms Cemetery** on cell (1,1), across Hillcrest Rd from the cove: paths in a grid, about 140 headstones in rows, twelve of them epitaph stones, a chapel with a bell tower, three family mausoleums, cypresses and an iron fence.
 
 The pass runs in `generateCity` just before the ground floors, after the street furniture, the drowned bays, the coast, the stunt ramps and the water filters; only the ground floors, Turbine Row and Smuggler's Key, AzuraLink and the hills' settling come after it.
@@ -348,6 +348,7 @@ It draws nothing from the city's generator (the stores' tints come from its own)
   A store is a false front (tier 0, the tall board on its street side) and a body under a gable (tier 1).
 - Their colliders come after every older one (`country.firstBuilding`, as `firstProp` for the props), so every older collider keeps its id.
   The city's building renderer skips them; `render/country/town.ts` draws them with the city's own facade materials, so their windows light at night as the city's do.
+  Their shop fronts repeat bays of a band of four (the door's, always the middle bay, and three display windows) rather than stretching one picture across the front, and nothing of them stands on the boardwalks between the front's step and the porch posts, where people walk.
 - The grain elevator (40 m), the water tower (DRY CREEK. YOU'RE ALMOST SOMEWHERE.), the World's Second-Largest Corn Cob and Gas & Grits' canopy are the places' solids, added after the county's props.
 - People spawn on the boardwalks in front of the stores (footpaths with `spawn`), which join the verges at the crossroads' corners.
   A county footpath that crosses a road is a crosswalk on the light of the junction nearest it, which gives the town the crossings over its south and east arms that the verges lack.
@@ -362,6 +363,7 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 - Its forty bays stand in arcs nose to the screen, after every older bay; they fill, nearly all of them, only while the lot is open (19:00 to 01:00), under the parked cars' usual out-of-view rule.
 - A player's horn in the lot while a film runs sets the cars round him flashing their lights and a moviegoer shushing him (`driveInShush`, at most once every 4 s).
 - The screen's frame is solid, so you can hide behind it; the booth, the concession stand and the marquee's posts are solids too, and the speaker posts break.
+  The scaffold's struts behind the screen are drawn only, as the porches are.
 
 **Gravel Gulch** is a dirt loop of about 1.1 km south of the highway, with a hairpin loop up its middle, six whoops and two tabletops.
 - The whoops and the tabletops are ramp pairs (a ramp up to a crest, one up to it from beyond) that are not stunt ramps (`Ramp.stunt` false): a jump off one is no stunt, and the stunt jumps' total is still the six.
