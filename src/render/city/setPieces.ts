@@ -11,17 +11,20 @@ import { block, face, strut, texel, type V } from '../setPieceModels';
 import { Atlas } from './attractions';
 import type { CityView } from './index';
 
-const YELLOW: RGB = [0.86, 0.6, 0.1];
-const DARK: RGB = [0.2, 0.21, 0.23];
-const WHITE: RGB = [0.9, 0.9, 0.88];
-const GLASS: RGB = [0.07, 0.09, 0.11];
-const CONCRETE: RGB = [0.66, 0.64, 0.6];
+/** Vertex colours are linear: the cranes' yellow is the old crane's #e0a21a, the dark steel and glass near black. */
+const YELLOW: RGB = [0.75, 0.36, 0.012];
+const DARK: RGB = [0.045, 0.048, 0.055];
+const WHITE: RGB = [0.8, 0.8, 0.78];
+const GLASS: RGB = [0.012, 0.016, 0.022];
+const CONCRETE: RGB = [0.42, 0.4, 0.37];
 
 /** The atlas bands every set piece samples: the plain white under the vertex colours, a warm lamp and a red beacon. */
 interface Bands {
   plain: number[];
   lamp: number[];
   beacon: number[];
+  /** The stadium's concourse glazing: dark blue glass by day, a warm glow from the concourse after dark. */
+  concourse: number[];
 }
 
 /** A band of one colour on the atlas, `glow` its colour in the glow map (the emissive the signs' night lighting scales). */
@@ -44,7 +47,7 @@ function solid(atlas: Atlas, color: string, glow: string | null): number[] {
  * tip, with the machinery house on the backreach, the apex frame rising to 47 m with its forestays out to the boom and
  * backstays to the backreach (the silhouette a port crane is known by), the trolley with the driver's cab under it, the
  * hoist ropes and the spreader. Floodlights under the boom and the portal, red beacons on the apex and the boom's tip.
- * About 1,300 triangles a crane.
+ * About 1,050 triangles a crane.
  */
 function crane(g: GeoBuilder, p: Prop, b: Bands): void {
   const o = (x: number, y: number, z: number): V => [p.x + x, p.y + y, p.z + z];
@@ -136,11 +139,11 @@ function oval(cx: number, cz: number, hx: number, hz: number, k: number, segs: n
 
 /**
  * The Azura Bowl over the box the sim makes of it (`r`, 22 m): a podium clad as a stadium's concourse (a concrete base
- * with the gates and their boards, dark glazing behind white fins, bands at the concourse levels, a cornice carrying
- * the name on the north and south fronts), and on its top the open bowl: the striped pitch with its markings, twelve
+ * with the ten gates and their boards, dark glazing behind white fins (lit warm from inside after dark), bands at the
+ * concourse levels, a cornice carrying the name on the north and south fronts), and on its top the open bowl: the striped pitch with its markings, twelve
  * rows of stands rising 12 m to a rounded rim (teal and white seating blocks, grey aisles), the outer wall behind them
  * on columns, a canopy over the upper rows with its floodlight strip, and a floodlight mast at each corner of the
- * podium's roof. About 9,000 triangles.
+ * podium's roof. About 5,800 triangles.
  */
 function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
   const cx = (r.minX + r.maxX) / 2;
@@ -156,7 +159,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
     { x0: r.minX, z0: r.maxZ, ux: 0, uz: -1, len: r.maxZ - r.minZ, nx: -1, nz: 0, front: false },
   ];
   const name = atlas.board([['AZURA BOWL', 200, '#ff4fa3']], '#f3f1ec', 200);
-  const gates = 'ABCDEFGH'.split('').map((l) => atlas.board([[`GATE ${l}`, 150, '#ffffff']], '#0b7f87', 200));
+  const gates = 'ABCDEFGHJK'.split('').map((l) => atlas.board([[`GATE ${l}`, 150, '#ffffff']], '#0b7f87', 200));
   let gate = 0;
   for (const w of walls) {
     const P = (u: number, y: number, out = 0): V => [w.x0 + w.ux * u + w.nx * out, y, w.z0 + w.uz * u + w.nz * out];
@@ -171,13 +174,15 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
     };
     // The base storey with its gates, the glazed concourse, the cornice.
     wall(0, w.len, base, 5, CONCRETE);
-    wall(0, w.len, 5, top - 2.6, [0.16, 0.2, 0.25]);
+    wall(0, w.len, 5, top - 2.6, [1, 1, 1], 0, b.concourse);
     wall(0, w.len, top - 2.6, top + 0.6, WHITE);
     const count = Math.max(2, Math.round(w.len / 34));
     for (let k = 0; k < count; k++) {
       const u = (w.len * (k + 0.5)) / count;
       wall(u - 2.2, u + 2.2, base, 3.6, GLASS, 0.02);
-      wall(u - 2.2, u + 2.2, 3.8, 4.7, [1, 1, 1], 0.03, [0, gates[gate % 8]![0], 1, gates[gate % 8]![0], 1, gates[gate % 8]![1], 0, gates[gate % 8]![1]]);
+      const gv = gates[gate % gates.length]!;
+      // Seen from outside a wall's u runs right to left: the boards' u runs the other way.
+      wall(u - 2.2, u + 2.2, 3.8, 4.7, [1, 1, 1], 0.03, [1, gv[0], 0, gv[0], 0, gv[1], 1, gv[1]]);
       gate++;
     }
     // The fins (clear of the name board on the fronts), and the bands at the concourse's levels.
@@ -189,7 +194,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
     slab(0, w.len, 4.7, 5.3, 0.18, WHITE);
     slab(0, w.len, 11.2, 11.7, 0.18, WHITE);
     slab(0, w.len, top + 0.6, top + 0.9, 0.3, [0.8, 0.8, 0.78]);
-    if (w.front) wall(w.len / 2 - nameW / 2, w.len / 2 + nameW / 2, top - 2.4, top + 0.4, [1, 1, 1], 0.02, [0, name[0], 1, name[0], 1, name[1], 0, name[1]]);
+    if (w.front) wall(w.len / 2 - nameW / 2, w.len / 2 + nameW / 2, top - 2.4, top + 0.4, [1, 1, 1], 0.02, [1, name[0], 0, name[0], 0, name[1], 1, name[1]]);
   }
   // The bowl. Rings round it: the pitch's edge, the stands' foot (a 1.2 m wall up from the apron), each row, the rim.
   const N = BOWL.segments;
@@ -198,9 +203,9 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
   const rowHalf = (i: number) => lerp2(BOWL.foot, BOWL.rim, i / BOWL.rows);
   const seat = (k: number, i: number): RGB => {
     const block6 = Math.floor((k / N) * 16);
-    if (k % 4 === 0) return [0.55, 0.55, 0.53];
-    if (i >= BOWL.rows - 3) return [0.8, 0.82, 0.84];
-    return block6 % 2 === 0 ? [0.05, 0.5, 0.56] : [0.07, 0.42, 0.5];
+    if (k % 4 === 0) return [0.3, 0.3, 0.29];
+    if (i >= BOWL.rows - 3) return [0.62, 0.64, 0.66];
+    return block6 % 2 === 0 ? [0.01, 0.24, 0.3] : [0.015, 0.17, 0.24];
   };
   const up: V = [0, 1, 0];
   for (let k = 0; k < N; k++) {
@@ -227,7 +232,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
     const [ra, rb] = [oval(cx, cz, BOWL.rim[0], BOWL.rim[1], k, N), oval(cx, cz, BOWL.rim[0], BOWL.rim[1], k + 1, N)];
     const out: V = [-inward[0], 0, -inward[2]];
     face(g, [ra[0], top + BOWL.rimY, ra[1]], [rb[0], top + BOWL.rimY, rb[1]], [rb[0], top + BOWL.rimY + 0.6, rb[1]], [ra[0], top + BOWL.rimY + 0.6, ra[1]], inward, WHITE, b.plain);
-    face(g, [ra[0], top, ra[1]], [rb[0], top, rb[1]], [rb[0], top + BOWL.rimY + 0.6, rb[1]], [ra[0], top + BOWL.rimY + 0.6, ra[1]], out, k % 2 === 0 ? [0.2, 0.24, 0.29] : [0.86, 0.86, 0.84], b.plain);
+    face(g, [ra[0], top, ra[1]], [rb[0], top, rb[1]], [rb[0], top + BOWL.rimY + 0.6, rb[1]], [ra[0], top + BOWL.rimY + 0.6, ra[1]], out, k % 2 === 0 ? [0.035, 0.05, 0.07] : WHITE, b.plain);
     const edge = (q: readonly [number, number]): [number, number] => {
       const dx = q[0] - cx;
       const dz = q[1] - cz;
@@ -256,7 +261,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
   const [fx, fz] = BOWL.foot;
   const y = top + 0.02;
   const flat = (x0: number, z0: number, x1: number, z1: number, yy: number, c: RGB) => face(g, [x0, yy, z0], [x1, yy, z0], [x1, yy, z1], [x0, yy, z1], up, c, b.plain);
-  const apron: RGB = [0.22, 0.42, 0.2];
+  const apron: RGB = [0.05, 0.15, 0.04];
   flat(cx - fx, cz - fz, cx + fx, cz - pz, y, apron);
   flat(cx - fx, cz + pz, cx + fx, cz + fz, y, apron);
   flat(cx - fx, cz - pz, cx - px, cz + pz, y, apron);
@@ -264,7 +269,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
   const stripes = 12;
   for (let i = 0; i < stripes; i++) {
     const x0 = cx - px + (2 * px * i) / stripes;
-    flat(x0, cz - pz, x0 + (2 * px) / stripes, cz + pz, y, i % 2 === 0 ? [0.28, 0.55, 0.24] : [0.24, 0.49, 0.21]);
+    flat(x0, cz - pz, x0 + (2 * px) / stripes, cz + pz, y, i % 2 === 0 ? [0.07, 0.25, 0.05] : [0.055, 0.2, 0.04]);
   }
   const line: RGB = [0.95, 0.95, 0.93];
   const ly = y + 0.02;
@@ -297,7 +302,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
     for (const sz of [-1, 1]) {
       const foot: V = [cx + sx * (r.maxX - cx - 3.2), top + 0.9, cz + sz * (r.maxZ - cz - 3)];
       const head: V = [cx + sx * (r.maxX - cx - 5.5), top + 32, cz + sz * (r.maxZ - cz - 4.8)];
-      strut(g, foot, head, 1.1, [0.78, 0.79, 0.8], b.plain);
+      strut(g, foot, head, 1.1, [0.58, 0.6, 0.62], b.plain);
       const d = new THREE.Vector3(cx - head[0], -18, cz - head[2]).normalize();
       const side = new THREE.Vector3(-d.z, 0, d.x).normalize();
       const upv = new THREE.Vector3().crossVectors(side, d).normalize();
@@ -318,7 +323,7 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
 export function buildSetPieces(view: CityView): void {
   const L = view.world.layout;
   const atlas = Atlas.growing();
-  const bands: Bands = { plain: solid(atlas, '#ffffff', null), lamp: solid(atlas, '#fff6e0', '#e8dcc0'), beacon: solid(atlas, '#ff4030', '#ff2a18') };
+  const bands: Bands = { plain: solid(atlas, '#ffffff', null), lamp: solid(atlas, '#fff6e0', '#e8dcc0'), beacon: solid(atlas, '#ff4030', '#ff2a18'), concourse: solid(atlas, '#2a3442', '#2c2418') };
   const g = new GeoBuilder(true);
   for (const p of L.props) if (p.kind === 'crane') crane(g, p, bands);
   if (L.stadium) stadium(g, atlas, L.stadium, bands);

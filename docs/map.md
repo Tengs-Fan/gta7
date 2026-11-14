@@ -55,7 +55,7 @@ The node grid keeps its 11 by 11 indexing, so `roads.node(i, j)` still names the
 
 - Hillcrest Green becomes a two-by-two park, the streets inside it turned into lawns and paths.
 - The Azura Bowl takes two cells: the bowl in the middle, a car park at either end.
-  The sim makes it a 22 m box; it is drawn as a stadium on that box (`src/render/city/setPieces.ts`): a podium clad as its concourse, with eight gates and the name on its north and south cornices, and on its top an open bowl of twelve rows round a pitch, under a canopy, with a floodlight mast at each corner.
+  The sim makes it a 22 m box; it is drawn as a stadium on that box (`src/render/city/setPieces.ts`): a podium clad as its concourse, with ten gates and the name on its north and south cornices, and on its top an open bowl of twelve rows round a pitch, under a canopy, with a floodlight mast at each corner.
   A helicopter coming down on it rests on the pitch.
 - Downtown gets Civic Plaza, two cells with towers at either end of an open square: paving, two lawns, a fountain and rows of trees.
 

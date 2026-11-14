@@ -8,7 +8,7 @@
 //
 //   node scripts/playtest.mjs --script scripts/playtests/setpieces.mjs --out /tmp/setpieces
 //
-// SETPIECES_ONLY=ferris-near,crane-near shoots only those views by day, for a quick look. The camera is held where the
+// SETPIECES_ONLY=ferris-near,crane-near shoots only those views, for a quick look, by day or at SETPIECES_HOUR. The camera is held where the
 // script puts it (the game's own camera is suspended) and the player stands at the view's `stand` spot, on land.
 
 /** name: camera position, the point it looks at, where the player stands (x, z) and the field of view. */
@@ -109,17 +109,17 @@ export default async function (t) {
   await t.boot();
   await t.newGame();
   const software = (await t.state()).render.software;
-  await t.game((g) => {
+  await t.game((g, hour) => {
     g.godMode(true);
     g.game.applySettings({ ...g.game.settings, quality: 'high' }, false);
     g.setClockRate(0);
-    g.setTime(11);
+    g.setTime(hour);
     g.forceWeather('clear');
     const sim = g.sim;
     sim.ambient = false;
     for (const c of [...sim.characters]) if (!c.isPlayer && !c.vehicle) sim.removeCharacter(c);
     for (const v of [...sim.vehicles]) if (v !== sim.player.vehicle) sim.removeVehicle(v);
-  });
+  }, Number(process.env.SETPIECES_HOUR ?? 11));
   await t.game(installCamera);
   await t.wait(1500);
   const rows = [];
@@ -137,7 +137,7 @@ export default async function (t) {
       const z = g.game.renderer.monorail.train.position.z;
       return g.sim.world.layout.monorail.stations.some((s) => Math.abs(s.z - z) < 0.05) === want;
     }, at, { timeout: 180_000, polling: 100 });
-  const keys = software ? ['ferris-near', 'docks-car'] : ONLY ?? Object.keys(VIEWS);
+  const keys = software ? ['ferris-near', 'docks-car', 'stadium-high', 'bridge-car'] : ONLY ?? Object.keys(VIEWS);
   for (const k of keys) {
     if (VIEWS[k].train || VIEWS[k].station) {
       if (k === 'station') {
