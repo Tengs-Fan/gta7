@@ -1,13 +1,15 @@
 // How the county's places and Hollister Farm are drawn (render/country/town.ts, render/city/attractions.ts): Dry Creek's
 // fronts in bays of their band, never stretched far from its own proportions, the door's bay in the middle, and nothing
 // of theirs on the boardwalks where people walk; the places' atlas no taller than it was; every vertex of the redrawn
-// meshes with a normal; Hollister's farmhouse porch clear of where its owner stands.
+// meshes and models with a normal; Hollister's farmhouse porch clear of where its owner stands.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
 import { HOLLISTER_PORCH } from '../../src/render/city/attractions';
 import { CountryView } from '../../src/render/country';
+import { farmFenceGeometry } from '../../src/render/country/farmModels';
+import { pineGeometry } from '../../src/render/country/pineModels';
 import { bays } from '../../src/render/country/town';
 import { attractionOf } from '../../src/world/attractions';
 import { rectContains } from '../../src/world/layout';
@@ -79,10 +81,16 @@ describe('the redrawn meshes', () => {
   });
 
   it('give every vertex a normal to light it by (a zero one lights a pixel NaN, which the bloom spreads over the frame)', () => {
-    for (const [root, name] of [[view.group, 'dry-creek'], [view.group, 'moonbeam-drive-in'], [view.group, 'farmsteads'], [view.group, 'lazy-q-ranch'], [city.group, 'attractions']] as const) {
-      const n = mesh(root, name).geometry.getAttribute('normal');
+    const geos: Array<[string, THREE.BufferGeometry]> = [
+      ...(['dry-creek', 'moonbeam-drive-in', 'farmsteads', 'lazy-q-ranch', 'lake-lomas', 'hedgerows'] as const).map((n): [string, THREE.BufferGeometry] => [n, mesh(view.group, n).geometry]),
+      ['attractions', mesh(city.group, 'attractions').geometry],
+      ['pine', pineGeometry()],
+      ['farm-fence', farmFenceGeometry()],
+    ];
+    for (const [name, g] of geos) {
+      const n = g.getAttribute('normal');
       let zero = 0;
-      for (let i = 0; i < n.count; i++) if (Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) < 0.5) zero++;
+      for (let i = 0; i < n.count; i++) if (!(Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) > 0.5)) zero++;
       expect(zero, name).toBe(0);
     }
   });

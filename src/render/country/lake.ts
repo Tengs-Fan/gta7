@@ -18,6 +18,7 @@ import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { fadeNearCamera, type WindUniforms } from '../props';
 import { canvas, glowTexture, toTexture } from '../textures/misc';
 import type { ViewState } from '../../sim/viewState';
+import { beam } from './farms';
 import type { Camera, CountryView } from './index';
 import type { PlacePieces, PlacesKit } from './kit';
 
@@ -225,6 +226,15 @@ function drawCabin(kit: PlacesKit, p: PlacePieces, c: LakeCabin, k: number, band
   kit.board(p, side, d, E, r.minX - 0.02, E / 2, cz, -Math.PI / 2, 0, 1, stain);
   const roof = ROOFS[k % ROOFS.length]!;
   pitched(p.plain, r, E, RIDGE_Y, true, 0.5, roof, scaleRgb(wall, 0.9));
+  // Under the overhangs their boards (seen from under the eaves, where the roof alone would show the sky), a fascia along
+  // each eave, barge boards up the rakes and a cap along the ridge.
+  for (const s of [-1, 1]) {
+    const ez = cz + s * (d / 2 + 0.5);
+    face(p.plain, [r.minX - 0.5, E - 0.03, ez], [r.maxX + 0.5, E - 0.03, ez], [r.maxX + 0.5, RIDGE_Y - 0.03, cz], [r.minX - 0.5, RIDGE_Y - 0.03, cz], [0, -1, -s], scaleRgb(wall, 0.6));
+    boxC(p.plain, r.minX - 0.5, E - 0.16, Math.min(ez, ez + s * 0.05), r.maxX + 0.5, E + 0.03, Math.max(ez, ez + s * 0.05), DARK_WOOD);
+    for (const x of [r.minX - 0.46, r.maxX + 0.46]) beam(p.plain, [x, E - 0.06, ez], [x, RIDGE_Y - 0.02, cz], 0.18, DARK_WOOD);
+  }
+  beam(p.plain, [r.minX - 0.52, RIDGE_Y + 0.02, cz], [r.maxX + 0.52, RIDGE_Y + 0.02, cz], 0.16, scaleRgb(roof, 0.7));
   // The gable ends' logs, painted over the plain triangles.
   p.painted.tri(r.minX - 0.02, E, r.minZ, r.minX - 0.02, E, r.maxZ, r.minX - 0.02, RIDGE_Y - 0.05, cz, [0, gable[0], 1, gable[0], 0.5, gable[1]], stain);
   p.painted.tri(r.maxX + 0.02, E, r.maxZ, r.maxX + 0.02, E, r.minZ, r.maxX + 0.02, RIDGE_Y - 0.05, cz, [0, gable[0], 1, gable[0], 0.5, gable[1]], stain);
@@ -294,41 +304,89 @@ function drawTent(g: GeoBuilder, t: Tent): void {
     face(g, P(hw, 0, -hl), P(hw, 0, hl), P(hw, wall, hl), P(hw, wall, -hl), P(1, 0, 0), scaleRgb(canvasColor, 0.8));
   }
   const toward = (lx: number, lz: number): V => { const a = f(0, 0, 0); const b = f(lx, 0, lz); return [b[0] - a[0], 0, b[2] - a[2]]; };
-  face(g, P(-hw, 0, -hl), P(hw, 0, -hl), P(hw, wall, -hl), P(-hw, wall, -hl), toward(0, -1), scaleRgb(canvasColor, 0.85));
+  // A ridge tent has no walls under its slopes: its end walls are only their gables (a wall of no height has no normal,
+  // and lit a pixel NaN that the bloom spread over the frame).
+  if (wall > 0) face(g, P(-hw, 0, -hl), P(hw, 0, -hl), P(hw, wall, -hl), P(-hw, wall, -hl), toward(0, -1), scaleRgb(canvasColor, 0.85));
   tri(g, P(-hw, wall, -hl), P(hw, wall, -hl), P(0, h, -hl), toward(0, -1), scaleRgb(canvasColor, 0.85));
-  face(g, P(-hw, 0, hl), P(hw, 0, hl), P(hw, wall, hl), P(-hw, wall, hl), toward(0, 1), scaleRgb(canvasColor, 0.95));
+  if (wall > 0) face(g, P(-hw, 0, hl), P(hw, 0, hl), P(hw, wall, hl), P(-hw, wall, hl), toward(0, 1), scaleRgb(canvasColor, 0.95));
   tri(g, P(-hw, wall, hl), P(hw, wall, hl), P(0, h, hl), toward(0, 1), scaleRgb(canvasColor, 0.95));
   face(g, P(-0.45, 0, hl + 0.01), P(0.45, 0, hl + 0.01), P(0.25, wall + (h - wall) * 0.6, hl + 0.01), P(-0.25, wall + (h - wall) * 0.6, hl + 0.01), toward(0, 1), dark);
   // The ridge pole's trim and the guy lines' pegs.
   boxC(g, ...(() => { const a = P(-0.04, h - 0.04, -hl); const b = P(0.04, h + 0.04, hl); return [Math.min(a[0], b[0]), h - 0.04, Math.min(a[2], b[2]), Math.max(a[0], b[0]), h + 0.04, Math.max(a[2], b[2])] as const; })(), trim);
 }
 
-/** The camper van, nose to -x or +x by its quarter-turn rot: two-tone, a pop-top, windows, round headlights, four wheels and an awning with two chairs. */
+/**
+ * A body extruded across a quarter-turned frame: its side profile `pts` (lz along its length, ly up, and its half-width
+ * there, so its sides can lean in toward its roof), convex and in order round it; its two sides in fans, its rim in quads.
+ */
+function extrude(g: GeoBuilder, f: ReturnType<typeof frame>, pts: ReadonlyArray<readonly [number, number, number]>, color: RGB, side = color): void {
+  const o = f(0, 0, 0);
+  const dir = (lx: number, ly: number, lz: number): V => { const q = f(lx, 0, lz); return [q[0] - o[0], ly, q[2] - o[2]]; };
+  const cz = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  for (const sx of [-1, 1]) for (let i = 1; i + 1 < pts.length; i++) {
+    const [p0, p1, p2] = [pts[0]!, pts[i]!, pts[i + 1]!];
+    tri(g, f(sx * p0[2], p0[1], p0[0]), f(sx * p1[2], p1[1], p1[0]), f(sx * p2[2], p2[1], p2[0]), dir(sx, 0, 0), side);
+  }
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!;
+    const q = pts[(i + 1) % pts.length]!;
+    // Out from the profile's middle, square to the edge.
+    let nz = q[1] - p[1];
+    let ny = -(q[0] - p[0]);
+    if (nz * ((p[0] + q[0]) / 2 - cz) + ny * ((p[1] + q[1]) / 2 - cy) < 0) [nz, ny] = [-nz, -ny];
+    face(g, f(-p[2], p[1], p[0]), f(p[2], p[1], p[0]), f(q[2], q[1], q[0]), f(-q[2], q[1], q[0]), dir(0, ny, nz), color);
+  }
+}
+
+/**
+ * The camper van, nose to +z of its quarter-turned frame: a teal lower body and a cream upper one with a sloped
+ * windscreen and rounded ends, its sides leaning in toward the roof, a cream V on its nose, the pop-top, a band of
+ * windows, dark wheel arches over four wheels, round headlights, bumpers and the spare on its back; an awning with two
+ * chairs under it.
+ */
 function drawVan(g: GeoBuilder, van: { x: number; z: number; rot: number }): void {
   const f = frame(van.x, van.z, van.rot);
   const teal: RGB = [0.22, 0.55, 0.55];
   const cream: RGB = [0.92, 0.88, 0.76];
   const glass: RGB = [0.12, 0.16, 0.19];
-  qbox(g, f, -1.0, 0.4, -2.55, 1.0, 1.25, 2.55, teal);
-  qbox(g, f, -1.0, 1.25, -2.5, 1.0, 1.95, 2.3, cream);
-  qbox(g, f, -0.95, 1.95, -1.9, 0.95, 2.3, 1.3, cream);
-  // The windscreen, windows down both sides and a skirt along the sills.
-  qbox(g, f, -0.9, 1.45, 2.3, 0.9, 1.88, 2.34, glass);
-  for (const s of [-1, 1]) {
-    const [x0, x1] = s > 0 ? [1.0, 1.03] : [-1.03, -1.0];
-    for (const [z0, z1] of [[1.1, 2.0], [-0.1, 0.9], [-1.3, -0.3]] as const) qbox(g, f, x0, 1.4, z0, x1, 1.85, z1, glass);
-    qbox(g, f, x0, 0.62, -2.2, x1, 0.68, 2.2, scaleRgb(teal, 0.6));
+  const dark: RGB = [0.06, 0.06, 0.07];
+  const o = f(0, 0, 0);
+  const dir = (lx: number, ly: number, lz: number): V => { const q = f(lx, 0, lz); return [q[0] - o[0], ly, q[2] - o[2]]; };
+  extrude(g, f, [[-2.48, 0.4, 0.98], [2.42, 0.4, 0.98], [2.6, 0.62, 1.0], [2.62, 1.25, 1.0], [-2.6, 1.25, 1.0], [-2.6, 0.6, 1.0]], teal);
+  extrude(g, f, [[-2.6, 1.25, 1.0], [2.62, 1.25, 1.0], [2.48, 1.86, 0.95], [2.3, 2.0, 0.9], [-2.38, 2.0, 0.9], [-2.56, 1.85, 0.95]], cream);
+  extrude(g, f, [[-1.9, 1.99, 0.86], [1.3, 1.99, 0.86], [1.18, 2.3, 0.84], [-1.84, 2.3, 0.84]], cream, scaleRgb(cream, 0.94));
+  // The V on its nose, the windscreen up its slope, and the windows along both sides of the upper body.
+  face(g, f(-0.75, 1.25, 2.63), f(0.75, 1.25, 2.63), f(0.06, 0.78, 2.63), f(-0.06, 0.78, 2.63), dir(0, 0, 1), cream);
+  face(g, f(-0.86, 1.32, 2.615), f(0.86, 1.32, 2.615), f(0.8, 1.8, 2.5), f(-0.8, 1.8, 2.5), dir(0, 0.3, 1), glass);
+  for (const sx of [-1, 1]) {
+    for (const [z0, z1] of [[1.2, 2.15], [0.0, 1.0], [-1.2, -0.2], [-2.3, -1.4]] as const) {
+      face(g, f(sx * 1.012, 1.38, z0), f(sx * 1.012, 1.38, z1), f(sx * 0.965, 1.8, z1), f(sx * 0.965, 1.8, z0), dir(sx, 0.1, 0), glass);
+    }
+    // The arches: a dark half-disc over each wheel, a little proud of the side.
+    for (const z of [-1.55, 1.55]) {
+      for (let k = 0; k < 6; k++) {
+        const a0 = (k / 6) * Math.PI;
+        const a1 = ((k + 1) / 6) * Math.PI;
+        tri(g, f(sx * 1.012, 0.4, z), f(sx * 1.012, 0.4 + Math.sin(a0) * 0.46, z + Math.cos(a0) * 0.46), f(sx * 1.012, 0.4 + Math.sin(a1) * 0.46, z + Math.cos(a1) * 0.46), dir(sx, 0, 0), dark);
+      }
+    }
   }
-  // Headlights, bumpers and the spare on the back.
-  for (const s of [-1, 1]) qbox(g, f, s * 0.6 - 0.14, 0.75, 2.55, s * 0.6 + 0.14, 1.05, 2.62, [1, 0.95, 0.8]);
-  qbox(g, f, -1.05, 0.3, 2.5, 1.05, 0.45, 2.68, [0.75, 0.76, 0.78]);
-  qbox(g, f, -1.05, 0.3, -2.62, 1.05, 0.45, -2.5, [0.75, 0.76, 0.78]);
+  // Round headlights, bumpers, the spare on its back.
+  const turn = new THREE.Matrix4().makeRotationY(van.rot);
+  const at = (p: V) => new THREE.Matrix4().makeTranslation(p[0], p[1], p[2]).multiply(turn);
+  for (const sx of [-0.62, 0.62]) {
+    put(g, new THREE.CylinderGeometry(0.15, 0.15, 0.06, 10).rotateX(Math.PI / 2), [0.92, 0.92, 0.9], at(f(sx, 0.92, 2.62)));
+    put(g, new THREE.CylinderGeometry(0.11, 0.11, 0.07, 10).rotateX(Math.PI / 2), [1, 0.95, 0.8], at(f(sx, 0.92, 2.64)));
+  }
+  qbox(g, f, -1.05, 0.3, 2.52, 1.05, 0.46, 2.72, [0.75, 0.76, 0.78]);
+  qbox(g, f, -1.05, 0.3, -2.72, 1.05, 0.46, -2.52, [0.75, 0.76, 0.78]);
+  put(g, new THREE.CylinderGeometry(0.34, 0.34, 0.2, 12).rotateX(Math.PI / 2), [0.1, 0.1, 0.11], at(f(0, 0.95, -2.72)));
+  put(g, new THREE.CylinderGeometry(0.2, 0.2, 0.22, 12).rotateX(Math.PI / 2), cream, at(f(0, 0.95, -2.73)));
   for (const sx of [-1, 1]) for (const z of [-1.55, 1.55]) {
-    const c = f(sx * 1.0, 0.36, z);
-    const wheel = new THREE.CylinderGeometry(0.36, 0.36, 0.22, 14).rotateZ(Math.PI / 2);
-    put(g, wheel, [0.1, 0.1, 0.11], new THREE.Matrix4().makeTranslation(c[0], c[1], c[2]).multiply(new THREE.Matrix4().makeRotationY(van.rot)));
-    const hub = new THREE.CylinderGeometry(0.16, 0.16, 0.24, 8).rotateZ(Math.PI / 2);
-    put(g, hub, [0.8, 0.8, 0.78], new THREE.Matrix4().makeTranslation(c[0], c[1], c[2]).multiply(new THREE.Matrix4().makeRotationY(van.rot)));
+    const c = f(sx * 0.98, 0.36, z);
+    put(g, new THREE.CylinderGeometry(0.36, 0.36, 0.22, 14).rotateZ(Math.PI / 2), [0.1, 0.1, 0.11], at(c));
+    put(g, new THREE.CylinderGeometry(0.16, 0.16, 0.24, 8).rotateZ(Math.PI / 2), [0.8, 0.8, 0.78], at(c));
   }
   // The awning: out over the side that faces the fire, striped, with two folding chairs under it.
   const side = 1;
@@ -416,6 +474,15 @@ function drawDock(g: GeoBuilder, land: CountyLakeland): void {
     rod.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
     put(g, rod, [0.12, 0.12, 0.13]);
   }
+  // A swim ladder down the head's far end into the water, and a life ring on a post at its corner.
+  const lz = (head.minZ + head.maxZ) / 2;
+  const iron: RGB = [0.62, 0.64, 0.66];
+  for (const dz of [-0.25, 0.25]) beam(g, [head.minX - 0.12, WATER_Y - 0.8, lz + dz], [head.minX - 0.05, y + 0.9, lz + dz], 0.045, iron);
+  for (let ry = WATER_Y - 0.5; ry < y; ry += 0.3) boxC(g, head.minX - 0.12, ry, lz - 0.25, head.minX - 0.06, ry + 0.04, lz + 0.25, iron);
+  const rx = head.minX + 0.3;
+  const rz = head.maxZ - 0.9;
+  boxC(g, rx - 0.06, y, rz - 0.06, rx + 0.06, y + 1.5, rz + 0.06, DARK_WOOD);
+  put(g, new THREE.TorusGeometry(0.32, 0.08, 6, 12), [0.92, 0.3, 0.18], new THREE.Matrix4().makeTranslation(rx - 0.12, y + 1.1, rz).multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2)));
   // The lantern post.
   boxC(g, lamp.x - 0.07, y, lamp.z - 0.07, lamp.x + 0.07, y + 2.7, lamp.z + 0.07, DARK_WOOD);
   boxC(g, lamp.x - 0.07, y + 2.5, lamp.z - 0.07, lamp.x + 0.5, y + 2.58, lamp.z + 0.07, DARK_WOOD);

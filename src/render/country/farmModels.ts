@@ -9,12 +9,19 @@ import { COW_H, FENCE_H, FENCE_RUN, PROPANE } from '../../world/country/farms';
 import { box, cyl, ModelBuilder } from '../furniture';
 import { canvas, toTexture } from '../textures/misc';
 
-/** A run of post-and-rail fence along local x: a post at either end, three rails between. */
+/**
+ * A run of post-and-rail fence along local x: a post at either end with its top cut to a shallow point to shed the rain,
+ * three rails between, each rolled a little on its axis and weathered its own shade so the run reads as split timber
+ * rather than three planks of one board.
+ */
 export function farmFenceGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
   const wood = 0x8a6d4c;
-  for (const x of [-FENCE_RUN / 2 + 0.07, FENCE_RUN / 2 - 0.07]) b.add('post', box(0.13, FENCE_H + 0.05, 0.13, x, (FENCE_H + 0.05) / 2, 0), wood, 0.85);
-  for (const y of [0.45, 0.85, 1.2]) b.add('rail', box(FENCE_RUN, 0.11, 0.045, 0, y, 0.085), wood);
+  for (const x of [-FENCE_RUN / 2 + 0.07, FENCE_RUN / 2 - 0.07]) {
+    b.add('post', box(0.13, FENCE_H - 0.02, 0.13, x, (FENCE_H - 0.02) / 2, 0), wood, 0.85);
+    b.add('cap', new THREE.ConeGeometry(0.092, 0.09, 4, 1, true).rotateY(Math.PI / 4).translate(x, FENCE_H - 0.02 + 0.045, 0), wood, 0.95);
+  }
+  [[0.45, 0.12, 0.92], [0.85, -0.1, 1.04], [1.2, 0.06, 0.86]].forEach(([y, roll, shade]) => b.add('rail', box(FENCE_RUN, 0.11, 0.045).rotateX(roll!).translate(0, y!, 0.085), wood, shade));
   return b.build('farm-fence');
 }
 
