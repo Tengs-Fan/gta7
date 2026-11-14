@@ -31,11 +31,73 @@ const KICK_PEAK = (() => {
   const tp = Math.atan2(wd, KICK_ZETA * KICK_OMEGA) / wd;
   return (Math.exp(-KICK_ZETA * KICK_OMEGA * tp) * Math.sin(wd * tp)) / wd;
 })();
-/** On-foot boom as update() places it at rest: distance back (normal and far zoom), shoulder offset (m) and pitch after a reset. */
-const FOOT_BOOM = 4.3;
-const FOOT_BOOM_FAR = 6.6;
-const FOOT_SHOULDER = 0.42;
+/**
+ * On-foot boom as update() places it at rest: distance back (m) from his head along the view, with the far zoom (V) and
+ * aiming; how far out over his right shoulder (m) at rest and aiming; and the pitch after a reset. At 3.2 m on the foot
+ * lens he stands 47% of the frame's height (31% from the 4.3 m on the full setting it had), the far zoom's 4.6 m on the
+ * full setting keeps about that wider view (29%), and aiming's 2.4 m frames his upper body at the left.
+ */
+export const FOOT_BOOM = 3.2;
+export const FOOT_BOOM_FAR = 4.6;
+export const FOOT_BOOM_AIM = 2.4;
+export const FOOT_SHOULDER = 0.42;
+export const FOOT_SHOULDER_AIM = 0.62;
 const RESET_PITCH = -0.12;
+/**
+ * The camera stands this far (m) above the line back from his head along the view, so the crosshair passes this high
+ * over his head's centre where he stands. At 0.18 on the closer boom his crown met the frame's middle and his soles came
+ * within 4% of its bottom edge; level with it they stand 8% clear and his head sits just above the middle.
+ */
+export const FOOT_LIFT = 0;
+/**
+ * Aiming it stands FOOT_LIFT_AIM over that line, as it always did: level with his head the crosshair over his shoulder
+ * met someone standing right beside it (0.12 to 0.2 m ahead) at head height, and the gun, turned onto the crosshair's
+ * point, shot him.
+ */
+export const FOOT_LIFT_AIM = 0.18;
+/**
+ * In the water the camera stands as it did on land before: SWIM_BOOM back (SWIM_BOOM_FAR on the far zoom), SWIM_LIFT up, on
+ * the full setting's lens. It
+ * cannot dip under the surface to look up at a swimmer, and the glide that looks over quays and decks (liftSight) is
+ * tuned to it: on the closer boom a pan round a swimmer at a deck's edge turned the view 5.7 degrees in a frame, and
+ * looking up (pitch 0.3) beside one lost his head out of the frame.
+ */
+const SWIM_BOOM = 4.3;
+const SWIM_BOOM_FAR = 6.6;
+const SWIM_LIFT = 0.18;
+/**
+ * The on-foot lens (degrees) against the Field of view setting: FOOT_FOV_REST at rest (a longer lens than the setting,
+ * so the street stands close round him), the full setting on the far zoom, FOOT_FOV_AIM aiming, and opening by
+ * FOOT_FOV_SPRINT as he breaks from a walk (4.3 m/s) into a sprint (7.4 m/s).
+ */
+export const FOOT_FOV_REST = -8;
+export const FOOT_FOV_FAR = 0;
+export const FOOT_FOV_AIM = -16;
+export const FOOT_FOV_SPRINT = 4;
+export function footFov(base: number, aim: boolean, far: boolean, speed: number): number {
+  if (aim) return base + FOOT_FOV_AIM;
+  return base + (far ? FOOT_FOV_FAR : FOOT_FOV_REST) + FOOT_FOV_SPRINT * smoothstep(4.6, 7.2, speed);
+}
+/**
+ * The boom stands back at least FOOT_FRAME_BELOW / tan(half the lens at rest) (m) from his head, so his soles stay in the
+ * frame on a narrow Field of view setting: on the narrowest (55 degrees, a 47 degree foot lens) FOOT_BOOM left them 11%
+ * of the frame below its bottom edge, and the boom stands 4.1 m back instead (3.5 m on 62). From 67 degrees up it is
+ * FOOT_BOOM, which leaves them 8% of the frame clear on the default 68.
+ */
+const FOOT_FRAME_BELOW = 1.8;
+export function footBoom(base: number, far: boolean): number {
+  const lens = footFov(base, false, far, 0);
+  return Math.max(far ? FOOT_BOOM_FAR : FOOT_BOOM, FOOT_FRAME_BELOW / Math.tan((lens * Math.PI) / 360));
+}
+/**
+ * The on-foot camera has weight: it carries on at the pace he had for a moment when he changes it (starting, stopping,
+ * turning) and is pulled back to its place by a critically damped spring of FOOT_SWAY_OMEGA rad/s, never more than
+ * FOOT_SWAY_MAX m off it. At a steady pace it sits in place: the follow point aims ahead by the frame's easing, as the
+ * chase camera's does. A walker starting from rest drops about 0.18 m back and one stopping from a sprint drifts 0.3 m
+ * in. None while aiming or swimming.
+ */
+const FOOT_SWAY_OMEGA = 8.5;
+const FOOT_SWAY_MAX = 0.32;
 /** Reset framing accepts only foliage outside the entire near-camera dissolve band. */
 const KEPT_UNSEEN = 1;
 /**
@@ -88,13 +150,20 @@ const CLOSE_SIDE = 0.2;
 const RAISE_DEPTH = 1.2;
 const RAISE_KEEP = 0.5;
 /**
- * The aim's narrower field of view (16 degrees less) leaves less of his body below his head in the frame at the same
- * depth, so in step with it his head rises toward the frame's middle by this fraction of RAISE_KEEP.
+ * The aim's narrower field of view (FOOT_FOV_AIM, 8 degrees under the foot lens) leaves less of his body below his head
+ * in the frame at the same depth, so in step with it his head rises toward the frame's middle by this fraction of
+ * RAISE_KEEP.
  */
 const RAISE_KEEP_AIM_CUT = 0.8;
 const RAISE_BOTTOM = 0.05;
 const RAISE_MAX = 1.4;
 const RAISE_SIDE = 0.2;
+/**
+ * Risen this far (m) the lens has opened from the foot lens to the full Field of view setting: with his back to a wall
+ * 1.2 m behind him the raised camera (0.9 m up, looking 0.5 rad down) held 63% of him in the frame on the foot lens and
+ * 72% on the setting's.
+ */
+const RAISE_WIDE = 0.6;
 /** The slide reaches RAISE_SIDE once the camera has risen this far (m). */
 const RAISE_SIDE_AT = 0.8;
 const RAISE_EASE = 10;
@@ -415,7 +484,24 @@ export class CameraController {
   private chaseLag = 0;
   private roll = 0;
   private fov = 68;
-  private dist = 4.4;
+  private dist = FOOT_BOOM;
+  /** The on-foot boom the camera settles at when not aiming (m), for the zoom, the setting and the water: see markerView. */
+  private restBoom = FOOT_BOOM;
+  /** How far (m) the on-foot camera stands over the line back from his head: FOOT_LIFT, FOOT_LIFT_AIM aiming, SWIM_LIFT in the water. */
+  private lift = FOOT_LIFT;
+  /**
+   * The on-foot camera's weight (see FOOT_SWAY_OMEGA): its offset (m, over the ground) from where the boom puts it and
+   * that offset's velocity, the velocity he had last frame, and how much of the offset is applied (none aiming).
+   */
+  private readonly sway = new THREE.Vector3();
+  private readonly swayVel = new THREE.Vector3();
+  private readonly lastVel = new THREE.Vector3();
+  /** The view's yaw when lastVel was taken. */
+  private lastVelYaw = 0;
+  private swayOn = 0;
+  private swayFresh = true;
+  /** The weight as applied this frame (sway x swayOn), which rayFor() adds as update() does. */
+  private readonly swayNow = new THREE.Vector3();
   private shakeAmt = 0;
   /** Seconds of play the shake / rumble noise has run (it stands still while paused). */
   private noiseT = 0;
@@ -452,7 +538,7 @@ export class CameraController {
    * keep a swimmer framed from up there, and the floor it was kept above.
    */
   private footView = false;
-  private shoulder = 0.42;
+  private shoulder = FOOT_SHOULDER;
   private boom = 1;
   private footLift = 0;
   private footSide = 0;
@@ -625,9 +711,10 @@ export class CameraController {
     // lookFrom and the desired camera point of update()'s on-foot branch.
     const lx = t.x + rx * s * 0.5;
     const lz = t.z + rz * s * 0.5;
-    const px = t.x - dx * this.dist + rx * s;
-    const py = t.y - dy * this.dist + 0.18;
-    const pz = t.z - dz * this.dist + rz * s;
+    const w = this.swayNow;
+    const px = t.x - dx * this.dist + rx * s + w.x;
+    const py = t.y - dy * this.dist + this.lift;
+    const pz = t.z - dz * this.dist + rz * s + w.z;
     const k = this.boom;
     const side = this.footSide;
     const view = this.raiseTilt !== 0 ? raisedView(this.pitch, RESET_PITCH + this.raiseTilt) : this.pitch + this.footTilt;
@@ -636,6 +723,15 @@ export class CameraController {
       origin: { x: lx + (px - lx) * k + rx * side, y: Math.max(t.y + (py - t.y) * k + this.footLift, this.floorY), z: lz + (pz - lz) * k + rz * side },
       dir: { x: Math.sin(this.yaw) * cv, y: Math.sin(view), z: Math.cos(this.yaw) * cv },
     };
+  }
+
+  /**
+   * What the interaction markers fade by (MarkerView.syncMarkers) while the last update() framed him on foot: the view's
+   * heading over the ground and the boom it settles at when not aiming. Null otherwise (in a vehicle, through a scope,
+   * wasted): there they fade by distance from the lens.
+   */
+  markerView(): { dx: number; dz: number; boom: number } | null {
+    return this.footView ? { dx: Math.sin(this.yaw), dz: Math.cos(this.yaw), boom: this.restBoom } : null;
   }
 
   /** Id of the player slot the camera follows. */
@@ -680,6 +776,11 @@ export class CameraController {
       this.pitch = RESET_PITCH;
       // The view jumps from the chase camera to the boom, so a trunk in the way is a cut, as after a reset.
       this.freshBoom = true;
+      // The follow point starts at his head: eased from the car's (in its body), the boom's root began inside the car,
+      // which stopped it at once and raised the camera right over him, looking down, for the first quarter second. The
+      // boom then eases in from as far as the chase camera stood from him (as the aim's does) instead of cutting in.
+      this.target.set(p.pos.x, p.pos.y + 1.58 * p.appearance.height, p.pos.z);
+      this.dist = Math.max(FOOT_BOOM, Math.min(12, cam.position.distanceTo(this.target)));
     }
     this.wasInVehicle = !!v;
 
@@ -765,10 +866,16 @@ export class CameraController {
       // A swimmer rides the drawn swell (CrowdView.swim), the camera eased after him as after a boat.
       this.seaLift = damp(this.seaLift, swimming ? seaHeightAt(this.sea, p.pos.x, p.pos.z) : 0, 3, dt);
       const headY = swimming ? 1.6 + this.seaLift : lying ? 0.7 : 1.58 * p.appearance.height;
-      this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
+      // The follow point eases after him (a step up a kerb, a landing), aiming as far ahead of him as that easing alone
+      // would leave it behind, so at a steady pace it keeps up (it trailed a sprinter by 0.34 m, a tenth of the boom).
+      const ease = 1 - Math.exp(-22 * dt);
+      const ahead = ease > 1e-6 ? (dt * (1 - ease)) / ease : 0;
+      this.target.lerp(this.scratch.set(p.pos.x + p.vel.x * ahead, p.pos.y + headY, p.pos.z + p.vel.z * ahead), ease);
+      this.stepSway(dt, p.vel, aim || swimming || lying);
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
-      const distTarget = aim ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
-      this.dist = damp(this.dist, distTarget, 10, dt);
+      this.lift = damp(this.lift, swimming ? SWIM_LIFT : aim ? FOOT_LIFT_AIM : FOOT_LIFT, 10, dt);
+      this.restBoom = swimming ? Math.max(this.zoomLevel === 1 ? SWIM_BOOM_FAR : SWIM_BOOM, FOOT_FRAME_BELOW / Math.tan((this.baseFov * Math.PI) / 360)) : footBoom(this.baseFov, this.zoomLevel === 1);
+      this.dist = damp(this.dist, aim ? FOOT_BOOM_AIM : this.restBoom, 10, dt);
       const cy = Math.cos(this.pitch);
       this.dir.set(Math.sin(this.yaw) * cy, Math.sin(this.pitch), Math.cos(this.yaw) * cy);
       const rx = -Math.cos(this.yaw);
@@ -776,16 +883,20 @@ export class CameraController {
       // (Eased like the framing: the sea takes a swimmer 0.4 m down in one frame as he lands in it.)
       this.head.set(this.target.x, this.target.y + (swimming ? SIGHT_HEAD_SWIM : SIGHT_HEAD), this.target.z);
       // Over his right shoulder; a swimmer's camera takes the left one where that sees him better (SIDE_SWAP).
-      const across = aim ? 0.62 : 0.42;
+      const across = aim ? FOOT_SHOULDER_AIM : FOOT_SHOULDER;
       this.sideTarget = swimming ? this.openSide(sim, across, rx, rz) : 1;
       this.shoulderSide = damp(this.shoulderSide, this.sideTarget, SIDE_RATE, dt);
       const shoulder = across * this.shoulderSide;
       this.footView = true;
       this.shoulder = shoulder;
       // Right of the camera is (-cos yaw, sin yaw): shift the character to the left of the crosshair.
-      this.desired.set(this.target.x - this.dir.x * this.dist + rx * shoulder, this.target.y - this.dir.y * this.dist + 0.18, this.target.z - this.dir.z * this.dist + rz * shoulder);
+      const w = this.swayNow;
+      this.desired.set(this.target.x - this.dir.x * this.dist + rx * shoulder + w.x, this.target.y - this.dir.y * this.dist + this.lift, this.target.z - this.dir.z * this.dist + rz * shoulder + w.z);
       lookFrom = new THREE.Vector3(this.target.x + rx * shoulder * 0.5, this.target.y, this.target.z + rz * shoulder * 0.5);
-      fovTarget = aim ? this.baseFov - 16 : this.baseFov;
+      // (A swimmer on the full setting's lens: see SWIM_BOOM.)
+      fovTarget = footFov(this.baseFov, aim, swimming || this.zoomLevel === 1, swimming ? 0 : Math.hypot(p.vel.x, p.vel.z));
+      // Raised over him by a wall at his back, the lens opens to the full setting (see RAISE_WIDE).
+      if (!aim) fovTarget = Math.max(fovTarget, footFov(this.baseFov, false, false, 0) - FOOT_FOV_REST * clamp(this.raiseUp / RAISE_WIDE, 0, 1));
     }
 
     // Shake, speed rumble and impact kick, before the collision checks below so that none of them
@@ -878,6 +989,8 @@ export class CameraController {
     }
     this.boom = len > 0.01 ? Math.min(1, reach / len) : 1;
     if (!onFoot) {
+      this.swayFresh = true;
+      this.swayNow.set(0, 0, 0);
       this.vehicleBoom = Infinity;
       this.trunkReach = Infinity;
       this.hugging.clear();
@@ -982,9 +1095,12 @@ export class CameraController {
     }
     cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
     this.subject.copy(this.eye);
-    // Back out of the scope the boom starts afresh (no glide from the eye).
+    // Back out of the scope the boom starts afresh (no glide from the eye), and without weight.
     this.freshBoom = true;
-    this.dist = 2.4;
+    this.swayFresh = true;
+    this.swayNow.set(0, 0, 0);
+    this.dist = FOOT_BOOM_AIM;
+    this.lift = FOOT_LIFT_AIM;
   }
 
   /**
@@ -994,6 +1110,54 @@ export class CameraController {
    */
   occlusionSubject(): V3 | null {
     return this.mode === 'title' || !this.initialized ? null : this.subject;
+  }
+
+  /**
+   * Steps the on-foot camera's weight (see FOOT_SWAY_OMEGA) over `dt` s for his velocity `vel`, easing it out while it is
+   * `off` (aiming, swimming, down). A change of his pace is a change of the camera's own pace against his, which the
+   * spring then takes out; a jump in his speed (the first frame on foot) is not. His pace is taken in the view's frame:
+   * walking on as the view turns he turns with it, and that is not his change of pace but the player's look (taken in
+   * the world, a pan at a sprint swung the camera wide by its whole 0.32 m).
+   */
+  private stepSway(dt: number, vel: V3, off: boolean): void {
+    const s = this.sway;
+    const v = this.swayVel;
+    if (this.swayFresh) {
+      s.set(0, 0, 0);
+      v.set(0, 0, 0);
+      this.swayOn = off ? 0 : 1;
+      this.swayFresh = false;
+    } else if (dt > 0) {
+      // Last frame's velocity turned with the view since.
+      const a = wrapAngle(this.yaw - this.lastVelYaw);
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const lx = this.lastVel.x * ca + this.lastVel.z * sa;
+      const lz = -this.lastVel.x * sa + this.lastVel.z * ca;
+      v.x -= vel.x - lx;
+      v.z -= vel.z - lz;
+      // Sub-steps, as for the kick spring: at 10 fps one step of the spring would overshoot.
+      const n = Math.ceil(dt * 240);
+      const h = dt / n;
+      const w = FOOT_SWAY_OMEGA;
+      for (let i = 0; i < n; i++) {
+        v.x += (-w * w * s.x - 2 * w * v.x) * h;
+        v.z += (-w * w * s.z - 2 * w * v.z) * h;
+        s.x += v.x * h;
+        s.z += v.z * h;
+      }
+      const len = Math.hypot(s.x, s.z);
+      if (len > FOOT_SWAY_MAX) {
+        s.multiplyScalar(FOOT_SWAY_MAX / len);
+        // Held at the limit: no further out.
+        const out = (v.x * s.x + v.z * s.z) / (FOOT_SWAY_MAX * FOOT_SWAY_MAX);
+        if (out > 0) v.addScaledVector(s, -out);
+      }
+      this.swayOn = damp(this.swayOn, off ? 0 : 1, 12, dt);
+    }
+    this.lastVel.set(vel.x, 0, vel.z);
+    this.lastVelYaw = this.yaw;
+    this.swayNow.copy(s).multiplyScalar(this.swayOn);
   }
 
   /**
@@ -1009,7 +1173,8 @@ export class CameraController {
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
     const vhalf = THREE.MathUtils.degToRad(this.camera.fov) / 2;
-    const narrowed = clamp((this.baseFov - this.camera.fov) / 16, 0, 1);
+    const rest = footFov(this.baseFov, false, false, 0);
+    const narrowed = clamp((rest - this.camera.fov) / (rest - footFov(this.baseFov, true, false, 0)), 0, 1);
     const keep = RAISE_KEEP * (1 - RAISE_KEEP_AIM_CUT * narrowed) * vhalf;
     // How far from his head (m) the camera must be to frame it RAISE_DEPTH deep, `keep` below the frame's middle.
     const need = RAISE_DEPTH / Math.cos(keep);
@@ -1134,7 +1299,7 @@ export class CameraController {
       const t = this.target;
       const s = this.shoulder;
       const from = this.aheadFrom.set(t.x + rx * s * 0.5, t.y, t.z + rz * s * 0.5);
-      const dir = this.aheadDir.set(t.x - Math.sin(yaw) * cp * this.dist + rx * s, t.y - Math.sin(this.pitch) * this.dist + 0.18, t.z - Math.cos(yaw) * cp * this.dist + rz * s).sub(from);
+      const dir = this.aheadDir.set(t.x - Math.sin(yaw) * cp * this.dist + rx * s, t.y - Math.sin(this.pitch) * this.dist + this.lift, t.z - Math.cos(yaw) * cp * this.dist + rz * s).sub(from);
       const ahead = dir.length();
       if (ahead > 0.01) {
         // (Only where the rule moves it: the free boom there ends higher than one a wall holds in here.)
@@ -1150,7 +1315,7 @@ export class CameraController {
     // further than GLIDE_RATE allows; never further out than the rule allows now.
     // (As fast for the far boom, which has as much further to go.)
     const ease = 1 - Math.exp(-GLIDE_EASE * dt);
-    const most = GLIDE_RATE * Math.max(1, this.dist / FOOT_BOOM) * dt;
+    const most = GLIDE_RATE * Math.max(1, this.dist / SWIM_BOOM) * dt;
     const step = (from: number, to: number) => (dt <= 0 ? from : Math.abs(to - from) < 1e-4 ? to : from + clamp((to - from) * ease, -most, most));
     this.glideIn = gliding ? step(this.glideIn, reach - wantReach) : reach - now.reach;
     const at = clamp(reach - this.glideIn, 0, now.reach);
@@ -1226,7 +1391,7 @@ export class CameraController {
     const t = this.target;
     const extra = (side: number): number => {
       const x = t.x - this.dir.x * this.dist + rx * across * side;
-      const y = t.y - this.dir.y * this.dist + 0.18;
+      const y = t.y - this.dir.y * this.dist + this.lift;
       const z = t.z - this.dir.z * this.dist + rz * across * side;
       const base = Math.max(y, floorAt(w, x, z));
       return Math.max(0, sightFloor(w, h.x, h.y, h.z, x, base, z) - base);
@@ -1333,14 +1498,14 @@ export class CameraController {
    */
   private clearYaw(sim: ViewState): number {
     const p = this.me(sim).character;
-    const boom = this.zoomLevel === 1 ? FOOT_BOOM_FAR : FOOT_BOOM;
+    const boom = footBoom(this.baseFov, this.zoomLevel === 1);
     const props = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm' || q.kind === 'bush' || q.kind === 'pine') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
     if (props.length === 0) return p.heading;
     const trunks = props.filter((q) => q.kind !== 'bush');
     const leaves = props.filter((q) => q.kind !== 'palm').map((q) => ({ spheres: foliageSpheres(q), points: foliagePoints(q) }));
     // The camera point update() settles at: behind the head and up the pitched boom, over the right shoulder.
     const back = boom * Math.cos(RESET_PITCH);
-    const cam = { x: 0, y: p.pos.y + 1.58 * p.appearance.height - Math.sin(RESET_PITCH) * boom + 0.18, z: 0 };
+    const cam = { x: 0, y: p.pos.y + 1.58 * p.appearance.height - Math.sin(RESET_PITCH) * boom + FOOT_LIFT, z: 0 };
     let trunksOnly: number | null = null;
     for (let k = 0; k <= 72; k++) {
       // 0, +5, -5, +10, ... degrees, ending with the half turn.
@@ -1348,8 +1513,8 @@ export class CameraController {
       cam.x = p.pos.x - Math.sin(yaw) * back - Math.cos(yaw) * FOOT_SHOULDER;
       cam.z = p.pos.z - Math.cos(yaw) * back + Math.sin(yaw) * FOOT_SHOULDER;
       if (!trunks.every((q) => Math.hypot(q.x - cam.x, q.z - cam.z) >= 2.6 * q.scale)) continue;
-      // The view eases to the base FOV from wherever it was (wider after a fast drive).
-      if (leavesClear(cam, yaw, RESET_PITCH, Math.max(this.baseFov, this.fov), this.camera.aspect, leaves)) return wrapAngle(yaw);
+      // The view eases to the foot lens from wherever it was (wider after a fast drive).
+      if (leavesClear(cam, yaw, RESET_PITCH, Math.max(footFov(this.baseFov, false, this.zoomLevel === 1, 0), this.fov), this.camera.aspect, leaves)) return wrapAngle(yaw);
       trunksOnly ??= wrapAngle(yaw);
     }
     return trunksOnly ?? p.heading;
@@ -1383,6 +1548,9 @@ export class CameraController {
     this.sideTarget = 1;
     this.glideOn = false;
     this.yawRate = 0;
+    this.swayFresh = true;
+    this.swayNow.set(0, 0, 0);
+    this.lift = p.state === 'swimming' ? SWIM_LIFT : FOOT_LIFT;
     const pos = this.me(sim).pos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.subject.copy(this.target);

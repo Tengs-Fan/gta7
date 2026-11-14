@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { CameraController } from '../../src/render/camera';
+import { CameraController, FOOT_BOOM, FOOT_SHOULDER } from '../../src/render/camera';
 import { CrowdView, LENS_FADE_FULL, LENS_FADE_GONE } from '../../src/render/crowd';
 import { MarkerView } from '../../src/render/markers';
 import { cabinLayout, VehicleView } from '../../src/render/vehicleView';
@@ -507,9 +507,11 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
 // Low: walking through an interaction marker
 
 describe('an interaction marker he walks through fades out behind him instead of vanishing', () => {
-  it('at a walk, a run and a sprint, the camera 4.3 m behind him: no frame changes the beam by more than 0.05', () => {
+  it('at a walk, a run and a sprint, the camera FOOT_BOOM behind him: no frame changes the beam by more than 0.05', () => {
     const view = new MarkerView();
     const m = { id: 'save:t', kind: 'save' as const, x: 0, z: 0, radius: 1.5, label: '', color: 0x55ccff, ref: '' };
+    // The camera looks along +z on the foot boom (the frame CameraController.markerView gives).
+    const along = { dx: 0, dz: 1, boom: FOOT_BOOM };
     for (const speed of [2, 4, 7]) {
       let prev = -1;
       let worst = 0;
@@ -518,8 +520,8 @@ describe('an interaction marker he walks through fades out behind him instead of
       // Along +z through the marker's middle, the camera behind his right shoulder; then far out of it.
       for (let i = 0; i <= Math.ceil((14 * 60) / speed); i++) {
         const pz = -4 + (speed * i) / 60;
-        const cam = { x: -0.42, y: 2.3, z: pz - 4.3 };
-        view.syncMarkers([m], i / 60, cam, { x: 0, z: pz });
+        const cam = { x: -FOOT_SHOULDER, y: 2.0, z: pz - FOOT_BOOM };
+        view.syncMarkers([m], i / 60, cam, { x: 0, z: pz }, false, Infinity, along);
         const g = view.group.children[0]!;
         const a = g.visible ? ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity : 0;
         if (a > 0.27) drawn++;
@@ -530,20 +532,24 @@ describe('an interaction marker he walks through fades out behind him instead of
         prev = a;
       }
       expect(worst, `${speed} m/s, worst at ${at}`).toBeLessThanOrEqual(0.05);
-      // Still drawn in full while he is in it, and gone once he and the camera are well past.
+      // Still drawn in full while he is in it; once he and the camera are well past it is behind the lens (not drawn), and
+      // turning round to look back at it shows it in full.
       expect(drawn, `${speed} m/s`).toBeGreaterThan(0);
-      expect(prev, `${speed} m/s`).toBe(0.28);
+      expect(prev, `${speed} m/s`).toBe(0);
+      view.syncMarkers([m], 15, { x: -FOOT_SHOULDER, y: 2.0, z: 10 - FOOT_BOOM }, { x: 0, z: 10 }, false, Infinity, { dx: 0, dz: -1, boom: FOOT_BOOM });
+      expect(((view.group.children[0]!.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity, `${speed} m/s`).toBe(0.28);
     }
-    // In it with the camera right on top of it: in full. A step outside, still most of it with the camera behind him as
-    // on that walk, but none of it with the camera right on top of it (r2_fix4_actors); 1 m outside, gone.
-    const above = { x: -0.42, y: 2.3, z: -1 };
+    // In it with the camera right on top of it: in full. A step outside, more than half of it with the camera behind him as
+    // on that walk (it then stands half a metre off the beam, so not most of it as from the 4.3 m boom), but none of it
+    // with the camera right on top of it (r2_fix4_actors); 1 m outside, gone.
+    const above = { x: -FOOT_SHOULDER, y: 2.0, z: -1 };
     const alpha = (pz: number, cam = above): number => {
-      view.syncMarkers([m], 0, cam, { x: 0, z: pz });
+      view.syncMarkers([m], 0, cam, { x: 0, z: pz }, false, Infinity, along);
       const g = view.group.children[0]!;
       return g.visible ? ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity : 0;
     };
     expect(alpha(1.1)).toBe(0.28);
-    expect(alpha(1.6, { x: -0.42, y: 2.3, z: 1.6 - 4.3 })).toBeGreaterThan(0.2);
+    expect(alpha(1.6, { x: -FOOT_SHOULDER, y: 2.0, z: 1.6 - FOOT_BOOM })).toBeGreaterThan(0.14);
     expect(alpha(1.6)).toBe(0);
     expect(alpha(2.6)).toBe(0);
   });
