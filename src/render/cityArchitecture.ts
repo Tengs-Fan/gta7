@@ -1,14 +1,14 @@
 // Shallow, batched facade relief. Building footprints, roof heights and street
 // clearances still come from the simulation; these are architectural finishes.
-import { hashInts, type Building, type Side, type Tier } from '../world/layout';
+import { hashInts, type Building, type FacadeStyle, type Side, type Tier } from '../world/layout';
 import { GeoBuilder, scaleRgb, type RGB } from './geo';
-import { FACADE_CELL, FACADE_WINDOW, HOUSE_SILL, facadeWindowAt } from './textures';
+import { FACADE_CELL, FACADE_WINDOW, HOUSE_SILL, facadeWindowAt, facadeWindowFit } from './textures';
 
 const UV = { kind: 'world' as const, scale: 3 };
 
 /** How far (m) the cornice at the top of each tier stands out from the wall plane. */
-export function corniceProjection(b: Building): number {
-  switch (b.style) {
+export function corniceProjection(b: Building, style: FacadeStyle = b.style): number {
+  switch (style) {
     case 'glassBlue':
     case 'glassTeal':
       return 0.18;
@@ -29,27 +29,28 @@ export function corniceProjection(b: Building): number {
  * The trim of a building whose walls take `color`: its bands and piers, and the lighter cap of its cornices. The darker
  * aluminium on curtain walls reads as structure; pale stone catches the sun on masonry.
  */
-export function trimColors(b: Building, color: RGB): { trim: RGB; cap: RGB } {
-  const glass = b.style === 'glassBlue' || b.style === 'glassTeal';
-  const finish: RGB = b.style === 'brick' ? [0.55, 0.47, 0.37] : b.style === 'office' ? [0.48, 0.43, 0.35] : b.style === 'warehouse' ? [0.28, 0.31, 0.34] : [0.68, 0.64, 0.56];
+export function trimColors(b: Building, color: RGB, style: FacadeStyle = b.style): { trim: RGB; cap: RGB } {
+  const glass = style === 'glassBlue' || style === 'glassTeal';
+  const finish: RGB = style === 'brick' ? [0.55, 0.47, 0.37] : style === 'office' ? [0.48, 0.43, 0.35] : style === 'warehouse' ? [0.28, 0.31, 0.34] : [0.68, 0.64, 0.56];
   const trim: RGB = glass ? [0.15, 0.19, 0.23] : [color[0] * finish[0], color[1] * finish[1], color[2] * finish[2]];
   return { trim, cap: glass ? [0.3, 0.36, 0.39] : scaleRgb(trim, 1.12) };
 }
 
 /** Sills, cornices and structural piers give the window atlases a real silhouette. */
-export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number, color: RGB): void {
+/** `style` is the facade the tier is drawn in (a glass tower's podium is in stone). */
+export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number, color: RGB, style: FacadeStyle = b.style): void {
   const width = t.maxX - t.minX;
   const depth = t.maxZ - t.minZ;
   if (Math.min(width, depth) < 3) return;
-  const glass = b.style === 'glassBlue' || b.style === 'glassTeal';
+  const glass = style === 'glassBlue' || style === 'glassTeal';
   const first = Math.max(t.y0, baseY);
   // Keep all street-level doorways completely clear.
-  const { trim, cap } = trimColors(b, color);
+  const { trim, cap } = trimColors(b, color, style);
   const band = (y: number, h: number, out: number, c: RGB): void => {
     g.box(t.minX - out, y, t.minZ - out, t.maxX + out, y + h, t.maxZ + out, { uv: UV, color: c, bottom: true });
   };
 
-  if (b.style === 'house') {
+  if (style === 'house') {
     if (t === b.tiers[0] && b.district !== 'country') housePlinth(g, t);
     // Eave fascia has actual thickness even when the gable is viewed edge-on.
     band(t.y1 - 0.16, 0.14, 0.12, [0.82, 0.8, 0.74]);
@@ -62,34 +63,39 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   }
   if (t.y0 > baseY + 1) band(t.y0 + 0.02, 0.16, 0.12, cap);
   // The crowning cornice: a real shadow line under every roof edge.
-  const cornice = corniceProjection(b);
+  const cornice = corniceProjection(b, style);
   band(t.y1 - 0.34, 0.12, cornice * 0.55, scaleRgb(cap, 0.92));
   band(t.y1 - 0.22, 0.22, cornice, cap);
 
-  const floorH = FACADE_CELL[b.style].h;
-  const every = b.style === 'brick' ? 3 : b.style === 'stucco' ? 2 : glass ? 4 : 1;
+  const floorH = FACADE_CELL[style].h;
+  const every = style === 'brick' ? 3 : style === 'stucco' ? 2 : glass ? 4 : 1;
   const floor0 = Math.max(1, Math.ceil((first - baseY + 0.5) / floorH));
   for (let floor = floor0; baseY + floor * floorH < t.y1 - 0.8; floor++) {
     if (floor % every !== 0) continue;
     const y = baseY + floor * floorH;
-    band(y - 0.07, b.style === 'hotel' ? 0.2 : 0.12, b.style === 'hotel' ? 0.18 : 0.1, trim);
+    band(y - 0.07, style === 'hotel' ? 0.2 : 0.12, style === 'hotel' ? 0.18 : 0.1, trim);
   }
 
   // Corner piers stop above the entrance band; the amount of relief is shallow
   // enough that it never adds a new obstacle to a walkable street or roof.
   const bottom = Math.max(first + 0.18, t.y0 + 3.2);
   if (bottom >= t.y1 - 0.2) return;
-  const pierW = glass ? 0.18 : b.style === 'warehouse' ? 0.32 : 0.24;
+  const pierW = glass ? 0.18 : style === 'warehouse' ? 0.32 : 0.24;
   for (const x of [t.minX, t.maxX]) {
     for (const z of [t.minZ, t.maxZ]) {
       g.box(x - pierW / 2, bottom, z - pierW / 2, x + pierW / 2, t.y1 - 0.16, z + pierW / 2, { uv: UV, color: trim });
     }
   }
 
-  if (!glass && b.style !== 'warehouse') return;
-  // Alternate glass bays receive a slender external mullion. Placing them on the
-  // same continuous perimeter coordinate as the facade UV keeps corners aligned.
-  const stride = FACADE_CELL[b.style].w * (glass ? 2 : 1);
+  if (!glass && style !== 'warehouse') return;
+  // External mullions on the cell edges, on the same continuous perimeter coordinate as the facade UV so corners
+  // align: a fin 0.3 m deep on every bay of the teal curtain walls, whose glass runs floor to floor, so they read as
+  // vertical from the street; a 0.2 m one on every other bay of the blue ones, whose spandrels band them; slender
+  // ribs on the warehouses' cladding.
+  const teal = style === 'glassTeal';
+  const stride = FACADE_CELL[style].w * (glass && !teal ? 2 : 1);
+  const fin = teal ? 0.3 : glass ? 0.2 : 0.14;
+  const half = teal ? 0.035 : 0.055;
   const walls = [
     [t.minX, t.maxZ, 1, 0, width, 0],
     [t.maxX, t.maxZ, 0, -1, depth, width],
@@ -101,9 +107,14 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
     for (let d = offset; d < length - 0.5; d += stride) {
       const x = ax + ux * d;
       const z = az + uz * d;
-      const dx = ux !== 0 ? 0.055 : 0.07;
-      const dz = ux !== 0 ? 0.07 : 0.055;
-      g.box(x - dx, bottom, z - dz, x + dx, t.y1 - 0.16, z + dz, { uv: UV, color: cap });
+      // Out from the wall by `fin` (the wall's outward normal is (-uz, ux)), `half` either side of the cell edge.
+      const ox = -uz * fin;
+      const oz = ux * fin;
+      const x0 = Math.min(x - Math.abs(ux) * half, x + ox - Math.abs(ux) * half);
+      const x1 = Math.max(x + Math.abs(ux) * half, x + ox + Math.abs(ux) * half);
+      const z0 = Math.min(z - Math.abs(uz) * half, z + oz - Math.abs(uz) * half);
+      const z1 = Math.max(z + Math.abs(uz) * half, z + oz + Math.abs(uz) * half);
+      g.box(x0, bottom, z0, x1, t.y1 - 0.16, z1, { uv: UV, color: cap });
     }
   }
 }
@@ -307,10 +318,13 @@ export function houseShutters(g: GeoBuilder, t: Tier, baseY: number, sides: read
   for (const wl of tierWalls(t)) {
     for (const c of wholeCells(wl, cell.w, 0.2)) {
       for (let k = Math.floor((t.y0 - baseY) / cell.h); baseY + k * cell.h < t.y1; k++) {
-        const wy0 = baseY + (k + win.y0) * cell.h;
-        const wy1 = baseY + (k + win.y1) * cell.h;
-        // Whole windows only: none cut by the eaves' fascia or below the plinth, none in a street wall's ground floor.
-        if (wy1 > t.y1 - 0.2 || wy0 < t.y0 + 0.35 || (sides.includes(wl.side) && wy0 < baseY)) continue;
+        // The window as the facade draws it, lowered and shortened under the eaves on the top floor; none below the
+        // plinth or in a street wall's ground floor.
+        const fit = facadeWindowFit('house', baseY + k * cell.h, t.y1);
+        if (!fit) continue;
+        const wy0 = baseY + k * cell.h + fit.y0;
+        const wy1 = baseY + k * cell.h + fit.y1;
+        if (wy0 < t.y0 + 0.35 || (sides.includes(wl.side) && wy0 < baseY)) continue;
         const col = (((c + col0) % 8) + 8) % 8;
         const row = 7 - ((((k + row0) % 8) + 8) % 8);
         if (!facadeWindowAt('house', col, row)) continue;

@@ -9,7 +9,10 @@
 // With --swiftshader the run is the software tier (only the first spot is shot). STREETSCAPE_ONLY=midtown,hillcrest
 // shoots only those spots by day, for a quick look. STREETSCAPE_POIS=1 adds the special buildings' fronts (the bank, the
 // police, the hospital, the safehouse, the gun shops, Lou's, the Hotel Salgado, a spray shop), four ways from each
-// marker, as the round's model audit shot them.
+// marker, as the round's model audit shot them. By day the run also looks up at the upper floors and roof lines: a glass
+// tower of each colour, an office, brick, apartment and house front from the far pavement, every special building from
+// across its street, the skyline both ways along a Midtown and a Southgate street, and the four tallest towers from a
+// street two blocks south.
 
 /** District, style of the building to face, and a short name for the files. */
 const SPOTS = [
@@ -77,6 +80,103 @@ export default async function (t) {
     await shoot(`${name}-facade`, yaw, 0.18);
     await shoot(`${name}-along`, yaw + Math.PI / 2, 0.06);
     await shoot(`${name}-across`, yaw + Math.PI, 0.08);
+  }
+  if (!software && !ONLY) {
+    // Upper floors and roof lines: the glass towers, the brick and office blocks and the special buildings from the far
+    // pavement looking up, the skyline along a Midtown and a Southgate street, the tallest towers from a street a block off.
+    /**
+     * Stands on the far pavement of the street before wall `side` of a building (`back` m past the road's far kerb; or
+     * `back` m out from the wall where no road runs within 40 m), mid-wall, facing it.
+     */
+    const facing = (b, back) =>
+      t.game(
+        (g, a) => {
+          const L = g.sim.world.layout;
+          const r = L.buildings.find((q) => q.id === a.id).rect;
+          const cx = (r.minX + r.maxX) / 2;
+          const cz = (r.minZ + r.maxZ) / 2;
+          const sgn = a.side === 'S' || a.side === 'E' ? 1 : -1;
+          const wall = { S: r.maxZ, N: r.minZ, E: r.maxX, W: r.minX }[a.side];
+          const lines = a.side === 'S' || a.side === 'N' ? L.hLines : L.vLines;
+          const road = lines.filter((l) => (l.pos - wall) * sgn > 0 && (l.pos - wall) * sgn < 40).sort((p, q) => Math.abs(p.pos - wall) - Math.abs(q.pos - wall))[0];
+          const at = road ? road.pos + sgn * (road.width / 2 + a.back) : wall + sgn * 22;
+          const spot = {
+            S: { x: cx, z: at, yaw: Math.PI },
+            N: { x: cx, z: at, yaw: 0 },
+            E: { x: at, z: cz, yaw: -Math.PI / 2 },
+            W: { x: at, z: cz, yaw: Math.PI / 2 },
+          }[a.side];
+          g.teleport(spot.x, spot.z);
+          return spot.yaw;
+        },
+        { id: b.id, side: b.side, back },
+      );
+    /** The n-th building (by id, from the middle) of a district and style with a street wall, and that wall. */
+    const pick = (district, style, n = 0, minTiers = 1) =>
+      t.game(
+        (g, a) => {
+          const L = g.sim.world.layout;
+          const c = L.buildings.filter((b) => b.district === a.district && b.style === a.style && b.groundSides.length > 0 && b.tiers.length >= a.minTiers).sort((p, q) => p.id - q.id);
+          const b = c[Math.floor(c.length / 2) + a.n] ?? c[0];
+          return { id: b.id, side: b.groundSides[0] };
+        },
+        { district, style, n, minTiers },
+      );
+    const looks = [
+      ['tower-blue', 'downtown', 'glassBlue', 0, 3, 0.62],
+      ['tower-teal', 'downtown', 'glassTeal', 0, 3, 0.62],
+      ['office-mid', 'midtown', 'office', 0, 1, 0.42],
+      ['brick-south', 'southgate', 'brick', 1, 1, 0.38],
+      ['stucco-mid', 'midtown', 'stucco', 1, 1, 0.38],
+      ['house-hill', 'hillcrest', 'house', 2, 1, 0.22],
+    ];
+    for (const [name, district, style, n, minTiers, pitch] of looks) {
+      const b = await pick(district, style, n, minTiers);
+      const yaw = await facing(b, 1.5);
+      await shoot(`up-${name}`, yaw, pitch);
+    }
+    for (const id of ['bank', 'police', 'hospital', 'safehouse', 'guns_south', 'vera', 'dex']) {
+      const b = await t.game(
+        (g, a) => {
+          const L = g.sim.world.layout;
+          const p = L.pois.find((q) => q.id === a.id);
+          const kinds = { bank: 'bank', police: 'police', hospital: 'hospital', safehouse: 'safehouse', guns_south: 'gunshop', vera: 'contactVera', dex: 'contactDex' };
+          const near = L.buildings.filter((q) => q.special === kinds[a.id]).sort((u, v) => Math.hypot((u.rect.minX + u.rect.maxX) / 2 - p.x, (u.rect.minZ + u.rect.maxZ) / 2 - p.z) - Math.hypot((v.rect.minX + v.rect.maxX) / 2 - p.x, (v.rect.minZ + v.rect.maxZ) / 2 - p.z))[0];
+          if (!near) return null;
+          const r = near.rect;
+          const dx = Math.max(r.minX - p.x, 0, p.x - r.maxX);
+          const dz = Math.max(r.minZ - p.z, 0, p.z - r.maxZ);
+          const side = dx > dz ? (p.x > r.maxX ? 'E' : 'W') : p.z > r.maxZ ? 'S' : 'N';
+          return { id: near.id, side };
+        },
+        { id },
+      );
+      if (!b) continue;
+      // The bank's far pavement is under the trees of a plaza: it is shot from the road's far lane.
+      const yaw = await facing(b, id === 'bank' ? -1.2 : 1.5);
+      await shoot(`bld-${id}`, yaw, id === 'dex' ? 0.6 : 0.36);
+    }
+    for (const [district, style, name] of [['midtown', 'stucco', 'midtown'], ['southgate', 'brick', 'southgate']]) {
+      const yaw = await stand(district, style);
+      await shoot(`skyline-${name}`, yaw + Math.PI / 2, 0.3);
+      await shoot(`skyline-${name}-back`, yaw - Math.PI / 2, 0.3);
+    }
+    const tall = await t.game((g) => {
+      const L = g.sim.world.layout;
+      return L.buildings
+        .filter((b) => (b.district === 'downtown' || b.district === 'midtown') && b.roof === 'flat')
+        .sort((a, b) => b.height - a.height)
+        .slice(0, 4)
+        .map((b) => {
+          const cx = (b.rect.minX + b.rect.maxX) / 2;
+          const line = L.hLines.filter((l) => l.pos > b.rect.maxZ + 110).sort((p, q) => p.pos - q.pos)[0];
+          return { x: cx, z: line ? line.pos : b.rect.maxZ + 60 };
+        });
+    });
+    for (const [k, p] of tall.entries()) {
+      await t.game((g, a) => g.teleport(a.x, a.z), p);
+      await shoot(`tall-${k}`, Math.PI, 0.32);
+    }
   }
   if (process.env.STREETSCAPE_POIS === '1') {
     for (const id of POIS) {

@@ -1,15 +1,19 @@
 // The buildings' detail where a player looks: plaster walls that keep their grain but little of their stains, doorways
 // set back behind the ground-floor fronts, piers between the bays, the houses' gables, chimneys and shutters, the
-// hotels' and apartment blocks' balconies, the brick blocks' fire escapes and the parapets' coping. All of it is
+// hotels' and apartment blocks' balconies, the brick blocks' fire escapes and the parapets' coping; the windows fitted
+// under each tier's roof, the stone podiums and the plant penthouses of the towers. All of it is
 // render geometry in the existing batches (m3_buildings caps the city's meshes): no collider or footprint of its own.
 
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
+import { everyBay } from '../../src/render/city/buildings';
 import { createFacadeMaterial } from '../../src/render/city/facadeShader';
+import { landmarkTowers } from '../../src/render/city/landmarks';
+import { rooftopItems, storeys } from '../../src/render/city/rooftops';
 import { BALCONY_DEPTH, ESCAPE_DEPTH, LADDER_DROP, balconies, fireEscape, houseShutters } from '../../src/render/cityArchitecture';
 import { GeoBuilder } from '../../src/render/geo';
-import { CELL_DESIGN, CELLS, DOOR_OPENING, DOOR_U, FACADE_LOOK, SHOP_AWNING_TOP } from '../../src/render/textures';
+import { CELL_DESIGN, CELLS, DOOR_OPENING, DOOR_U, FACADE_CELL, FACADE_LOOK, FACADE_TOP, FACADE_TOP_SCALE, FACADE_WINDOW, HOUSE_FIT_MIN_H, SHOP_AWNING_TOP, facadeWindowFit } from '../../src/render/textures';
 import { CURB_H } from '../../src/world/constants';
 import type { FacadeStyle } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
@@ -196,5 +200,84 @@ describe('building detail', () => {
     }
     console.log(`[buildings] shuttered house windows ${n}`);
     expect(n).toBeGreaterThan(150);
+  });
+  it("carries each wall's roof in its seed, so the shader knows where the cornice is: no facade vertex above it", () => {
+    let quads = 0;
+    const bad: string[] = [];
+    for (const m of meshes(city.group).filter((o) => o.name.startsWith('facade-'))) {
+      const p = m.geometry.getAttribute('position');
+      const seed = m.geometry.getAttribute('aSeed');
+      for (let i = 0; i < p.count; i += 4) {
+        const roof = Math.floor(seed.getX(i)) / FACADE_TOP_SCALE;
+        quads++;
+        for (let k = i; k < i + 4 && k < p.count; k++) if (p.getY(k) > roof + 0.06 && bad.length < 5) bad.push(`${m.name} y ${p.getY(k).toFixed(2)} roof ${roof}`);
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(quads).toBeGreaterThan(1000);
+  });
+
+  it('keeps every window head clear of its cornice or eaves, and fits the houses\' top windows under the eaves where they still stand 0.75 m tall', () => {
+    // The cornice reaches 0.34 m under the roof (cityArchitecture.facadeRelief), the eaves' fascia 0.28 m.
+    for (const [style, top] of Object.entries(FACADE_TOP)) expect(top.headroom, style).toBeGreaterThanOrEqual(style === 'house' ? 0.3 : 0.4);
+    let cutBefore = 0;
+    let dropped = 0;
+    let houseTop = 0;
+    let houseKept = 0;
+    for (const b of W.layout.buildings) {
+      if (b.district === 'country') continue;
+      const baseY = CURB_H + (b.groundSides.length > 0 ? b.groundH : 0);
+      const cell = FACADE_CELL[b.style];
+      const win = FACADE_WINDOW[b.style];
+      for (const t of b.tiers) {
+        for (let k = Math.max(0, Math.floor((t.y0 - baseY) / cell.h)); baseY + k * cell.h + win.y0 * cell.h < t.y1; k++) {
+          const y0 = baseY + k * cell.h;
+          const fit = facadeWindowFit(b.style, y0, t.y1);
+          const painted = y0 + win.y1 * cell.h;
+          if (painted > t.y1 - 0.34 && y0 + win.y0 * cell.h < t.y1) cutBefore++;
+          if (b.style === 'house' && painted > t.y1 - FACADE_TOP.house.headroom) {
+            houseTop++;
+            if (fit) houseKept++;
+          }
+          if (!fit) {
+            dropped++;
+            continue;
+          }
+          expect(y0 + fit.y1, `building ${b.id}`).toBeLessThanOrEqual(t.y1 - FACADE_TOP[b.style].headroom + 0.051);
+          expect(fit.y1 - fit.y0).toBeGreaterThanOrEqual(Math.min(HOUSE_FIT_MIN_H, (win.y1 - win.y0) * cell.h) - 1e-9);
+          if (b.style === 'house') expect(fit.y0).toBeGreaterThanOrEqual(0.3 - 1e-9);
+        }
+      }
+    }
+    console.log(`[buildings] window rows the cornice or eaves cut before ${cutBefore}, rows left out ${dropped}, houses' top windows fitted ${houseKept} of ${houseTop}`);
+    expect(cutBefore).toBeGreaterThan(100);
+    // The rest showed a sliver of window under the eaves, less than HOUSE_FIT_MIN_H once lowered.
+    expect(houseKept / houseTop).toBeGreaterThan(0.4);
+  });
+
+  it('builds a stone podium under every three-tier glass tower, its office seed set to a pier at every bay', () => {
+    for (let k = 0; k < 1000; k++) {
+      const e = Math.round(everyBay(k / 1000) * 1000);
+      expect(e % 3).toBe(2);
+      expect(e).toBeLessThan(1000);
+      expect(Math.abs(e - k)).toBeLessThanOrEqual(3);
+    }
+    const office = meshes(city.group, 'facade-office')[0]!.geometry.getAttribute('position');
+    const towers = W.layout.buildings.filter((b) => (b.style === 'glassBlue' || b.style === 'glassTeal') && b.tiers.length >= 3);
+    expect(towers.length).toBeGreaterThan(5);
+    for (const b of towers.slice(0, 8)) {
+      const t = b.tiers[0]!;
+      let n = 0;
+      for (let i = 0; i < office.count; i++) if (office.getX(i) >= t.minX - 1e-3 && office.getX(i) <= t.maxX + 1e-3 && office.getZ(i) >= t.minZ - 1e-3 && office.getZ(i) <= t.maxZ + 1e-3 && office.getY(i) <= t.y1 + 1e-3) n++;
+      expect(n, `tower ${b.id}`).toBeGreaterThanOrEqual(16);
+    }
+  });
+
+  it('puts a plant penthouse on most office and glass towers of eight storeys or more', () => {
+    const lm = new Set(landmarkTowers(W.layout).map((l) => l.id));
+    const towers = W.layout.buildings.filter((b) => ['office', 'glassBlue', 'glassTeal'].includes(b.style) && b.roof !== 'gable' && storeys(b) >= 8 && !lm.has(b.id));
+    const with_ = towers.filter((b) => rooftopItems(b).some((it) => it.kind === 'plant'));
+    console.log(`[buildings] towers of 8+ storeys ${towers.length}, with a plant penthouse ${with_.length}`);
+    expect(with_.length / towers.length).toBeGreaterThan(0.8);
   });
 });

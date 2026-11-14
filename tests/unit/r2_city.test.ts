@@ -455,12 +455,14 @@ describe('round 2 city: ground-floor geometry', () => {
       const seed = m.geometry.getAttribute('aSeed');
       expect(seed.count).toBe(pos.count);
       for (let i = 0; i < seed.count; i += 4) {
+        // The whole part is the tier's roof in decimetres (facadeSeed); the fraction, read back from the float32 as the
+        // shader reads it, is whole thousandths to well within the half a thousandth its rounding allows.
         const v = seed.getX(i);
         expect(v).toBeGreaterThanOrEqual(0);
-        expect(v).toBeLessThan(1);
-        // Whole thousandths, so the shader's hash input is exact.
-        expect(Math.abs(v * 1000 - Math.round(v * 1000))).toBeLessThan(1e-3);
-        const k = Math.round(v * 1000);
+        expect(v).toBeLessThan(4096);
+        const f = v - Math.floor(v);
+        expect(Math.abs(f * 1000 - Math.round(f * 1000))).toBeLessThan(0.3);
+        const k = Math.round(f * 1000);
         if (!seeds.has(k)) seeds.set(k, new Set());
       }
     }

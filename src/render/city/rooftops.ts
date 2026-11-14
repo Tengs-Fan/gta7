@@ -5,10 +5,11 @@
 import { Rng } from '../../core/rng';
 import { CURB_H } from '../../world/constants';
 import { hashInts, rectD, rectW, type Building, type Tier } from '../../world/layout';
-import type { GeoBuilder, RGB } from '../geo';
+import { scaleRgb, type GeoBuilder, type RGB } from '../geo';
+import { clamp } from '../../core/math';
 import { FACADE_CELL } from '../textures';
 
-export type RooftopKind = 'hvac' | 'stair' | 'tank' | 'vent' | 'antenna' | 'garden';
+export type RooftopKind = 'hvac' | 'stair' | 'tank' | 'vent' | 'antenna' | 'garden' | 'plant';
 
 export interface RooftopItem {
   kind: RooftopKind;
@@ -79,6 +80,8 @@ function sizeOf(kind: RooftopKind, rng: Rng): [number, number, number] {
       return [0.9, 0.9, rng.range(4, 7.5)];
     case 'garden':
       return [rng.range(2.4, 5), rng.range(1.0, 1.6), 1.1];
+    case 'plant':
+      return [rng.range(4, 8), rng.range(4, 8), rng.range(4, 5.5)];
   }
 }
 
@@ -101,6 +104,23 @@ export function rooftopItems(b: Building, landmark = false): RooftopItem[] {
     return { minX: p.x - h, maxX: p.x + h, minZ: p.z - h, maxZ: p.z + h };
   });
   const out: RooftopItem[] = [];
+  const hit = (box: { minX: number; maxX: number; minZ: number; maxZ: number }) => (o: { minX: number; maxX: number; minZ: number; maxZ: number }) => box.minX < o.maxX + 0.4 && box.maxX > o.minX - 0.4 && box.minZ < o.maxZ + 0.4 && box.maxZ > o.minZ - 0.4;
+  // An office or glass tower of eight storeys or more carries its lift motors and plant in a penthouse set back from
+  // the roof's edges, which gives its silhouette a step instead of a flat lid.
+  // It is placed clear of the layout's own roof props, shrinking at each try that meets one.
+  if (family(b) === 'tower' && storeys(b) >= 8) {
+    const h = rng.range(4, 5.5);
+    let k = rng.range(0.45, 0.62);
+    for (let attempt = 0; attempt < 12 && out.length === 0; attempt++, k *= 0.93) {
+      const w = Math.min(maxX - minX, clamp((maxX - minX) * k, 3, 14));
+      const d = Math.min(maxZ - minZ, clamp((maxZ - minZ) * k, 3, 14));
+      if (w < 2.5 || d < 2.5) break;
+      const x0 = minX + (maxX - minX - w) * rng.next();
+      const z0 = minZ + (maxZ - minZ - d) * rng.next();
+      const box = { minX: x0, maxX: x0 + w, minZ: z0, maxZ: z0 + d };
+      if (!blocked.some(hit(box))) out.push({ kind: 'plant', ...box, y0: t.y1, y1: t.y1 + h, seed: rng.next() });
+    }
+  }
   const weights = KIND_WEIGHTS[family(b)]!;
   for (let attempt = 0; attempt < want * 8 && out.length < want; attempt++) {
     let kind = pick(rng, weights);
@@ -112,8 +132,7 @@ export function rooftopItems(b: Building, landmark = false): RooftopItem[] {
     const x0 = minX + rng.next() * (maxX - minX - w);
     const z0 = minZ + rng.next() * (maxZ - minZ - d);
     const box = { minX: x0, maxX: x0 + w, minZ: z0, maxZ: z0 + d };
-    const hit = (o: { minX: number; maxX: number; minZ: number; maxZ: number }) => box.minX < o.maxX + 0.4 && box.maxX > o.minX - 0.4 && box.minZ < o.maxZ + 0.4 && box.maxZ > o.minZ - 0.4;
-    if (blocked.some(hit) || out.some(hit)) continue;
+    if (blocked.some(hit(box)) || out.some(hit(box))) continue;
     out.push({ kind, ...box, y0: t.y1, y1: t.y1 + h, seed: rng.next() });
   }
   return out;
@@ -201,6 +220,36 @@ export function drawRooftopItem(g: GeoBuilder, it: RooftopItem): void {
       boxC(g, cx - 0.35, y, cz - 0.35, cx + 0.35, y + 0.3, cz + 0.35, [0.4, 0.4, 0.42]);
       boxC(g, cx - 0.06, y + 0.3, cz - 0.06, cx + 0.06, it.y1, cz + 0.06, [0.75, 0.75, 0.76]);
       for (const k of [0.55, 0.8]) boxC(g, cx - 0.4, y + h * k, cz - 0.03, cx + 0.4, y + h * k + 0.06, cz + 0.03, [0.7, 0.7, 0.72]);
+      break;
+    }
+    case 'plant': {
+      // Concrete walls round a louvred band (dark slots behind light blades), under a roof slab with a lip.
+      const wallC: RGB = [0.56 + s * 0.08, 0.55 + s * 0.08, 0.53 + s * 0.06];
+      boxC(g, it.minX, y, it.minZ, it.maxX, it.y1, it.maxZ, wallC);
+      boxC(g, it.minX - 0.1, it.y1, it.minZ - 0.1, it.maxX + 0.1, it.y1 + 0.25, it.maxZ + 0.1, scaleRgb(wallC, 0.8));
+      const l0 = y + 1.1;
+      const l1 = it.y1 - 0.5;
+      const o = 0.02;
+      const blades = Math.max(2, Math.round((l1 - l0) / 0.45));
+      // Each side as (start, step along it, outward normal): S, E, N, W, walked as GeoBuilder.box walks them.
+      for (const [ax, az, ux, uz, len] of [
+        [it.minX + 0.4, it.maxZ, 1, 0, w - 0.8],
+        [it.maxX, it.maxZ - 0.4, 0, -1, d - 0.8],
+        [it.maxX - 0.4, it.minZ, -1, 0, w - 0.8],
+        [it.minX, it.minZ + 0.4, 0, 1, d - 0.8],
+      ] as const) {
+        if (len < 0.8) continue;
+        const nx = -uz * o;
+        const nz = ux * o;
+        const bx = ax + ux * len;
+        const bz = az + uz * len;
+        const band = (y0: number, y1: number, k: number, c: RGB) => g.quad(ax + nx * k, y0, az + nz * k, bx + nx * k, y0, bz + nz * k, bx + nx * k, y1, bz + nz * k, ax + nx * k, y1, az + nz * k, [0, 0, 1, 0, 1, 1, 0, 1], c);
+        band(l0, l1, 1, [0.07, 0.075, 0.08]);
+        for (let k = 0; k < blades; k++) {
+          const by = l0 + ((l1 - l0) * (k + 0.5)) / blades;
+          band(by - 0.08, by + 0.08, 2, [0.42, 0.43, 0.44]);
+        }
+      }
       break;
     }
     case 'garden': {
