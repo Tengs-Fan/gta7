@@ -8,7 +8,7 @@ import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPas
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
 import { GameRenderer, HEADLIGHT_INTENSITY } from '../../src/render/renderer';
-import { DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
+import { bendNormals, DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
 import { cabinLayout, endRounding, leanRoom, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
@@ -1288,10 +1288,11 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     const triangles = shared.getAttribute('position').count / 3;
     expect(dented.touched).toBeGreaterThan(0);
     expect(dented.touched).toBeLessThan(triangles * 0.25);
-    // The same shape and normals as displacing everything and recomputing the normals from scratch.
+    // The same shape and normals as displacing everything and turning every normal with the bend from scratch.
+    // Revised (round 9 cars): the normals are the undented ones bent by the dents (bendNormal), not flat face normals.
     const ref = shared.clone();
     displace(shared.getAttribute('position').array, ref.getAttribute('position').array as Float32Array, v.dents);
-    ref.computeVertexNormals();
+    bendNormals(shared.getAttribute('position').array, shared.getAttribute('normal').array, ref.getAttribute('normal').array as Float32Array, v.dents);
     const a = meshNamed(view, 'body').geometry;
     for (const name of ['position', 'normal'] as const) {
       const got = a.getAttribute(name).array;

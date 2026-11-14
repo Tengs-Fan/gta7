@@ -272,12 +272,16 @@ describe('vehicle draw structure', () => {
       const c = new THREE.Color();
       expect([0, 1, 2].map((i) => bodies[0]!.getColorAt(i, c).getHex())).toEqual(list.map(({ view: w }) => ((w.group.getObjectByName('body') as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHex()));
       // A dented one draws its own bent body (and its shadow).
+      // Revised (round 9 cars): and its own bent fittings and livery, which the batches' undented ones left floating
+      // in front of a crumpled nose.
       v.dents.push({ lx: 0, ly: 0.5, lz: v.spec.length / 2, nx: 0, nz: -1, depth: 0.2 } as never);
       v.dentVersion++;
       view.sync(v, 1 / 60, 0, 0);
-      expect(own().map((m) => m.name)).toEqual(['body']);
-      expect(own()[0]!.castShadow).toBe(true);
-      expect(own()[0]!.userData.contactShadow).toBe(false);
+      expect(own().map((m) => m.name).sort()).toEqual(['body', 'exterior', ...(kind === 'police' ? ['livery'] : [])].sort());
+      expect(own().find((m) => m.name === 'body')!.castShadow).toBe(true);
+      for (const m of own()) expect(m.userData.contactShadow, m.name).toBe(false);
+      frame(batches, [{ view }]);
+      expect(batches.instancesOf(exterior.geometry), kind).toBe(0);
       // A burnt-out wreck: charred, no glass.
       v.destroyed = true;
       view.sync(v, 1 / 60, 0, 0);

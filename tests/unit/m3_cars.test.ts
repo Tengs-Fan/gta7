@@ -396,6 +396,13 @@ describe('VAL-CAR-003 rebuilt bodies', () => {
       const tails = v.group.children.filter((o) => o.name === 'lamp' && o.position.z < 0 && Math.abs(o.position.x) > 0.3);
       expect(tails.length, kind).toBe(2);
       for (const t of tails) expect(t.scale.y, `${kind} tail lamp taller than wide`).toBeGreaterThan(t.scale.x * 2);
+      // Nothing of the doors (hinges, handles) over a lens, further out than its face.
+      const ext = mesh(v, 'exterior').geometry.getAttribute('position');
+      for (const t of tails) {
+        for (let i = 0; i < ext.count; i++) {
+          if (Math.abs(ext.getX(i) - t.position.x) < t.scale.x / 2 && Math.abs(ext.getY(i) - t.position.y) < t.scale.y / 2) expect(ext.getZ(i), `${kind} fitting over a tail lamp`).toBeGreaterThan(t.position.z - t.scale.z / 2);
+        }
+      }
       // Straight on from behind, up the middle of the back: the doors' seam (or the bus's grille), not bare paint.
       const y = s.height * 0.4;
       const hit = new THREE.Raycaster(new THREE.Vector3(0, y, -s.length), new THREE.Vector3(0, 0, 1)).intersectObjects([mesh(v, 'body'), mesh(v, 'exterior')], false)[0];
@@ -415,6 +422,18 @@ describe('VAL-CAR-003 rebuilt bodies', () => {
     let steps = 0;
     for (let i = 1; i < tops.length; i++) if (tops[i]! - tops[i - 1]! > 0.02) steps++;
     expect(steps).toBeGreaterThanOrEqual(4);
+    // A roof crushed 40 cm (a flipped landing) takes the ribs over it down with it: the top over the dent comes down
+    // most of the way, not held up by a straight rib.
+    const car = new Vehicle(1, 'van', 0, 0, 0, 0, 0xffffff);
+    v.bind(car);
+    v.sync(car, 1 / 60, 0, 0);
+    const z = tops.reduce((best, y, i) => (y > tops[best]! ? i : best), 0) * 0.02 - s.length / 2 + 0.2;
+    const top = (): number => new THREE.Raycaster(new THREE.Vector3(0.02, s.height + 1, z), new THREE.Vector3(0, -1, 0)).intersectObject(mesh(v, 'body'), false)[0]!.point.y;
+    const before = top();
+    car.dents.push({ lx: 0, ly: s.height, lz: z, nx: 0, nz: 0, depth: 0.4 });
+    car.dentVersion++;
+    v.sync(car, 1 / 60, 0, 0);
+    expect(before - top()).toBeGreaterThan(0.3);
   });
 
   /** The body's vertices beyond the arches at one end: the furthest reach along the car at the middle and at the flanks. */

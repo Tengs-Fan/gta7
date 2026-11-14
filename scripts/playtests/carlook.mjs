@@ -1,7 +1,8 @@
 // A look at every kind of vehicle from fixed viewpoints, for judging their models before and after a change: broadside,
 // front three-quarter and rear three-quarter by day with nothing in the way, two kinds at night with their lamps on,
 // the player's own car, bikes and speedboat from the chase camera, and a street of standing cars (the traffic mix) whose
-// draw calls and triangles are measured on High, Medium and Low.
+// draw calls and triangles are measured on High, Medium and Low; then dented cars near and far, and the cars a player
+// drives most from the chase camera by day and at night with the brake lamps lit.
 //
 //   node scripts/playtest.mjs --script scripts/playtests/carlook.mjs --out /tmp/carlook
 //   CARLOOK_KINDS=sedan,van node scripts/playtest.mjs --script scripts/playtests/carlook.mjs --out /tmp/carlook
@@ -9,7 +10,7 @@
 // The camera is held where the script puts it (the game's own camera is suspended), and the player stands behind it.
 
 const KINDS = (process.env.CARLOOK_KINDS ?? 'sedan,compact,taxi,sports,muscle,pickup,van,police,bus,ambulance,firetruck,swat,tractor,sportbike,scooter').split(',');
-const PARTS = (process.env.CARLOOK_PARTS ?? 'day,night,chase,street,ride,dent').split(',');
+const PARTS = (process.env.CARLOOK_PARTS ?? 'day,night,chase,street,ride,dent,dents,brakes').split(',');
 
 /** Runs in the page: holds the camera at window.__fixed ({ pos, at, fov }) while it is set. */
 function installCamera(g) {
@@ -28,7 +29,10 @@ function installCamera(g) {
   g.game.hud.root.style.visibility = 'hidden';
 }
 
-/** Runs in the page: one vehicle of `kind` at the stage, the camera at `view` round it, the player behind the camera. */
+/**
+ * Runs in the page: one vehicle of `kind` at the stage, the camera at `view` round it (a view ending in '-far' from ten
+ * times as far on a lens ten times as long, past the far versions' 40 m), the player behind the camera.
+ */
 function stage(g, kind, view, lights) {
   const sim = g.sim;
   const st = window.__stage;
@@ -42,8 +46,10 @@ function stage(g, kind, view, lights) {
   const h = st.heading;
   // Vehicle-local (x left, z forward) to world.
   const w = (x, y, z) => [st.x + x * Math.cos(h) + z * Math.sin(h), st.y + y, st.z - x * Math.sin(h) + z * Math.cos(h)];
-  const a = { side: [D, 1.45, 0], front: [D * 0.72, 1.6, D * 0.72], rear: [D * 0.72, 1.75, -D * 0.72] }[view];
-  window.__fixed = { pos: w(a[0], a[1], a[2]), at: w(0, spec.height * 0.45, 0), fov: 50 };
+  const far = view.endsWith('-far') ? 10 : 1;
+  const a = { side: [D, 1.45, 0], front: [D * 0.72, 1.6, D * 0.72], rear: [D * 0.72, 1.75, -D * 0.72] }[view.replace('-far', '')];
+  const at = spec.height * 0.45;
+  window.__fixed = { pos: w(a[0] * far, at + (a[1] - at) * far, a[2] * far), at: w(0, at, 0), fov: 50 / far };
   const p = sim.player;
   const pp = w(D + 4, 0, 0);
   p.pos.x = pp[0];
@@ -213,6 +219,72 @@ export default async function (t) {
     });
     await t.wait(900);
     await t.shot('sedan-rear-dented');
+  }
+  if (PARTS.includes('dents')) {
+    // Dented cars, near and far: a 6 cm dent in the left flank, 15 cm in the tail and 40 cm in the nose.
+    await t.game((g) => {
+      if (g.sim.player.vehicle) g.sim.playerCtl.ejectPlayer(true);
+      g.teleport(window.__stage.x, window.__stage.z);
+    });
+    await t.wait(1500);
+    for (const kind of ['sedan', 'police', 'compact', 'van']) {
+      for (const view of ['rear', 'front', 'side', 'rear-far', 'front-far']) {
+        await t.game(stage, kind, view, false);
+        await t.game((g) => {
+          const v = g.sim.vehicles.find((q) => q.missionTag === 'look');
+          const { length: L, width: W, height: H } = v.spec;
+          v.dents.push({ lx: W / 2 - 0.02, ly: H * 0.4, lz: 0.3, nx: -1, nz: 0, depth: 0.06 }, { lx: -0.3, ly: H * 0.45, lz: -L / 2 + 0.05, nx: 0, nz: 1, depth: 0.15 }, { lx: 0.2, ly: H * 0.45, lz: L / 2 - 0.05, nx: 0, nz: -1, depth: 0.4 });
+          v.dentVersion++;
+        });
+        await t.wait(900);
+        await t.shot(`dented-${kind}-${view}`);
+      }
+    }
+  }
+
+  if (PARTS.includes('brakes')) {
+    // The cars a player drives and sees most, from the chase camera by day, then at night with the brake lamps lit.
+    const kinds = ['sedan', 'compact', 'muscle', 'van', 'pickup', 'taxi', 'police'];
+    await t.game((g) => {
+      const sim = g.sim;
+      // The sim clears a car's brake flag each step; the one being looked at keeps it while __brake is set.
+      if (!window.__brakeHook) {
+        const update = sim.update.bind(sim);
+        sim.update = (dt, input) => {
+          update(dt, input);
+          if (window.__brake) for (const v of sim.vehicles) if (v.missionTag === 'look') v.braking = true;
+        };
+        window.__brakeHook = true;
+      }
+    });
+    for (const [hour, brake] of [[11, false], [21, true]]) {
+      await t.game((g, hour, brake) => {
+        g.setTime(hour);
+        window.__brake = brake;
+      }, hour, brake);
+      for (const kind of kinds) {
+        await t.game((g, kind) => {
+          const sim = g.sim;
+          for (const v of [...sim.vehicles]) if (v.missionTag === 'look' || v.missionTag === 'street') sim.removeVehicle(v);
+          window.__fixed = null;
+          const st = window.__street;
+          if (sim.player.vehicle) sim.playerCtl.ejectPlayer(true);
+          g.teleport(st.x, st.z - 5.2);
+          const v = sim.spawnVehicle(kind, st.x, st.z, st.heading, window.__stage.colors[kind]);
+          v.missionTag = 'look';
+          v.persistent = true;
+          sim.seat(sim.player, v, 0);
+          v.usedByPlayer = true;
+          g.game.renderer.cameraCtl.reset(sim);
+        }, kind);
+        await t.wait(2500);
+        await t.shot(`${brake ? 'brakes-night' : 'chase-day'}-${kind}`);
+      }
+    }
+    await t.game((g) => {
+      window.__brake = false;
+      g.setTime(11);
+    });
   }
   await t.snap('end');
 }
