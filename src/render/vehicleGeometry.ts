@@ -557,6 +557,62 @@ export function displace(src: ArrayLike<number>, dst: Float32Array, dents: reado
   for (let i = 0; i < src.length; i += 3) displacePoint(src[i]!, src[i + 1]!, src[i + 2]!, dents, dst, i);
 }
 
+/**
+ * Writes the normal (nx, ny, nz) of the undented surface at (x, y, z) into out[o..o+2] turned as `dents` bend the
+ * surface there: each dent moves a point by a * w(p) (a its push, w = depth * (1 - |p - c| / r)^2), which carries a
+ * normal n to n - grad(w) (a . n) / (1 + a . grad(w)) (the inverse transpose of the bend). The turn fades to nothing
+ * where the dent's reach ends, so a dent shades as smoothly as the panel round it and meets the untouched shading at
+ * its edge. (A flat face normal per moved triangle drew a disc of hard facets with a sharp ring round every dent.)
+ */
+export function bendNormal(x: number, y: number, z: number, nx: number, ny: number, nz: number, dents: readonly DentLike[], out: Float32Array, o: number): void {
+  for (let j = 0; j < dents.length; j++) {
+    const d = dents[j]!;
+    const r = 0.6 + d.depth;
+    const dx = x - d.lx;
+    const dy = y - d.ly;
+    const dz = z - d.lz;
+    const q = dx * dx + dy * dy + dz * dz;
+    if (q >= r * r || q < 1e-12) continue;
+    const s = Math.sqrt(q);
+    const g = (-2 * d.depth * (1 - s / r)) / (r * s);
+    const roof = d.nx === 0 && d.nz === 0;
+    const ax = roof ? 0 : d.nx;
+    const ay = roof ? -1 : 0;
+    const az = roof ? 0 : d.nz;
+    const an = ax * nx + ay * ny + az * nz;
+    // (The bend folds a surface over on itself only past a 1:1 slope; the deepest dents stay short of it.)
+    const den = Math.max(0.2, 1 + g * (ax * dx + ay * dy + az * dz));
+    const f = (g * an) / den;
+    nx -= f * dx;
+    ny -= f * dy;
+    nz -= f * dz;
+  }
+  const l = Math.hypot(nx, ny, nz) || 1;
+  out[o] = nx / l;
+  out[o + 1] = ny / l;
+  out[o + 2] = nz / l;
+}
+
+/** Writes the normals `srcNormal` (of the points `src`) turned as `dents` bend them into `dst` (see bendNormal). */
+export function bendNormals(src: ArrayLike<number>, srcNormal: ArrayLike<number>, dst: Float32Array, dents: readonly DentLike[]): void {
+  for (let i = 0; i < src.length; i += 3) bendNormal(src[i]!, src[i + 1]!, src[i + 2]!, srcNormal[i]!, srcNormal[i + 1]!, srcNormal[i + 2]!, dents, dst, i);
+}
+
+/**
+ * Vertices that follow another surface's dents (a geometry's `userData.follow`): vertex i moves by the displacement
+ * of the surface under it, interpolated from three anchor points (anchors[9i..9i+8], weights[3i..3i+2]; weights summing
+ * to zero leave the vertex to the dents themselves). Fittings laid on a body follow the body's dented triangles so,
+ * which bend on the body's own spacing: on the dents' smooth field instead, a fine fitting over a coarser body sank
+ * under the body's chords in a deep dent.
+ */
+export interface FollowSurface {
+  anchors: Float32Array;
+  weights: Float32Array;
+}
+
+/** How far (m) a following vertex may lie from its anchors: the reach a dent is looked for round a triangle grows by it. */
+const FOLLOW_REACH = 0.3;
+
 /** Cells of the triangle grid (m). */
 const CELL = 0.5;
 
@@ -610,8 +666,8 @@ function triangleGrid(g: THREE.BufferGeometry): TriangleGrid {
 
 /**
  * A per-view copy of a shared, flat-shaded (non-indexed) geometry that dents bend. A change re-evaluates only the
- * triangles within reach of the dents that changed since the last update (a grid finds them) and recomputes their face
- * normals, instead of displacing every vertex against every dent and recomputing every normal: a crash costs about a
+ * triangles within reach of the dents that changed since the last update (a grid finds them) and turns their normals
+ * with the bend (bendNormal), instead of displacing every vertex against every dent and recomputing every normal: a crash costs about a
  * third to a sixth of what a full rebuild did (2-4 ms per change).
  *
  * The changed attributes are then uploaded whole, not in stretches. Chrome's WebGL on Vulkan (ANGLE) turns a partial
@@ -634,10 +690,14 @@ export class DentedGeometry {
   /** Triangles re-evaluated by the last update (the work a change cost). */
   touched = 0;
 
+  private readonly follow: FollowSurface | undefined;
+  private readonly tmp = new Float32Array(3);
+
   constructor(readonly source: THREE.BufferGeometry) {
     this.geometry = source.clone();
     this.src = source.getAttribute('position').array as ArrayLike<number>;
     this.srcNormal = source.getAttribute('normal').array as ArrayLike<number>;
+    this.follow = source.userData.follow as FollowSurface | undefined;
     this.grid = triangleGrid(source);
     if (!source.boundingBox) source.computeBoundingBox();
     this.bounds = source.boundingBox!.clone();
@@ -663,7 +723,7 @@ export class DentedGeometry {
     const q = this.queue;
     q.length = 0;
     for (const d of changed) {
-      const r = dentRadius(d);
+      const r = dentRadius(d) + (this.follow ? FOLLOW_REACH : 0);
       const b = this.bounds;
       if (d.lx + r < b.min.x || d.lx - r > b.max.x || d.ly + r < b.min.y || d.ly - r > b.max.y || d.lz + r < b.min.z || d.lz - r > b.max.z) continue;
       for (let i = Math.floor((d.lx - r) / CELL); i <= Math.floor((d.lx + r) / CELL); i++) {
@@ -689,38 +749,37 @@ export class DentedGeometry {
     const src = this.src;
     const sn = this.srcNormal;
     const live = this.shown;
+    const f = this.follow;
+    const tmp = this.tmp;
     for (const t of q) {
       const o = t * 9;
       let moved = false;
       for (let v = 0; v < 9; v += 3) {
-        displacePoint(src[o + v]!, src[o + v + 1]!, src[o + v + 2]!, live, pos, o + v);
+        const i = (o + v) / 3;
+        if (f && f.weights[i * 3]! + f.weights[i * 3 + 1]! + f.weights[i * 3 + 2]! > 0) {
+          // The displacement of the surface under it, at its three anchors.
+          let ox = 0;
+          let oy = 0;
+          let oz = 0;
+          for (let k = 0; k < 3; k++) {
+            const a = i * 9 + k * 3;
+            const w = f.weights[i * 3 + k]!;
+            displacePoint(f.anchors[a]!, f.anchors[a + 1]!, f.anchors[a + 2]!, live, tmp, 0);
+            ox += w * (tmp[0]! - f.anchors[a]!);
+            oy += w * (tmp[1]! - f.anchors[a + 1]!);
+            oz += w * (tmp[2]! - f.anchors[a + 2]!);
+          }
+          pos[o + v] = src[o + v]! + ox;
+          pos[o + v + 1] = src[o + v + 1]! + oy;
+          pos[o + v + 2] = src[o + v + 2]! + oz;
+        } else displacePoint(src[o + v]!, src[o + v + 1]!, src[o + v + 2]!, live, pos, o + v);
         if (pos[o + v] !== src[o + v] || pos[o + v + 1] !== src[o + v + 1] || pos[o + v + 2] !== src[o + v + 2]) moved = true;
       }
       if (!moved) {
         for (let v = 0; v < 9; v++) nor[o + v] = sn[o + v]!;
         continue;
       }
-      // Flat face normal, as computeVertexNormals gives a non-indexed geometry.
-      const ux = pos[o + 3]! - pos[o]!;
-      const uy = pos[o + 4]! - pos[o + 1]!;
-      const uz = pos[o + 5]! - pos[o + 2]!;
-      const wx = pos[o + 6]! - pos[o]!;
-      const wy = pos[o + 7]! - pos[o + 1]!;
-      const wz = pos[o + 8]! - pos[o + 2]!;
-      let nx = uy * wz - uz * wy;
-      let ny = uz * wx - ux * wz;
-      let nz = ux * wy - uy * wx;
-      const l = Math.hypot(nx, ny, nz);
-      if (l > 0) {
-        nx /= l;
-        ny /= l;
-        nz /= l;
-      }
-      for (let v = 0; v < 9; v += 3) {
-        nor[o + v] = nx;
-        nor[o + v + 1] = ny;
-        nor[o + v + 2] = nz;
-      }
+      for (let v = 0; v < 9; v += 3) bendNormal(src[o + v]!, src[o + v + 1]!, src[o + v + 2]!, sn[o + v]!, sn[o + v + 1]!, sn[o + v + 2]!, live, nor, o + v);
     }
     // Uploaded whole (see the class comment).
     posAttr.needsUpdate = true;

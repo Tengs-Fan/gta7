@@ -481,7 +481,7 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
   if (kind === 'sports') sportsKit(p, s.width, L, H, box, flank);
   if (kind === 'firetruck') fireEngineKit(p, s.width, L, H, box, flank);
   if (kind === 'bus') busKit(p, s.width, L, H, box);
-  if (BACK_DOORS.has(kind)) backDoors(s.width, L, H, bumperY, box);
+  if (BACK_DOORS.has(kind)) backDoors(kind, s.width, L, H, ly, bumperY, box);
   if (kind === 'muscle') {
     // A raised intake on the bonnet.
     const z = L * 0.22;
@@ -592,9 +592,9 @@ function fireEngineKit(p: ExteriorProfile, width: number, L: number, H: number, 
 
 /**
  * A box van's back doors: the seam between the two leaves and along their top, satin handles either side of the seam
- * under the windows, and two dark hinges on each leaf's outer edge.
+ * under the windows, and two dark hinges on each leaf's outer edge, over its tall lamp and under the roof.
  */
-function backDoors(width: number, L: number, H: number, bumperY: number, box: BoxFn): void {
+function backDoors(kind: VehicleKind, width: number, L: number, H: number, ly: number, bumperY: number, box: BoxFn): void {
   const hw = width / 2;
   const back = -L / 2 - 0.004;
   const top = H * 0.93;
@@ -603,7 +603,8 @@ function backDoors(width: number, L: number, H: number, bumperY: number, box: Bo
   box(0, top, back, width - 0.16, 0.014, 0.012);
   for (const side of [-1, 1]) {
     box(side * 0.075, H * 0.47, back - 0.012, 0.028, 0.16, 0.024, 1);
-    for (const y of [H * 0.3, H * 0.72]) box(side * (hw - 0.07), y, back - 0.008, 0.05, 0.11, 0.022);
+    const lamp = tailLamp(kind, hw, ly);
+    for (const y of [lamp.y + lamp.h / 2 + 0.12, H * 0.86]) box(side * (hw - 0.07), y, back - 0.008, 0.05, 0.11, 0.022);
   }
 }
 

@@ -12,7 +12,7 @@ import { SHERIFF_COLOR, VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
-import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
+import { addPanel, addPrism, bendNormals, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
 import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, sculptBody, tailLamp, taperCabin, tireGeometry } from './vehicleDetails';
 import { carModel, type CarModel, type ModelLamp } from './vehicleModels';
@@ -718,7 +718,10 @@ function addVanRibs(b: GeoBuilder, prof: Profile, L: number, hw: number): void {
   const roofFront = prof.body[4]![0] - 0.25;
   for (let z = -L / 2 + 0.3; z <= roofFront; z += 0.42) {
     const top = topAt(prof.body, z) + BEVEL;
-    b.box(-(hw - 0.14), top - 0.01, z - 0.035, hw - 0.14, top + 0.025, z + 0.035, RIB_SHADE);
+    // Split along their length like the body's panels (GeoBuilder.box is one cell), so a crushed roof bends them too.
+    const rib = new THREE.BoxGeometry(2 * (hw - 0.14), 0.035, 0.07, Math.ceil((2 * (hw - 0.14)) / 0.2), 1, 1);
+    b.geometry(rib, new THREE.Matrix4().makeTranslation(0, top + 0.0075, z), RIB_SHADE);
+    rib.dispose();
   }
 }
 
@@ -1368,7 +1371,7 @@ export class VehicleView {
   /** Livery and roof gear that char with a wreck (police stripe, light bar, taxi sign), with what they wear intact. */
   private readonly livery: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
-  private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
+  private stripe: { geo: THREE.BufferGeometry; base: Float32Array; baseNormal: Float32Array; mesh: THREE.Mesh } | null = null;
   /** Lenses: a pale, satin head lamp (a mirror finish flared in the sun like a lit lamp), a clear red tail lamp (a deeper red read as a dark maroon block by day). */
   private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xa9b1b8, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.5, metalness: 0.2 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x9a0c0c, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
@@ -1557,7 +1560,7 @@ export class VehicleView {
         const stripe = new THREE.Mesh(geo, stripeMat);
         stripe.name = 'livery';
         this.group.add(stripe);
-        this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array), mesh: stripe };
+        this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array), baseNormal: Float32Array.from(geo.getAttribute('normal').array), mesh: stripe };
         this.livery.push({ mesh: stripe, mat: stripe.material as THREE.Material });
         // (Drawn with the lamp lenses, one batch for every sheriff's car.)
         const star = new THREE.Mesh(starGeometry(kind), starMat);
@@ -1764,14 +1767,20 @@ export class VehicleView {
   private applyVisibility(): void {
     const near = this.distant === false;
     const coarse = this.distant === 'coarse';
-    this.body.visible = near || (this.distant === 'far' && this.dentBody !== null);
+    // A dented far car draws its own bent body and fittings (the batches' are undented).
+    const bent = this.distant === 'far' && this.dentBody !== null;
+    this.body.visible = near || bent;
     this.body.castShadow = this.distant === 'far';
     this.body.userData.contactShadow = near ? undefined : false;
-    this.exterior.visible = near;
+    this.exterior.visible = near || bent;
+    this.exterior.userData.contactShadow = near ? undefined : false;
     this.cabin.visible = near && !this.burnt;
     this.shadowCaster.visible = near;
     this.syncShadow();
-    if (this.stripe) this.stripe.mesh.visible = near;
+    if (this.stripe) {
+      this.stripe.mesh.visible = near || bent;
+      this.stripe.mesh.userData.contactShadow = near ? undefined : false;
+    }
     if (this.star) this.star.visible = this.sheriff;
     for (const w of this.wheels) {
       w.pivot.visible = !coarse;
@@ -1827,8 +1836,8 @@ export class VehicleView {
         else batches.add(a.farBody, farPaintMat, m, FAR_PAINT, paint.color, fade);
       }
       if (!this.burnt) batches.add(a.farCabin, this.cabin.material as THREE.Material, m, {}, undefined, fade);
-      batches.add(a.farExterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS, undefined, fade);
-      if (this.stripe) batches.add(stripeGeometry(this.kind), this.stripe.mesh.material as THREE.Material, m, {}, undefined, fade);
+      if (!this.exterior.visible) batches.add(a.farExterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS, undefined, fade);
+      if (this.stripe && !this.stripe.mesh.visible) batches.add(stripeGeometry(this.kind), this.stripe.mesh.material as THREE.Material, m, {}, undefined, fade);
     }
     for (const p of this.boxParts) {
       if (!p.visible) continue;
@@ -1947,7 +1956,9 @@ export class VehicleView {
       const pos = this.stripe.geo.getAttribute('position') as THREE.BufferAttribute;
       (pos.array as Float32Array).set(this.stripe.base);
       pos.needsUpdate = true;
-      this.stripe.geo.computeVertexNormals();
+      const nor = this.stripe.geo.getAttribute('normal') as THREE.BufferAttribute;
+      (nor.array as Float32Array).set(this.stripe.baseNormal);
+      nor.needsUpdate = true;
       this.stripeBent = false;
     }
     for (const l of this.lamps) l.broken = false;
@@ -1997,7 +2008,9 @@ export class VehicleView {
       const pos = this.stripe.geo.getAttribute('position') as THREE.BufferAttribute;
       displace(this.stripe.base, pos.array as Float32Array, v.dents);
       pos.needsUpdate = true;
-      this.stripe.geo.computeVertexNormals();
+      const nor = this.stripe.geo.getAttribute('normal') as THREE.BufferAttribute;
+      bendNormals(this.stripe.base, this.stripe.baseNormal, nor.array as Float32Array, v.dents);
+      nor.needsUpdate = true;
       this.stripeBent = true;
     }
     for (const l of this.lamps) {

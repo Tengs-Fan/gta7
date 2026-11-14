@@ -242,8 +242,40 @@ describe('imported car bodies', () => {
     console.log(rows.join('\n'));
   });
 
-  it('the model bodies wear the fittings kit: door handles on both flanks, and the sedan\'s sills, tail panel and grille', () => {
-    const ray = new THREE.Raycaster();
+  /** The kit's own vertices in a model's near fittings: those that follow the body's dents (the trim's do not). */
+  const kitVertices = (g: THREE.BufferGeometry): number[] => {
+    const w = (g.userData.follow as { weights: Float32Array }).weights;
+    const out: number[] = [];
+    for (let i = 0; i < g.getAttribute('position').count; i++) if (w[i * 3]! + w[i * 3 + 1]! + w[i * 3 + 2]! > 0) out.push(i);
+    return out;
+  };
+  const steps = (a: number, b: number, n: number): number[] => Array.from({ length: n + 1 }, (_, i) => a + ((b - a) * i) / n);
+  /**
+   * Where each kit piece is looked for, as rays straight at it: the sill from the side between the wheels, the tail
+   * panel from behind either side of the middle, the grille from ahead between the head lamps.
+   */
+  const pieceRays = (kind: VehicleKind): Record<'sill' | 'panel' | 'grille', Array<[THREE.Vector3, THREE.Vector3]>> => {
+    const s = VEHICLE_SPECS[kind];
+    const m = carModel(kind)!;
+    const half = s.length / 2;
+    const tailY = m.tail.reduce((y, l) => y + l.at.y, 0) / m.tail.length;
+    const headY = m.head.reduce((y, l) => y + l.at.y, 0) / m.head.length;
+    const grid = (f: (a: number, b: number) => THREE.Vector3, as: number[], bs: number[], d: THREE.Vector3): Array<[THREE.Vector3, THREE.Vector3]> => as.flatMap((a) => bs.map((b) => [f(a, b), d] as [THREE.Vector3, THREE.Vector3]));
+    return {
+      sill: grid((z, y) => new THREE.Vector3(s.width, m.bottom + y, z), steps(-0.4, 0.4, 8), [0.045, 0.065, 0.085], new THREE.Vector3(-1, 0, 0)),
+      panel: grid((x, y) => new THREE.Vector3(x, tailY + y, -half - 2), [-0.3, -0.25, -0.2, 0.2, 0.25, 0.3], [-0.01, 0.01], new THREE.Vector3(0, 0, 1)),
+      grille: grid((x, y) => new THREE.Vector3(x, headY + y, half + 2), steps(-0.2, 0.2, 8), [-0.06, -0.03, 0], new THREE.Vector3(0, 0, -1)),
+    };
+  };
+  /** The share of `rays` that meet the fittings first among `parts`. */
+  const coverage = (parts: THREE.Object3D[], rays: Array<[THREE.Vector3, THREE.Vector3]>, fittings: THREE.Object3D): number =>
+    rays.filter(([o, d]) => new THREE.Raycaster(o, d).intersectObjects(parts, false)[0]?.object === fittings).length / rays.length;
+
+  it('every model body wears the fittings kit, near and far: a handle per door, and its sill, tail panel and grille where its paint runs', () => {
+    // Doors per kind (the sports car is a coupé), and the pieces each model's paint leaves room for (the compact's foot
+    // and the pickup's tail are its own trim).
+    const doors: Readonly<Record<string, number>> = { compact: 4, sedan: 4, taxi: 4, police: 4, muscle: 4, sports: 2, pickup: 2 };
+    const pieces: Readonly<Record<string, ReadonlyArray<'sill' | 'panel' | 'grille'>>> = { compact: ['panel', 'grille'], sedan: ['sill', 'panel', 'grille'], taxi: ['sill', 'panel', 'grille'], police: ['sill', 'panel', 'grille'], muscle: ['sill', 'panel', 'grille'], sports: ['sill', 'panel', 'grille'], pickup: ['sill', 'grille'] };
     const rows: string[] = [];
     for (const kind of MODEL_KINDS) {
       const s = VEHICLE_SPECS[kind];
@@ -252,62 +284,154 @@ describe('imported car bodies', () => {
       const ext = mesh(v, 'exterior');
       const pos = ext.geometry.getAttribute('position');
       const uv = ext.geometry.getAttribute('uv');
-      // Satin (the atlas's metal cell) just under the side windows on each flank: the handles.
-      const handles = [0, 0];
-      for (let i = 0; i < pos.count; i++) {
-        if (uv.getX(i) < 0.5 || uv.getY(i) > 0.5) continue;
-        if (Math.abs(pos.getY(i) - (m.beltY - 0.09)) < 0.03 && Math.abs(pos.getX(i)) > s.width / 2 - 0.25) handles[pos.getX(i) > 0 ? 0 : 1]++;
+      // The handles: the kit's satin (the atlas's metal cell) just under the side windows, in clusters along each flank,
+      // one a door, each over the side windows' length.
+      for (const side of [1, -1]) {
+        const zs = kitVertices(ext.geometry).filter((i) => uv.getX(i) > 0.5 && uv.getY(i) < 0.5 && pos.getX(i) * side > s.width / 2 - 0.25 && Math.abs(pos.getY(i) - (m.beltY - 0.09)) < 0.03).map((i) => pos.getZ(i)).sort((a, b) => a - b);
+        const handles: number[][] = [];
+        for (const z of zs) {
+          const last = handles[handles.length - 1];
+          if (last && z - last[last.length - 1]! < 0.3) last.push(z);
+          else handles.push([z]);
+        }
+        expect(handles.length, `${kind} handles on the ${side > 0 ? 'left' : 'right'}`).toBe(doors[kind]! / 2);
+        for (const h of handles) {
+          expect(h[h.length - 1]! - h[0]!, `${kind} handle length`).toBeLessThan(0.3);
+          expect(h[0], `${kind} handle under the side windows`).toBeGreaterThan(m.cabin[3]![0] - 0.05);
+          expect(h[h.length - 1], `${kind} handle under the side windows`).toBeLessThan(m.cabin[0]![0]);
+        }
       }
-      expect(Math.min(...handles), `${kind} a handle on each flank`).toBeGreaterThan(0);
-      // The far trim keeps the pieces that read from afar (fewer triangles than the near trim).
-      expect(m.farTrim.getAttribute('position').count, kind).toBeLessThan(m.trim.getAttribute('position').count);
-      rows.push(`${kind}: fittings ${pos.count / 3} triangles near, ${m.farTrim.getAttribute('position').count / 3} far`);
-    }
-    // The sedan (whose paint runs to its foot, with no trim of its own): from straight behind, between its tail lamps,
-    // the dark panel; from straight ahead, between the head lamps, the grille.
-    const m = carModel('sedan')!;
-    const v = view('sedan');
-    const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
-    const half = VEHICLE_SPECS.sedan.length / 2;
-    // Seen square from the side, low between the wheels: the dark sill.
-    ray.set(new THREE.Vector3(VEHICLE_SPECS.sedan.width, m.bottom + 0.07, 0), new THREE.Vector3(-1, 0, 0));
-    expect(ray.intersectObjects(parts, false)[0]?.object.name, 'sedan sill').toBe('exterior');
-    for (const [lamps, end] of [[m.tail, -1], [m.head, 1]] as const) {
-      const y = (lamps[0]!.at.y + lamps[1]!.at.y) / 2;
-      ray.set(new THREE.Vector3(0, y, end * (half + 2)), new THREE.Vector3(0, 0, -end));
-      expect(ray.intersectObjects(parts, false)[0]?.object.name, `sedan ${end > 0 ? 'grille' : 'tail panel'}`).toBe('exterior');
+      // Sills, tail panel and grille, near and far (the far ones against the far paint).
+      const far = [new THREE.Mesh(m.farPaint), new THREE.Mesh(m.farTrim)];
+      const rays = pieceRays(kind);
+      const row: string[] = [];
+      for (const piece of pieces[kind]!) {
+        const near = coverage([mesh(v, 'body'), ext], rays[piece], ext);
+        const away = coverage(far, rays[piece], far[1]!);
+        row.push(`${piece} ${near.toFixed(2)} near, ${away.toFixed(2)} far`);
+        expect(near, `${kind} ${piece} near`).toBeGreaterThanOrEqual(0.6);
+        expect(away, `${kind} ${piece} far`).toBeGreaterThanOrEqual(0.6);
+      }
+      rows.push(`${kind}: ${row.join('; ')}`);
     }
     console.log(rows.join('\n'));
   });
 
-  it('the sedan\'s tail panel and grille stay in front of its paint when the tail and nose are dented 8 cm', () => {
-    // The kit follows the body on a finer grid than the body's own refinement, so a dent pulls the panel under the
-    // body's coarser chords; the dark patches stand 8 mm proud to keep a moderate dent from burying them.
-    const s = VEHICLE_SPECS.sedan;
-    const m = carModel('sedan')!;
-    const v = view('sedan');
-    const car = new Vehicle(1, 'sedan', 0, 0, 0, 0, 0xb03a2e);
-    v.bind(car);
-    v.sync(car, 1 / 60, 0, 0);
-    const half = s.length / 2;
-    const tailY = (m.tail[0]!.at.y + m.tail[1]!.at.y) / 2;
-    const headY = (m.head[0]!.at.y + m.head[1]!.at.y) / 2;
-    car.dents.push({ lx: 0, ly: tailY, lz: -half + 0.05, nx: 0, nz: 1, depth: 0.08 }, { lx: 0, ly: headY, lz: half - 0.05, nx: 0, nz: -1, depth: 0.08 });
-    car.dentVersion++;
-    v.sync(car, 1 / 60, 0, 0);
-    v.group.updateMatrixWorld(true);
-    const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
-    for (const [y, end, w] of [[tailY, -1, 0.3], [headY, 1, 0.25]] as const) {
-      let ext = 0;
-      let n = 0;
-      for (let x = -w; x <= w + 1e-6; x += 0.05) {
-        for (const dy of [-0.02, 0, 0.02]) {
-          const hit = new THREE.Raycaster(new THREE.Vector3(x, y + dy, end * (half + 2)), new THREE.Vector3(0, 0, -end)).intersectObjects(parts, false)[0];
-          n++;
-          if (hit?.object.name === 'exterior') ext++;
+  it('the kit follows the body\'s own dented surface: its sill, tail panel and grille stay in front of the paint in dents of 8, 15 and 40 cm', () => {
+    const rows: string[] = [];
+    const fails: Array<[string, number, number]> = [];
+    for (const kind of ['sedan', 'sports', 'police'] as const) {
+      const s = VEHICLE_SPECS[kind];
+      const m = carModel(kind)!;
+      const half = s.length / 2;
+      const intact = view(kind);
+      const rays = pieceRays(kind);
+      const ext0 = mesh(intact, 'exterior');
+      const tailY = m.tail.reduce((y, l) => y + l.at.y, 0) / m.tail.length;
+      const headY = m.head.reduce((y, l) => y + l.at.y, 0) / m.head.length;
+      const at: Record<'sill' | 'panel' | 'grille', { lx: number; ly: number; lz: number; nx: number; nz: number }> = {
+        sill: { lx: s.width / 2 - 0.05, ly: m.bottom + 0.25, lz: 0, nx: -1, nz: 0 },
+        panel: { lx: 0, ly: tailY, lz: -half + 0.05, nx: 0, nz: 1 },
+        grille: { lx: 0, ly: headY, lz: half - 0.05, nx: 0, nz: -1 },
+      };
+      for (const piece of ['sill', 'panel', 'grille'] as const) {
+        const whole = coverage([mesh(intact, 'body'), ext0], rays[piece], ext0);
+        for (const depth of [0.08, 0.15, 0.4]) {
+          const v = view(kind);
+          const car = new Vehicle(1, kind, 0, 0, 0, 0, 0xb03a2e);
+          v.bind(car);
+          v.sync(car, 1 / 60, 0, 0);
+          car.dents.push({ ...at[piece], depth });
+          car.dentVersion++;
+          v.sync(car, 1 / 60, 0, 0);
+          v.group.updateMatrixWorld(true);
+          const ext = mesh(v, 'exterior');
+          const dented = coverage([mesh(v, 'body'), ext], rays[piece], ext);
+          rows.push(`${kind} ${piece} ${depth}: ${dented.toFixed(2)} of the rays (${whole.toFixed(2)} undented)`);
+          fails.push([`${kind} ${piece} dented ${depth}`, dented, whole]);
         }
       }
-      expect(ext / n, end > 0 ? 'grille' : 'tail panel').toBeGreaterThanOrEqual(0.85);
+    }
+    console.log(rows.join('\n'));
+    // (The sports car's nose comes to a crease down its middle, which a deep dent sharpens through a few of the
+    // grille's 5 cm cells: 0.93 of them at 15 cm, 0.85 at 40.)
+    for (const [label, dented, whole] of fails) expect(dented, label).toBeGreaterThanOrEqual(whole - (label.startsWith('sports grille') ? 0.16 : 0.05));
+  });
+
+  it('a dent shades as smoothly as the paint round it: its normals turn a few degrees and meet the untouched ones at its edge', () => {
+    const angle = (g: THREE.BufferGeometry, h: THREE.BufferGeometry, i: number): number => new THREE.Vector3().fromBufferAttribute(g.getAttribute('normal'), i).angleTo(new THREE.Vector3().fromBufferAttribute(h.getAttribute('normal'), i));
+    for (const kind of ['sedan', 'van'] as const) {
+      const s = VEHICLE_SPECS[kind];
+      for (const depth of [0.03, 0.15]) {
+        const v = view(kind);
+        const car = new Vehicle(1, kind, 0, 0, 0, 0, 0xb03a2e);
+        v.bind(car);
+        v.sync(car, 1 / 60, 0, 0);
+        const before = mesh(v, 'body').geometry;
+        const dent = { lx: s.width / 2, ly: s.height * 0.4, lz: 0.2, nx: -1, nz: 0, depth };
+        car.dents.push(dent);
+        car.dentVersion++;
+        v.sync(car, 1 / 60, 0, 0);
+        const after = mesh(v, 'body').geometry;
+        const p = before.getAttribute('position');
+        const r = 0.6 + depth;
+        let worst = 0;
+        let edge = 0;
+        for (let i = 0; i < p.count; i++) {
+          const d = Math.hypot(p.getX(i) - dent.lx, p.getY(i) - dent.ly, p.getZ(i) - dent.lz);
+          if (d >= r) continue;
+          const a = THREE.MathUtils.radToDeg(angle(before, after, i));
+          worst = Math.max(worst, a);
+          if (d > 0.95 * r) edge = Math.max(edge, a);
+        }
+        // A 3 cm dent turns the paint by a few degrees; any dent's last 5 % blends into the untouched paint.
+        if (depth === 0.03) expect(worst, `${kind} 3 cm dent`).toBeLessThan(6);
+        expect(edge, `${kind} ${depth} m dent's edge`).toBeLessThan(2);
+        // Corners that shared a smooth normal still share it (no hard facet edges inside the dent): the angle between
+        // them grows by under half a degree.
+        const shared = new Map<string, number[]>();
+        for (let i = 0; i < p.count; i++) {
+          const k = `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`;
+          const list = shared.get(k);
+          if (list) list.push(i);
+          else shared.set(k, [i]);
+        }
+        let split = 0;
+        const n = (g: THREE.BufferGeometry, i: number): THREE.Vector3 => new THREE.Vector3().fromBufferAttribute(g.getAttribute('normal'), i);
+        for (const list of shared.values()) {
+          for (let k = 1; k < list.length; k++) {
+            if (n(before, list[0]!).angleTo(n(before, list[k]!)) > 0.02) continue;
+            const a = THREE.MathUtils.radToDeg(n(after, list[0]!).angleTo(n(after, list[k]!)) - n(before, list[0]!).angleTo(n(before, list[k]!)));
+            split = Math.max(split, a);
+          }
+        }
+        expect(split, `${kind} ${depth} m dent splits no smooth corner`).toBeLessThan(0.5);
+      }
+    }
+  });
+
+  it('the tail panel keeps clear of a model\'s own-made reverse lamp', () => {
+    for (const kind of MODEL_KINDS) {
+      const m = carModel(kind)!;
+      const rv = m.reverse;
+      const ext = mesh(view(kind), 'exterior').geometry;
+      const pos = ext.getAttribute('position');
+      // No kit vertex over the lens and further out than its face (4 mm off the model).
+      for (const i of kitVertices(ext)) {
+        if (Math.abs(pos.getX(i) - rv.at.x) < rv.size[0] / 2 && Math.abs(pos.getY(i) - rv.at.y) < rv.size[1] / 2 && pos.getZ(i) < 0) {
+          expect(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).sub(rv.at).dot(rv.normal), `${kind} kit over the reverse lamp`).toBeLessThan(0.004);
+        }
+      }
+    }
+  });
+
+  it('a made-up reverse lamp (the sedan and taxi have no white rear lamp) stands off the tail, not inside it', () => {
+    for (const kind of ['sedan', 'taxi'] as const) {
+      const s = VEHICLE_SPECS[kind];
+      const rv = carModel(kind)!.reverse;
+      const v = view(kind);
+      const hit = new THREE.Raycaster(new THREE.Vector3(rv.at.x, rv.at.y, -s.length), new THREE.Vector3(0, 0, 1)).intersectObjects([mesh(v, 'body'), mesh(v, 'exterior')], false)[0]!;
+      expect(rv.at.z, kind).toBeLessThan(hit.point.z);
     }
   });
 
