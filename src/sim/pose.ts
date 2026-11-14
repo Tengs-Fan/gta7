@@ -73,14 +73,22 @@ export function gaitPhaseStep(speed: number, dt: number): number {
   return speed > 0 ? (speed / strideLength(speed)) * TAU * dt : 0;
 }
 
-/** Fraction of a cycle each foot is planted: above 0.5 a walk (both feet down at times), below a run (both up at times). */
+/**
+ * Fraction of a cycle each foot is planted: above 0.5 a walk (both feet down at times), below a run (both up at times).
+ * A runner's foot is down while his hips travel about 0.7 m (0.31 of a 2.2 m stride at 4.3 m/s, 0.23 of 3.2 m at 7.4),
+ * as far as a leg reaches with the hips near standing height. A longer stance (0.4 and 0.3 of the stride, 0.88 m and
+ * 0.96 m) sinks the hips 10 to 13 cm for the leg to reach both ends of it, into a crouch with the stance knee bent 69
+ * and 77 degrees. The walk gives way to the run quickly (by 3.3 m/s), as people change gait at once: a slow run's
+ * long stance would ride the hips lower than the walk below it and the run above it.
+ */
 export function dutyFactor(v: number): number {
   if (v <= 1.45) return 0.62;
   if (v <= 1.9) return lerp(0.62, 0.6, (v - 1.45) / 0.45);
   if (v <= 2.8) return lerp(0.6, 0.55, (v - 1.9) / 0.9);
-  if (v <= 4.3) return lerp(0.55, 0.4, (v - 2.8) / 1.5);
-  if (v <= 7.4) return lerp(0.4, 0.3, (v - 4.3) / 3.1);
-  return Math.max(0.24, 0.3 - (v - 7.4) * 0.012);
+  if (v <= 3.3) return lerp(0.55, 0.36, (v - 2.8) / 0.5);
+  if (v <= 4.3) return lerp(0.36, 0.31, v - 3.3);
+  if (v <= 7.4) return lerp(0.31, 0.23, (v - 4.3) / 3.1);
+  return Math.max(0.17, 0.23 - (v - 7.4) * 0.012);
 }
 
 /** Stance progress where a forward step's heel rocker (landing) ends. */
@@ -201,14 +209,16 @@ export function gaitCycle(speed: number, mx: number, mz: number, scale: number, 
   out.half = (duty * strideLength(v)) / 2;
   const fwd = Math.abs(out.mz);
   // From walking (0) to running (1) by speed: the walking foot placement below gives way to the runner's.
-  const jog = smoothstep(2.8, 4.3, v);
+  const jog = smoothstep(2.8, 3.6, v);
   // Walkers land on the heel and push off the toes, rolling far up onto them before the foot leaves the
-  // ground (WALK_TOE); runners land flatter and push off harder, fast ones on the ball of the foot.
+  // ground (WALK_TOE); a jogger lands on his heel too, the toe up RUN_HEEL, and a sprinter on the ball of
+  // his foot, the heel never quite down. A runner pushes off the toes less far up than a walker: his stance
+  // ends with the leg reaching back, and further up onto the toes the ankle rises and bends the knee.
   const heelRock = 0.26 * (1 - smoothstep(1.9, 4.3, v)) + 0.06;
-  const fore = smoothstep(3.4, 6.3, v);
-  const landing = lerp(heelRock, -0.28, fore);
+  const fore = smoothstep(4.3, 7, v);
+  const landing = lerp(heelRock, lerp(RUN_HEEL, -0.28, fore), jog);
   const flat = -0.18 * fore;
-  const pushOff = -lerp(WALK_TOE, lerp(0.5, 0.62, smoothstep(1.45, 7.4, v)), jog);
+  const pushOff = -lerp(WALK_TOE, lerp(0.6, 0.75, smoothstep(4.3, 7.4, v)), jog);
   // Runners spend a shorter time on the foot: the heel comes up earlier in the stance, not faster.
   const heelUp = lerp(0.55, 0.3, smoothstep(1.9, 7.4, v));
   if (out.mz >= 0) {
@@ -226,8 +236,8 @@ export function gaitCycle(speed: number, mx: number, mz: number, scale: number, 
   }
   out.pitchMid = flat * fwd;
   // The toe roll leaves more room behind than the heel in front, so the planted stretch is centred behind
-  // the hip (for a walker by WALK_BACK of its half length, for a runner by 0.12).
-  out.back = out.half * lerp(WALK_BACK, 0.12, jog) * fwd;
+  // the hip (for a walker by WALK_BACK of its half length, for a runner by RUN_BACK).
+  out.back = out.half * lerp(WALK_BACK, RUN_BACK, jog) * fwd;
   out.run = smoothstep(0.53, 0.47, duty);
   out.lift = lerp(0.075, 0.24, smoothstep(1.45, 4.3, v)) * scale + 0.14 * smoothstep(4.3, 7.4, v) * scale;
   out.kick = smoothstep(2.8, 7.4, v);
@@ -245,9 +255,10 @@ export function gaitCycle(speed: number, mx: number, mz: number, scale: number, 
     out.walkDip = 0;
     out.walkLow = 0;
   }
-  // Running: lowest at mid-stance (the knee loads), highest in flight.
+  // Running: lowest at mid-stance (the knee loads), highest in flight; the slowest run, with hardly any
+  // flight, hardly rises and falls, and a sideways shuffle (a run by its duty at 2.8 m/s) only 3 cm.
   const kRun = (1 + Math.cos(TAU * duty)) / 2;
-  out.runDip = lerp(0.03, 0.05, smoothstep(4.3, 7.4, v)) * scale;
+  out.runDip = lerp(lerp(0.03, RUN_DIP, jog), RUN_DIP_SPRINT, smoothstep(4.3, 7.4, v)) * smoothstep(0.5, 0.38, duty) * scale;
   out.runTop = Math.min(top, limit + out.runDip * kRun);
   return out;
 }
@@ -262,6 +273,21 @@ const WALK_TOE = 0.8;
 /** A walker's hips rise and fall this much (m, height 1): 4.5 cm at an ordinary pace, 6 cm at a fast one (2.8 m/s). */
 const WALK_BOB = 0.045;
 const WALK_BOB_FAST = 0.06;
+/**
+ * A runner's planted stretch is centred this far behind his hip, as a fraction of its half length: his foot lands 0.21 m
+ * ahead of the hip joint and leaves 0.47 m behind it at 4.3 m/s, the leg as straight at one end as at the other (knee
+ * bent about 20 degrees at touch-down and at lift-off), so the hips can ride as high as both allow.
+ */
+const RUN_BACK = 0.38;
+/** A jogger lands on his heel, the toe up this much (rad, 10 degrees). */
+const RUN_HEEL = 0.17;
+/**
+ * How far a runner's hips fall from flight to mid-stance (m, height 1): 5 cm at 4.3 m/s, where the stance knee then
+ * bends 42 degrees with the hips 0.84 to 0.89 m up, and 3.5 cm at 7.4 m/s, where they meet standing height in the
+ * flight and the stance knee bends 50 degrees.
+ */
+const RUN_DIP = 0.05;
+const RUN_DIP_SPRINT = 0.035;
 /** A walker's stance knee stays bent at least this much (rad, 8 degrees): it never locks straight. */
 const WALK_KNEE = (8 * Math.PI) / 180;
 /** Samples of a stance in the walk fit, plus the other foot's touch-down and lift-off. */
