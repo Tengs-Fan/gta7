@@ -6,12 +6,12 @@
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { CameraController } from '../../src/render/camera';
+import { CameraController, FOOT_BOOM, FOOT_BOOM_FAR } from '../../src/render/camera';
 import { CityView, frontageSplit, occupancy, shopOccupancy } from '../../src/render/city';
 import { FOLIAGE_FADE_FAR, PropsView, foliagePoints, foliageSpheres } from '../../src/render/props';
 import { DOOR_U, cloudFbm, cloudNoiseData, storefrontUv } from '../../src/render/textures';
 import { CLOUD_SD, Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
-import { MARKER_FADE_FAR, MARKER_FADE_NEAR, MarkerView, markerFade } from '../../src/render/markers';
+import { MARKER_BOOM, MARKER_FADE_FAR, MARKER_FADE_NEAR, MarkerView, markerFade } from '../../src/render/markers';
 import { GameRenderer } from '../../src/render/renderer';
 import { Sim } from '../../src/sim/sim';
 import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
@@ -100,9 +100,14 @@ vi.mock('three', async (importOriginal) => {
 /** The plan's street-facing distance: a first-tier wall this close to its lot edge faces the street. */
 const STREET_FACING_DIST = 10;
 
-/** SHA-256 of the generated layout without the fields this round added to Building. */
-function layoutHash(): string {
-  const L = generateCity();
+/**
+ * SHA-256 of the generated layout without the fields this round added to Building; `older`, also without the drowned
+ * corners' signals (the props from firstQuaySignal on) and that field, as the layout stood before they stood again.
+ */
+function layoutHash(older = false): string {
+  const full = generateCity();
+  const { firstQuaySignal, ...before } = full;
+  const L = older ? { ...before, props: full.props.slice(0, firstQuaySignal) } : full;
   const buildings = L.buildings.map((b) => {
     const r: Record<string, unknown> = { ...b };
     delete r.special;
@@ -290,6 +295,8 @@ describe('round 2 city: layout', () => {
     // signals that drowning the four bays had taken off their corners stood again, appended after every other prop (and
     // `firstQuaySignal` with them).
     expect(layoutHash()).toBe('f766a47f06025425cb258777fee32a051b74efe888080c83daabfaa366407c43');
+    // And everything older than those 18 as at 28dfbee, before they stood again.
+    expect(layoutHash(true)).toBe('8ac5ef2ec419abcbe0b330d2a4f0e2823c1304735ca335b806e5ac1e5bd8aca0');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
@@ -1320,7 +1327,7 @@ describe('round 2 fix 2: markers fade out next to the camera', () => {
       cam.reset(sim);
       cam.update(DT, sim, false);
       const view = new MarkerView();
-      view.syncMarkers(sim.interactions.markers, 0, cam.camera.position, sim.playerPos());
+      view.syncMarkers(sim.interactions.markers, 0, cam.camera.position, sim.playerPos(), false, Infinity, cam.markerView() ?? undefined);
       // The safehouse save marker is 3.2 m from the spawn: drawn, it filled the right edge of a landscape frame.
       expect(sim.interactions.markers.some((m) => m.kind === 'save' && Math.hypot(m.x - sim.player.pos.x, m.z - sim.player.pos.z) < 4)).toBe(true);
       expect(cutMarkers(view, cam.camera), `${w}x${h}`).toEqual([]);
@@ -1330,23 +1337,31 @@ describe('round 2 fix 2: markers fade out next to the camera', () => {
   it('a marker fades out only once the camera is about to pass through it', () => {
     const view = new MarkerView();
     const m = { id: 'save:t', kind: 'save' as const, x: 10, z: 20, radius: 1.5, label: '', color: 0x55ccff, ref: '' };
+    // The camera `back` m from it looking at it along +x, on the foot boom (the frame CameraController.markerView gives).
     const drawn = (back: number): { visible: boolean; alpha: number; icon: number } => {
-      view.syncMarkers([m], 0, { x: m.x - back, y: 2.3, z: m.z });
+      view.syncMarkers([m], 0, { x: m.x - back, y: 2.0, z: m.z }, undefined, false, Infinity, { dx: 1, dz: 0, boom: FOOT_BOOM });
       const g = view.group.children[0]!;
       const beam = g.getObjectByName('beam') as THREE.Mesh;
       return { visible: g.visible, alpha: (beam.material as THREE.MeshBasicMaterial).opacity, icon: g.getObjectByName('icon')!.scale.x };
     };
-    // Standing in it, the camera 4.3 m behind him: drawn in full.
-    expect(drawn(4.3)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
-    expect(drawn(MARKER_FADE_FAR)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
+    // As deep in the view as he would be standing in it, the camera a boom behind him: drawn in full, as it is a little nearer.
+    expect(drawn(FOOT_BOOM)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
+    expect(drawn(FOOT_BOOM - MARKER_FADE_FAR)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
     // Fading on the way in...
-    const half = drawn((MARKER_FADE_NEAR + MARKER_FADE_FAR) / 2);
+    const half = drawn(FOOT_BOOM - (MARKER_FADE_NEAR + MARKER_FADE_FAR) / 2);
     expect(half.visible).toBe(true);
     expect(half.alpha).toBeCloseTo(0.14, 6);
     expect(half.icon).toBeCloseTo(0.5, 6);
-    // ...and gone nearer than MARKER_FADE_NEAR, as in the New Game frame (2.9 m from the safehouse marker).
-    expect(drawn(2.9).visible).toBe(false);
+    // ...and gone MARKER_FADE_NEAR nearer the lens than he is, as in the New Game frame (the safehouse marker 1.7 m deep).
+    expect(drawn(FOOT_BOOM - MARKER_FADE_NEAR).visible).toBe(false);
+    expect(drawn(1.7).visible).toBe(false);
     expect(drawn(0.5).visible).toBe(false);
+    // On the far zoom's longer boom the same marker fades further out; with no view (a test, the title) by its distance
+    // from the lens against MARKER_BOOM.
+    view.syncMarkers([m], 0, { x: m.x - FOOT_BOOM, y: 2.0, z: m.z }, undefined, false, Infinity, { dx: 1, dz: 0, boom: FOOT_BOOM_FAR });
+    expect(view.group.children[0]!.visible).toBe(false);
+    view.syncMarkers([m], 0, { x: m.x - MARKER_BOOM, y: 2.0, z: m.z });
+    expect((((view.group.children[0]!.getObjectByName('beam') as THREE.Mesh).material) as THREE.MeshBasicMaterial).opacity).toBe(0.28);
     // Without a camera (title screen, tests) every marker is drawn in full...
     view.syncMarkers([m], 0);
     expect(view.group.children[0]!.visible).toBe(true);

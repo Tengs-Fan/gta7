@@ -388,6 +388,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // (src/world/layout.ts drown).
     expect(b).toBe('82da27b5e4df7346a1912b31fea4630267655e068345b4b546da54e56ce6e1b0');
     expect(c).toBe('eaaec4f95aff1fde9f1d8da94a568a63d34dd206ed64100874886cf20f2c90f1');
+    // And every collider but those 18, the last ones, as at 28dfbee before they stood again.
+    const first = W.layout.firstQuaySignal;
+    const older = W.grid.colliders.filter((x) => x.propIndex < first);
+    expect(W.grid.colliders.length - older.length).toBe(18);
+    expect(createHash('sha256').update(JSON.stringify(older.map((x) => ({ ...x })))).digest('hex')).toBe('9e30cb01443de12df89267513eed57887983c923d97288f3825153418ba4663e');
   });
 });
 

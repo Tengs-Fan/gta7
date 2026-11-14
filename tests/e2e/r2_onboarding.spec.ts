@@ -56,8 +56,10 @@ test.describe('GTA 7 onboarding', () => {
     await refusePointerLock(page);
     const errors = await boot(page);
     await newGame(page);
-    await expect(page.locator('.objective.next')).toContainText('Next: Mama Lou has work - L on your radar');
-    await expect(page.locator('.help')).toContainText('pink route');
+    await expect(page.locator('.objective.next')).toContainText('Mama Lou has work: follow the route to the L on your radar');
+    // The welcome says hello and names the key; it leaves Lou to the line.
+    await expect(page.locator('.help')).toContainText('Welcome to San Azura. Steal a ride with');
+    await expect(page.locator('.help')).not.toContainText('Lou');
     const hud = await page.evaluate(() => {
       const h = (window as Api).__gta7.game.hud;
       return { waypoint: h.waypoint, color: h.routeColor, route: h.route.length };
@@ -253,7 +255,7 @@ test.describe('GTA 7 onboarding', () => {
     expect(errors).toEqual([]);
   });
 
-  test("MISSION PASSED shows no stale objective, then Lou's next job on her marker, without a 'Next' line or a route stub", async ({ page }) => {
+  test("MISSION PASSED shows no stale objective, then Lou's next job on her marker, without a next-step line or a route stub", async ({ page }) => {
     await refusePointerLock(page);
     const errors = await boot(page);
     await newGame(page);

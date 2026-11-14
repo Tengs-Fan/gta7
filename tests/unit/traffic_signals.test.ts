@@ -471,6 +471,19 @@ describe('the signals\' meshes', () => {
     }
   });
 
+  it('the signals on the drowned cells\' corners are the city\'s, drawn however near the county\'s reach is, alone in a batch or not', () => {
+    // At 128 m cells five batches hold only those signals, all after country.firstProp: a city camera with the county's
+    // props culled at 50 m still draws them.
+    const props = new PropsView(W, STATIC_CHUNK_SIZE);
+    const priv = props as unknown as { refs: Map<number, Array<{ mesh: THREE.InstancedMesh }>> };
+    const first = W.layout.firstQuaySignal;
+    const meshes = new Set(W.layout.props.slice(first).map((_p, k) => priv.refs.get(first + k)![0]!.mesh));
+    const alone = [...meshes].filter((m) => (m.userData.propIndices as number[]).every((i) => i >= first));
+    expect(alone.length).toBe(5);
+    props.cull(0, 0, Infinity, 50);
+    for (const m of meshes) expect(m.visible, m.name).toBe(true);
+  });
+
   it('every overhead lens sits on its head, drawn where the layout puts it', () => {
     const props = new PropsView(W);
     signals.slice(0, 40).forEach((p, i) => {

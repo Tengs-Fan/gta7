@@ -15,7 +15,7 @@ import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
 import { LAKE_CENTRE } from '../world/country';
 import { lakeGap } from '../world/country/lakeland';
-import type { Rect } from '../world/layout';
+import type { CityLayout, Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, whisperDue, type AmbienceFrame, type ShoreInfo } from './ambience';
 import { Barks, nearestCharacter } from './barks';
@@ -32,6 +32,7 @@ import { PoliceScanner } from './scanner';
 import { eagerClips, SpeechBank } from './speech';
 import { SPEECH, type BarkKind } from '../sim/speech';
 import { NodeTally } from './tally';
+import { vergesOf } from '../render/city/verges';
 import { PA_RANGE, TrainVoice, type Hearing } from './trainVoice';
 import { DEFAULT_HORN, engineProfile } from './vehicleProfiles';
 
@@ -1232,14 +1233,14 @@ export class AudioEngine {
     return { live: { ...this.nodes.live }, started: { ...this.nodes.started }, total: this.nodes.total, echoSpaces: this.echo?.built ?? 0 };
   }
 
-  /** Sand, grass, yards and dirt make the tyres roar louder than asphalt and paving. */
+  /** Sand, grass, yards, the verges and dirt make the tyres roar louder than asphalt and paving. */
   private softGround(world: StaticWorld, x: number, z: number): boolean {
     if (!finite(x, z)) return false;
     if (x >= world.bounds.beachStartX) return true;
     if (world.isOnRoad(x, z)) return false;
     if (this.softWorld !== world) {
       this.softWorld = world;
-      this.softPatches = world.layout.ground.filter((g) => g.kind === 'grass' || g.kind === 'yard' || g.kind === 'dirt').map((g) => g.rect);
+      this.softPatches = softGroundRects(world.layout);
     }
     for (const r of this.softPatches) if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) return true;
     return false;
@@ -1300,4 +1301,9 @@ export class AudioEngine {
     f.firePan = bearingPan(fire.x - L.x, fire.z - L.z, rx, rz);
     this.ambience!.update(dt, t, f);
   }
+}
+
+/** The ground the tyres roar louder on, apart from the beach: lawns, yards, dirt and the grass verges drawn on the sidewalks. */
+export function softGroundRects(layout: CityLayout): Rect[] {
+  return [...layout.ground.filter((g) => g.kind === 'grass' || g.kind === 'yard' || g.kind === 'dirt').map((g) => g.rect), ...vergesOf(layout).map((v) => v.rect)];
 }

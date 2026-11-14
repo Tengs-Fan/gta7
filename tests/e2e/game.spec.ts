@@ -22,7 +22,8 @@ test.describe('GTA 7', () => {
     await newGame(page);
     await expect(page.locator('.money')).toHaveText('$250');
     await expect(page.locator('.radar canvas')).toBeVisible();
-    await expect(page.locator('.help')).toContainText('Mama Lou');
+    await expect(page.locator('.help')).toContainText('Welcome to San Azura');
+    await expect(page.locator('.objective.next')).toContainText('Mama Lou');
     const s0 = await state(page);
     await holdKey(page, 'KeyW', 1500);
     const s1 = await state(page);

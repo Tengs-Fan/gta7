@@ -1391,7 +1391,8 @@ describe('the crowd draws the local player by id', () => {
   });
 
   // (Recorded at 72d0b98, before the crowd drew the local player by id, and matched to the element until round 9
-  // redrew the figures; recorded again then, and when round 9 changed how they stand, walk and run:
+  // redrew the figures; recorded again then, when round 9 changed how they stand, walk and run, and when a runner's
+  // hips rose to near standing height and his swinging foot stopped bending up past what an ankle does:
   // scripts/record-crowd-baseline.test.ts.)
   it('with a single player the crowd reproduces the output on record', () => {
     const baseline = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'crowd_sp.json'), 'utf8')) as CrowdBaseline;

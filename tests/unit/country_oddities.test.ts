@@ -87,7 +87,7 @@ describe('the telephone poles', () => {
   it('keep clear of every other prop, building, hedge and solid of the county, and stand on its ground', () => {
     const near = (x: number, z: number, r: number) => (c: { minX: number; minZ: number; maxX: number; maxZ: number }) => x > c.minX - r && x < c.maxX + r && z > c.minZ - r && z < c.maxZ + r;
     for (const p of odd.poles) {
-      for (const q of L.props.slice(country.firstProp)) expect(Math.hypot(p.x - q.x, p.z - q.z), `${q.kind} at ${q.x}, ${q.z}`).toBeGreaterThan(ODDITY_CLEAR - 0.5);
+      for (const q of L.props.slice(country.firstProp, L.firstQuaySignal)) expect(Math.hypot(p.x - q.x, p.z - q.z), `${q.kind} at ${q.x}, ${q.z}`).toBeGreaterThan(ODDITY_CLEAR - 0.5);
       for (const r of [...odd.solids.filter((s) => s.tag !== 'rock' || !s.round || s.y1 - s.y0 !== POLE.h).map((s) => s.rect), ...odd.pads]) expect(near(p.x, p.z, 1)(r), `an oddity at ${r.minX}, ${r.minZ}`).toBe(false);
       for (const b of L.buildings.filter((b) => b.district === 'country')) expect(near(p.x, p.z, 2)(b.rect), 'a building').toBe(false);
       for (const h of country.farms.hedges) expect(near(p.x, p.z, 1)(h), 'a hedge').toBe(false);

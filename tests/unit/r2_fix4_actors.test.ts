@@ -79,7 +79,7 @@ function frame(sim: Sim, cam: CameraController, over: Parameters<typeof input>[0
 describe('a marker he has just stepped off is not drawn right in front of the aiming camera', () => {
   /** What the view draws of `m`: its beam's opacity, its icon's scale, and the icon's distance from the lens. */
   function drawn(view: MarkerView, m: Marker, sim: Sim, cam: CameraController): { alpha: number; icon: number; lens: number } {
-    view.syncMarkers([m], 0, cam.camera.position, sim.playerPos());
+    view.syncMarkers([m], 0, cam.camera.position, sim.playerPos(), false, Infinity, cam.markerView() ?? undefined);
     const g = view.group.children[0]!;
     g.updateMatrixWorld(true);
     const icon = g.getObjectByName('icon')!;
@@ -133,11 +133,17 @@ describe('a marker he has just stepped off is not drawn right in front of the ai
 
   it('not aiming, he takes it along for a step as before; standing in it, it is drawn in full', () => {
     for (const heading of [0, Math.PI]) {
-      // A step out with the camera 4.3 m behind him: most of it.
+      // A step out with the camera FOOT_BOOM behind him: more than half of it. (Most of it, as from the 4.3 m boom, would
+      // be a lit column half a metre from the lens: the camera now stands 1.6 m from its axis, the beam 1.1 m round it.)
       let s = besideSave(1.6, heading);
       for (let k = 0; k < 60; k++) frame(s.sim, s.cam);
       const out = drawn(new MarkerView(), s.m, s.sim, s.cam);
-      expect(out.icon).toBeGreaterThan(0.6);
+      expect(out.icon).toBeGreaterThan(0.5);
+      // The same step with the view along the marker's edge (the camera clear of it, beside it): all of it.
+      s = besideSave(1.6, heading);
+      s.cam.yaw = heading + Math.PI / 2;
+      for (let k = 0; k < 60; k++) frame(s.sim, s.cam);
+      expect(drawn(new MarkerView(), s.m, s.sim, s.cam).icon).toBe(1);
       // In it (1 m from its centre), even aiming with the camera close: all of it.
       s = besideSave(1, heading);
       for (let k = 0; k < 60; k++) frame(s.sim, s.cam, { aim: true }, true);
