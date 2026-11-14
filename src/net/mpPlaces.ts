@@ -8,7 +8,7 @@ import { MP_NO_MONORAIL } from '../sim/activities/monorail';
 import { places } from '../sim/activities/places';
 import { MP_NO_REGATTA } from '../sim/activities/regatta';
 import { streetRunCourses } from '../sim/activities/streetRun';
-import { canTakeVehicle, enterPromptFor, findEnterable } from '../sim/entry';
+import { canTakeVehicle, enterPromptFor } from '../sim/entry';
 import type { Vehicle } from '../sim/entities';
 import { monorailMarker, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
 import { CONTACTS, contactColorNumber, contactUnlocked } from '../sim/missions/contacts';
@@ -55,10 +55,11 @@ function markersOf(world: StaticWorld): Marker[] {
 }
 
 /**
- * The InteractionsView of a multiplayer client over `vehicles`, the ones its mirror holds. A marker's reason comes first,
- * else what F does beside the vehicle it would take, as the single-player game words it.
+ * The InteractionsView of a multiplayer client. `takeable` gives the vehicle the player's F would take, as the client
+ * predicts it (`Mirror.takeable`), and the prompt words it as the single-player game does. A marker's reason comes
+ * first, except a race start's on foot: F beside a vehicle is offered before T (which opens the race from on foot too).
  */
-export function multiplayerInteractions(world: StaticWorld, vehicles: readonly Vehicle[]): InteractionsView {
+export function multiplayerInteractions(world: StaticWorld, takeable: () => Vehicle | null): InteractionsView {
   const markers = markersOf(world);
   const current = (slot: PlayerView): Marker | null => {
     const p = slot.character;
@@ -73,14 +74,18 @@ export function multiplayerInteractions(world: StaticWorld, vehicles: readonly V
   const vehiclePrompt = (slot: PlayerView): string | null => {
     // A watcher has no controls to press F with.
     if (!canTakeVehicle(slot) || (slot.slot ?? 0) < 0) return null;
-    const v = findEnterable({ vehicles, world }, slot.character, slot.character.state === 'swimming');
+    const v = takeable();
     return v ? enterPromptFor(v) : null;
   };
   return {
     markers,
     current,
     canSave: () => false,
-    prompt: (slot) => (slot ? current(slot)?.label || vehiclePrompt(slot) : null),
+    prompt: (slot) => {
+      if (!slot) return null;
+      const m = current(slot);
+      return (m?.kind === 'streetRun' ? vehiclePrompt(slot) : null) || m?.label || vehiclePrompt(slot);
+    },
     priceOf: () => 0,
     buy: () => 'Not available in multiplayer.',
   } as InteractionsView;

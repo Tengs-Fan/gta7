@@ -80,6 +80,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   A car faster than 7 m/s offers nothing, and a marker's prompt, or a failed mission's "Press E to retry", comes before it.
   The notice that a retry must wait ("Lose the cops before retrying.", "Finish the rampage first.") comes after it, so a wanted player beside a car is offered the car.
   A multiplayer client is offered the same prompts for the vehicles it sees, with the same speed and reach limits, and a marker's reason ("Saving is off in multiplayer.") comes before them.
+  On foot beside a vehicle near a head-to-head Street Run's start you are offered the vehicle, not "Press T to race"; T still opens the race from there.
   There is no "Press F to get in the Azura Cab" there, as the phone's cab is single player only.
 - Getting out of a moving car: below 3.5 m/s you step out, up to 11 m/s the car brakes first, and faster than that you bail out, tumble and lose 6 health.
 - Motorbikes and boats use the vehicle controls: W / S (RT / LT) for throttle and brake or reverse, A / D (left stick) to lean or steer, F (Y) to get on or off.

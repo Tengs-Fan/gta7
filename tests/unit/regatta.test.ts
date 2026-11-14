@@ -142,7 +142,7 @@ describe('Gull Regatta', () => {
     expect(mp.sim.activities.job).toBeNull();
     expect(said).toContain(MP_NO_REGATTA);
     // And a multiplayer client says so on the Marina's deck.
-    const view = multiplayerInteractions(world(), []);
+    const view = multiplayerInteractions(world(), () => null);
     const c = { ...mp.sim.player, pos: { x: marina.x, y: 0.45, z: marina.z }, state: 'normal', vehicle: null };
     expect(view.prompt({ character: c, down: false, pos: () => c.pos } as never)).toBe(MP_NO_REGATTA);
   });
