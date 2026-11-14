@@ -12,11 +12,11 @@ import { bar, ModelBuilder } from './furniture';
 /**
  * A gondola hung from its pivot (the origin, on the rim's middle plane): a round cabin 2.2 m across and 2 m tall whose
  * floor is 2.6 m under the pivot (the old box's envelope), its lower body and domed roof in the instance colour, a band
- * of dark glass between them split by six mullions, and the yoke up to the pivot. 330 triangles.
+ * of dark glass between them split by six mullions, and the yoke up to the pivot. About 390 triangles.
  */
 export function gondolaGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
-  const seg = 12;
+  const seg = 10;
   const lathe = (pts: Array<[number, number]>) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
   b.add('floor', lathe([[0, -2.6], [0.72, -2.6], [0.98, -2.47], [1.08, -2.22], [1.1, -1.76]]), 0xffffff, 0.92);
   b.add('glass', lathe([[1.1, -1.76], [1.07, -1.02]]), 0x1a2228);
@@ -38,9 +38,10 @@ const FLANGE_Z = 2.1;
 
 /**
  * The wheel, about its hub (local z the axle): two rim tubes 2 FERRIS_RIM_Z apart braced by cross tubes and a zigzag of
- * diagonals into one truss (32 bays, one cross tube at each gondola's pivot), an inner ring each side, 64 tension
- * spokes from the hub's flanges (each flange's spokes cross over to the far rim too, the lacing a real wheel has), the
- * hub drum and the axle out to `axleHalf` m. About 4,100 triangles.
+ * diagonals into one truss (32 bays, one cross tube at each gondola's pivot), an inner ring each side, 32 tension
+ * spokes from the hub's flanges to their rims (the two flanges' half a bay apart), the hub drum and the axle out to
+ * `axleHalf` m. About 3,900 triangles, 1,000 more than the plain rims; finer lacing put the Medium view under the wheel
+ * past 6% more triangles.
  */
 export function ferrisWheelGeometry(R: number, axleHalf: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
@@ -53,19 +54,14 @@ export function ferrisWheelGeometry(R: number, axleHalf: number): THREE.BufferGe
   for (let k = 0; k < bays; k++) {
     const a = (k / bays) * Math.PI * 2;
     const a1 = ((k + 1) / bays) * Math.PI * 2;
-    parts.push(bar(P(a, R, -FERRIS_RIM_Z), P(a, R, FERRIS_RIM_Z), 0.13, 6));
+    parts.push(bar(P(a, R, -FERRIS_RIM_Z), P(a, R, FERRIS_RIM_Z), 0.13, 4));
     const s = k % 2 === 0 ? 1 : -1;
     parts.push(bar(P(a, R, -s * FERRIS_RIM_Z), P(a1, R, s * FERRIS_RIM_Z), 0.09, 4));
-  }
-  for (let k = 0; k < 8; k++) {
-    const a = (k / 8) * Math.PI * 2 + Math.PI / 16;
-    parts.push(bar(P(a, R * 0.35, -FERRIS_RIM_Z), P(a, R * 0.35, FERRIS_RIM_Z), 0.1, 4));
   }
   for (const side of [-1, 1]) {
     for (let k = 0; k < 16; k++) {
       const a = ((k + (side > 0 ? 0 : 0.5)) / 16) * Math.PI * 2;
       parts.push(bar(P(a, 1.3, side * FLANGE_Z), P(a, R, side * FERRIS_RIM_Z), 0.06, 4));
-      parts.push(bar(P(a + Math.PI / 16, 1.3, -side * FLANGE_Z), P(a + Math.PI / 16, R, side * FERRIS_RIM_Z), 0.05, 4));
     }
   }
   // The hub: a drum between two flanges, and the axle through it.
