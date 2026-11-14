@@ -726,11 +726,11 @@ interface Hit {
   readonly part: Part;
 }
 
-/** Casts a ray (origin, unit direction) at the body's triangles that `keep` passes (never its glass). */
+/** Casts a ray (origin, unit direction) at the body's triangles that `keep` passes (its glass alone with `glass`, else never its glass). */
 type SurfaceCast = (origin: THREE.Vector3, dir: THREE.Vector3) => Hit | null;
 
-function surfaceCast(tris: readonly Tri[], keep: (t: Tri) => boolean): SurfaceCast {
-  const list = tris.filter((t) => t.part !== 'glass' && keep(t));
+function surfaceCast(tris: readonly Tri[], keep: (t: Tri) => boolean, glass = false): SurfaceCast {
+  const list = tris.filter((t) => (t.part === 'glass') === glass && keep(t));
   const ray = new THREE.Ray();
   const at = new THREE.Vector3();
   const ab = new THREE.Vector3();
@@ -788,11 +788,11 @@ class Kit {
 
   /**
    * A patch laid over the body: `grid` is rows of hits (null: nothing there), each lifted `lift` off the surface along
-   * its normal; a cell is drawn when its four corners hit paint, and none where `keepClear` holds at its middle (a lamp
+   * its normal; a cell is drawn when its four corners hit paint (or what `on` takes), and none where `keepClear` holds at its middle (a lamp
    * or a plate there). Less than `minShare` of the rest drawn (scraps round the model's own trim, cut into by its
    * curves) and none is.
    */
-  patch(grid: ReadonlyArray<ReadonlyArray<Hit | null>>, lift: number, cell: 'dark' | 'metal', far: boolean, minShare = 0.6, keepClear?: (p: THREE.Vector3) => boolean): void {
+  patch(grid: ReadonlyArray<ReadonlyArray<Hit | null>>, lift: number, cell: 'dark' | 'metal', far: boolean, minShare = 0.6, keepClear?: (p: THREE.Vector3) => boolean, on: (h: Hit | null) => h is Hit = PAINTED): void {
     const up = (h: Hit): THREE.Vector3 => h.at.clone().addScaledVector(h.normal, lift);
     const cells: Hit[][] = [];
     let all = 0;
@@ -802,7 +802,7 @@ class Kit {
         const hits = q.filter((h): h is Hit => h !== null);
         if (keepClear && hits.length > 0 && keepClear(hits.reduce((v, h) => v.addScaledVector(h.at, 1 / hits.length), new THREE.Vector3()))) continue;
         all++;
-        if (q.every(PAINTED)) cells.push(q as Hit[]);
+        if (q.every(on)) cells.push(q as Hit[]);
       }
     }
     if (cells.length < minShare * all) return;
@@ -871,6 +871,8 @@ interface KitFrame {
   readonly head: readonly ModelLamp[];
   readonly tail: readonly ModelLamp[];
   readonly reverse: ModelLamp;
+  /** Whether the reverse lamp is the model's own white lamp (its lens 4 mm proud) or one made up (14 mm proud). */
+  readonly ownReverse: boolean;
   readonly plates: PlateFrames;
   readonly low: number;
   readonly half: number;
@@ -879,6 +881,10 @@ interface KitFrame {
   readonly beltY: number;
   /** z of each door's rear edge (a handle stands just ahead of it). */
   readonly doors: readonly number[];
+  /** The side windows' outline (front-bottom, front-top, rear-top, rear-bottom z), the roof's top, the rear window's foot. */
+  readonly cabinZ: readonly [number, number, number, number];
+  readonly roofTopY: number;
+  readonly rearWindow: { readonly z: number; readonly y: number } | null;
 }
 
 /** How much further out the far version's fittings stand than the near ones (m). */
@@ -942,9 +948,9 @@ function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
   const tIn = Math.min(...f.tail.map((l) => Math.abs(l.at.x) - l.size[0] / 2)) + 0.01;
   const tTop = tailY + tailH * 0.3;
   const tBot = Math.max(tailY - tailH * 0.3, rp.y1 + 0.03);
-  // (Clear of the reverse lamp, whose lens stands only 4 mm proud where the model has no white lamp of its own.)
+  // (Clear of the model's own white reverse lamp, whose lens stands only 4 mm proud.)
   const rv = f.reverse;
-  const offReverse = (p: THREE.Vector3): boolean => Math.abs(p.x - rv.at.x) < rv.size[0] / 2 + 0.03 && Math.abs(p.y - rv.at.y) < rv.size[1] / 2 + 0.03;
+  const offReverse = f.ownReverse ? (p: THREE.Vector3): boolean => Math.abs(p.x - rv.at.x) < rv.size[0] / 2 + 0.03 && Math.abs(p.y - rv.at.y) < rv.size[1] / 2 + 0.03 : undefined;
   if (f.tail.length > 1 && tIn > 0.15 && tTop - tBot > 0.04) {
     kit.patch(band(atRear, -tIn, tIn, tBot, tTop), 0.008, 'dark', true, 0.95, offReverse);
     kit.patch(band(atRear, -tIn, tIn, tTop - 0.002, tTop + 0.02), 0.013, 'metal', true, 0.95, offReverse);
@@ -1002,6 +1008,132 @@ function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
     }
   }
   return kit;
+}
+
+/** Width of a shut line laid on the paint, and how far it stands proud (m). */
+const SHUT = 0.012;
+const SHUT_LIFT = 0.004;
+
+/** First u from `from` towards `to` (in `step`s) at which `ok(u)` fails, less a step (null if it never holds). */
+function lastWhile(from: number, to: number, step: number, ok: (u: number) => boolean): number | null {
+  let last: number | null = null;
+  const n = Math.ceil(Math.abs(to - from) / step);
+  for (let i = 0; i <= n; i++) {
+    const u = from + Math.sign(to - from) * step * i;
+    if (!ok(u)) break;
+    last = u;
+  }
+  return last;
+}
+
+/**
+ * The near-only second level of an imported body's form, as the chase camera and the pavement see it, laid on its
+ * paint by rays like the kit (and following its dents the same way): shut lines round the boot lid and the bonnet,
+ * along each door's edges and over the bumpers (wrapping round the corners to the wheel arches); a housing round
+ * every lamp; drip rails along the roof's edges and a seal along the rear window's foot; round dark
+ * lips over the model's polygonal wheel arches; and wipers on the windscreen.
+ */
+function modelDetail(kit: Kit, tris: readonly Tri[], f: KitFrame): void {
+  const { half, hw, low } = f;
+  const [fb, ft, rt] = f.cabinZ;
+  const all = surfaceCast(tris, () => true);
+  const down = (x: number, z: number): Hit | null => all(new THREE.Vector3(x, f.roofTopY + 1, z), new THREE.Vector3(0, -1, 0));
+  const fromEnd = (end: 1 | -1) => (x: number, y: number): Hit | null => all(new THREE.Vector3(x, y, end * (half + 1)), new THREE.Vector3(0, 0, -end));
+  const fromSide = (side: number) => (z: number, y: number): Hit | null => all(new THREE.Vector3(side * (hw + 1), y, z), new THREE.Vector3(-side, 0, 0));
+  /** A line from (u0, v) to (u1, v) on the surface `at(u, v)` casts onto, `width` across, in short cells that follow it. */
+  // (Everything clear of the model's own white reverse lamp, whose lens stands only 4 mm proud.)
+  const rv = f.reverse;
+  const keepClear = f.ownReverse ? (p: THREE.Vector3): boolean => p.z < 0 && Math.abs(p.x - rv.at.x) < rv.size[0] / 2 + 0.03 && Math.abs(p.y - rv.at.y) < rv.size[1] / 2 + 0.03 : undefined;
+  const line = (at: (u: number, v: number) => Hit | null, u0: number, u1: number, v: number, width = SHUT, lift = SHUT_LIFT, cell: 'dark' | 'metal' = 'dark', minShare = 0.5): void => {
+    const us = steps(u0, u1, 0.04);
+    kit.patch([v - width / 2, v + width / 2].map((w) => us.map((u) => at(u, w))), lift, cell, false, minShare, keepClear);
+  };
+  /** The same across: from (u, v0) to (u, v1). */
+  const lineAcross = (at: (u: number, v: number) => Hit | null, u: number, v0: number, v1: number, width = SHUT, lift = SHUT_LIFT): void => line((a, b) => at(b, a), v0, v1, u, width, lift);
+  const up = (h: Hit | null): boolean => PAINTED(h) && h.normal.y > 0.55;
+
+  // The boot lid: its seams along the deck behind the rear window, down the tail, and across it over the lamps; and
+  // the seam across the deck at the window's foot.
+  // (The rear window's foot: the side glass's rearmost foot where the rear window runs on from it.)
+  const foot = Math.min(f.rearWindow?.z ?? Infinity, f.cabinZ[3]);
+  const tailTop = Math.max(...f.tail.map((l) => l.at.y + l.size[1] / 2));
+  const c = Math.min(hw * 0.62, Math.abs(f.tail[0]!.at.x) + 0.05);
+  // Where the deck turns down into the tail.
+  const zEdge = lastWhile(foot - 0.05, -half, 0.02, (z) => up(down(0, z)));
+  if (zEdge !== null && foot - zEdge > 0.25) {
+    const yEdge = down(0, zEdge)!.at.y;
+    const cross = Math.max(tailTop + 0.04, yEdge - 0.12);
+    for (const side of [-1, 1]) {
+      line((z, x) => down(x, z), foot - 0.06, zEdge, side * c);
+      if (yEdge - 0.02 > cross) lineAcross(fromEnd(-1), side * c, cross, yEdge - 0.02);
+    }
+    line(fromEnd(-1), -c, c, cross);
+    line((x, z) => down(x, z), -c, c, foot - 0.06);
+  }
+  // A seal along the rear window's foot.
+  line((x, z) => down(x, z), -hw * 0.6, hw * 0.6, foot - 0.015, 0.025, 0.005, 'dark', 0.3);
+  // The bonnet: its seams along the wings to the nose and across the cowl under the windscreen.
+  const headTop = Math.max(...f.head.map((l) => l.at.y + l.size[1] / 2));
+  const zNose = lastWhile(fb + 0.1, half, 0.02, (z) => up(down(0, z)));
+  if (zNose !== null && zNose - fb > 0.4) {
+    const c = hw * 0.66;
+    for (const side of [-1, 1]) line((z, x) => down(x, z), fb + 0.12, zNose - 0.02, side * c);
+    line((x, z) => down(x, z), -c, c, fb + 0.12);
+    line(fromEnd(1), -c, c, Math.max(headTop + 0.03, down(0, zNose)!.at.y - 0.06));
+  }
+  // The bumpers' top edges across each end, under the lamps, and round the corners along the flanks to the arches.
+  const wheelZ = AXLE * 2 * half;
+  for (const end of [1, -1] as const) {
+    const lamps = end > 0 ? f.head : f.tail;
+    const plate = end > 0 ? f.plates.front : f.plates.rear;
+    const bottom = Math.min(...lamps.map((l) => l.at.y - l.size[1] / 2));
+    const y = Math.max(plate.y1 + 0.03, bottom - 0.035);
+    if (y > bottom) continue;
+    line(fromEnd(end), -hw * 0.95, hw * 0.95, y);
+    for (const side of [-1, 1]) line((z, yy) => fromSide(side)(z, yy), end * (half - 0.02), end * (wheelZ + f.wheelR + 0.12), y);
+  }
+  // Door shut lines: each door's front and rear edges, from over the sill to the window.
+  const edges = [fb - 0.03, ...f.doors];
+  for (const side of [-1, 1]) for (const z of edges) lineAcross(fromSide(side), z, low + 0.14, f.beltY - 0.02);
+  // A housing round every lamp, standing a little prouder than its lens: satin round the head lamps, dark round the tail.
+  for (const [l, cell] of [...f.head.map((l) => [l, 'metal'] as const), ...f.tail.map((l) => [l, 'dark'] as const)]) {
+    const upv = new THREE.Vector3().crossVectors(l.normal, l.across);
+    const at = (u: number, v: number): Hit | null => all(l.at.clone().addScaledVector(l.across, u).addScaledVector(upv, v).addScaledVector(l.normal, 0.5), l.normal.clone().negate());
+    const w = l.size[0] / 2 + 0.018;
+    const h = l.size[1] / 2 + 0.018;
+    kit.patch(steps(-h, h, 0.012).map((v) => steps(-w, w, 0.02).map((u) => at(u, v))), 0.007, cell, false, 0, keepClear);
+  }
+  // Drip rails along the roof's edges, where it turns down to the side glass.
+  const zMid = (ft + rt) / 2;
+  const edge = lastWhile(0, hw, 0.01, (x) => { const h = down(x, zMid); return PAINTED(h) && h.at.y > f.roofTopY - 0.06; });
+  if (edge !== null && edge > 0.3) {
+    for (const side of [-1, 1]) line((z, x) => down(x, z), rt + 0.04, ft - 0.04, side * (edge - 0.02), 0.02, 0.006);
+  }
+  // Round lips over the wheel arches: a dark ring from just over the tyre to a circle past the model's polygonal edge,
+  // laid where there is paint, so the edge the eye follows is the circle's.
+  for (const zc of [wheelZ, -wheelZ]) {
+    for (const side of [-1, 1]) {
+      const at = (a: number, r: number): Hit | null => fromSide(side)(zc + Math.cos(a) * r, f.wheelR + Math.sin(a) * r);
+      // (Paint on the flank only: a ray past the arch's edge meets the wheel well's inside, deep under the flank.)
+      const flank = (h: Hit | null): h is Hit => PAINTED(h) && h.normal.x * side > 0.4 && Math.abs(h.at.x) > hw - 0.15;
+      let outer = f.wheelR + 0.04;
+      for (let a = Math.PI * 0.2; a <= Math.PI * 0.8 + 1e-6; a += Math.PI / 12) {
+        const r = lastWhile(f.wheelR + 0.3, f.wheelR, 0.01, (rr) => flank(at(a, rr)));
+        if (r !== null) outer = Math.max(outer, r);
+      }
+      outer = Math.min(outer, f.wheelR + 0.2) + 0.045;
+      const angles = steps(-0.05 * Math.PI, 1.05 * Math.PI, 28);
+      kit.patch(steps(f.wheelR + 0.02, outer, 0.012).map((r) => angles.map((a) => at(a, r))), 0.004, 'dark', false, 0, undefined, flank);
+    }
+  }
+  // Wipers resting along the windscreen's foot.
+  const glass = surfaceCast(tris, (t) => t.p.some((p) => p.z > fb - 0.4), true);
+  const onGlass = (x: number, z: number): Hit | null => glass(new THREE.Vector3(x, f.roofTopY + 1, z), new THREE.Vector3(0, -1, 0));
+  const isGlass = (h: Hit | null): h is Hit => h !== null;
+  for (const [x0, x1] of [[-hw * 0.62, -0.06], [0.04, hw * 0.55]] as const) {
+    const xs = steps(x0, x1, 0.05);
+    kit.patch([fb - 0.075, fb - 0.06].map((z) => xs.map((x) => onGlass(x, z))), 0.012, 'dark', false, 0.5, undefined, isGlass);
+  }
 }
 
 /**
@@ -1134,10 +1266,13 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
   const head = lampsOf(tris, 'head', true);
   const tail = lampsOf(tris, 'tail', false);
   if (head.length === 0 || tail.length === 0) throw new Error(`${spec.id}: no lamps`);
-  // The reverse lamp: the model's white rear lamp (on the left) where it has one, else under the tail lamps' middle.
+  // The reverse lamp: the model's white rear lamp (on the left) where it has one, else under the tail lamps' middle, on
+  // the tail's surface there (at the lamps' depth it sat 16 cm inside the sedan's tail, which bows out between them).
   const white = lampsOf(tris, 'head', false);
   const tailMid = tail.reduce((v, l) => v.add(l.at), new THREE.Vector3()).multiplyScalar(1 / tail.length);
-  const reverse: ModelLamp = white[0] ?? { at: new THREE.Vector3(0, tailMid.y - 0.09, tailMid.z), size: [0.16, 0.06], normal: new THREE.Vector3(0, 0, -1), across: new THREE.Vector3(-1, 0, 0) };
+  const tailOut = endCast(tris, half, -1)(0, tailMid.y - 0.09);
+  // (Standing 10 mm off it, so its lens is prouder than the kit's tail panel and bar round it.)
+  const reverse: ModelLamp = white[0] ?? { at: new THREE.Vector3(0, tailMid.y - 0.09, tailOut === null ? tailMid.z : -tailOut - 0.01), size: [0.16, 0.06], normal: new THREE.Vector3(0, 0, -1), across: new THREE.Vector3(-1, 0, 0) };
   // Draw parts (lamps are the view's lenses), refined for dents; and the unrefined ones for the far versions.
   // Number plates on both ends, as the procedural bodies carry.
   let low = Infinity;
@@ -1221,7 +1356,9 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
     }
   }
   const wheelX = (front ? Math.abs(front[0] - cx) : s.width / 2 - 0.15) * sx;
-  const kit = modelKit(kind, tris, { head, tail, reverse, plates, low, half, hw: s.width / 2, wheelR: wheelRadius * sy, beltY: yLo, doors: doorEdges(glassPts, cabinHalf, yLo, fb, rb, spec.doors) });
+  const frame: KitFrame = { head, tail, reverse, ownReverse: white.length > 0, plates, low, half, hw: s.width / 2, wheelR: wheelRadius * sy, beltY: yLo, doors: doorEdges(glassPts, cabinHalf, yLo, fb, rb, spec.doors), cabinZ: [fb, ft, rt, rb], roofTopY, rearWindow: Number.isFinite(rwZ) ? { z: rwZ, y: rwY } : null };
+  const kit = modelKit(kind, tris, frame);
+  modelDetail(kit, tris, frame);
   const nearKit = kit.build(false);
   return {
     kind,

@@ -425,6 +425,16 @@ describe('imported car bodies', () => {
     }
   });
 
+  it('a made-up reverse lamp (the sedan and taxi have no white rear lamp) stands off the tail, not inside it', () => {
+    for (const kind of ['sedan', 'taxi'] as const) {
+      const s = VEHICLE_SPECS[kind];
+      const rv = carModel(kind)!.reverse;
+      const v = view(kind);
+      const hit = new THREE.Raycaster(new THREE.Vector3(rv.at.x, rv.at.y, -s.length), new THREE.Vector3(0, 0, 1)).intersectObjects([mesh(v, 'body'), mesh(v, 'exterior')], false)[0]!;
+      expect(rv.at.z, kind).toBeLessThan(hit.point.z);
+    }
+  });
+
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
     for (const kind of MODEL_KINDS) {
       const v = view(kind);
