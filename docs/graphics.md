@@ -165,7 +165,7 @@ The lamp and Ferris wheel halos draw their glow in the shader, so there is no te
 
 The Ferris wheel's models are in `src/render/setPieceModels.ts`, and PropsView turns and places them.
 Its 16 cabins are round, with a domed roof, a band of dark glass split by six mullions and a yoke up to the pivot, in the old box's envelope (floor 2.6 m under the rim).
-Its two rims are braced into a truss by cross tubes and diagonals, 32 bays with a cross tube at each cabin's pivot, and 32 tension spokes run from the hub's flanges.
+Its two rims are joined into a ladder truss by 32 cross tubes, one at each cabin's pivot and one midway between (diagonals would run through the cabins hanging at 3 and 9 o'clock), and 32 tension spokes run from the hub's flanges.
 Its A-frames are octagonal tubes tapering to the hub, braced by a tie across each frame 15 m up and by struts and crossed diagonals beside the deck, all clear of the walkway and the cabins' sweep.
 The wheel keeps its three meshes (rim, cabins, legs), so it adds no draw: from under it 3.3% more triangles on High, 5.5% on Medium and 3.1% on Low, the shadow pass included.
 

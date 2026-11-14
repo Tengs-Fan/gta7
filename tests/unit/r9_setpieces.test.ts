@@ -87,6 +87,34 @@ describe('the Ferris wheel and the containers', () => {
     expect(Math.max(-b.min.x, b.max.x, -b.min.z, b.max.z)).toBeLessThanOrEqual(1.2);
   });
 
+  it('the wheel, as it turns, never passes through a cabin hanging from it', () => {
+    // The wheel's frame as PropsView turns it (about z); a cabin hangs straight down from its pivot, its box 2.2 m
+    // across and deep, from 0.58 to 2.6 m under the pivot (shrunk 2 cm: the yoke meets the pivot's cross tube).
+    const R = 22;
+    const wheel = ferrisWheelGeometry(R, 3.5).toNonIndexed();
+    const tri = new THREE.Triangle();
+    const hits: string[] = [];
+    for (let step = 0; step < 6; step++) {
+      const ang = (step / 6) * ((Math.PI * 2) / 16);
+      const g = wheel.clone().rotateZ(ang);
+      const p = g.getAttribute('position');
+      for (let i = 0; i < 16; i++) {
+        const a = ang + (i / 16) * Math.PI * 2;
+        const cx = Math.cos(a) * R;
+        const cy = Math.sin(a) * R;
+        const box = new THREE.Box3(new THREE.Vector3(cx - 1.08, cy - 2.58, -1.08), new THREE.Vector3(cx + 1.08, cy - 0.6, 1.08));
+        for (let k = 0; k < p.count; k += 3) {
+          tri.set(new THREE.Vector3().fromBufferAttribute(p, k), new THREE.Vector3().fromBufferAttribute(p, k + 1), new THREE.Vector3().fromBufferAttribute(p, k + 2));
+          if (box.intersectsTriangle(tri)) {
+            hits.push(`turn ${step}, cabin ${i}`);
+            break;
+          }
+        }
+      }
+    }
+    expect(hits).toEqual([]);
+  });
+
   it("a container fills its collider's box and no more", () => {
     const b = new THREE.Box3().setFromPoints(points(containerGeometry()));
     expect(b.min.toArray().map((v) => +v.toFixed(3))).toEqual([-CONTAINER.wid / 2, 0, -CONTAINER.len / 2]);

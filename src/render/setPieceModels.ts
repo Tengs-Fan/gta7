@@ -202,11 +202,11 @@ export const FERRIS_RIM_Z = 1.6;
 const FLANGE_Z = 2.1;
 
 /**
- * The wheel, about its hub (local z the axle): two rim tubes 2 FERRIS_RIM_Z apart braced by cross tubes and a zigzag of
- * diagonals into one truss (32 bays, one cross tube at each gondola's pivot), an inner ring each side, 32 tension
- * spokes from the hub's flanges to their rims (the two flanges' half a bay apart), the hub drum and the axle out to
- * `axleHalf` m. About 3,900 triangles, 1,000 more than the plain rims; finer lacing put the Medium view under the wheel
- * past 6% more triangles.
+ * The wheel, about its hub (local z the axle): two rim tubes 2 FERRIS_RIM_Z apart joined by 32 cross tubes into a
+ * ladder truss (one at each gondola's pivot, one midway between), an inner ring each side, 32 tension spokes from the
+ * hub's flanges to their rims (the two flanges' half a bay apart), the hub drum and the axle out to `axleHalf` m. No
+ * diagonals: a cabin hangs within 0.15 m of the rim's line at 3 and 9 o'clock, and one crossing the middle plane half a
+ * bay from its pivot ran through its roof and floor. About 3,400 triangles.
  */
 export function ferrisWheelGeometry(R: number, axleHalf: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
@@ -218,10 +218,7 @@ export function ferrisWheelGeometry(R: number, axleHalf: number): THREE.BufferGe
   const bays = 32;
   for (let k = 0; k < bays; k++) {
     const a = (k / bays) * Math.PI * 2;
-    const a1 = ((k + 1) / bays) * Math.PI * 2;
     parts.push(bar(P(a, R, -FERRIS_RIM_Z), P(a, R, FERRIS_RIM_Z), 0.13, 4));
-    const s = k % 2 === 0 ? 1 : -1;
-    parts.push(bar(P(a, R, -s * FERRIS_RIM_Z), P(a1, R, s * FERRIS_RIM_Z), 0.09, 4));
   }
   for (const side of [-1, 1]) {
     for (let k = 0; k < 16; k++) {

@@ -88,8 +88,8 @@ The shared generator therefore makes exactly the draws it made while they were l
 Building ids keep their gaps, so facades and rooftops elsewhere keep their looks.
 The ring road is not closed with them: it crosses each bay's mouth on a bridge (a carriageway deck at road height, a footway deck either side and a parapet along each, like the canal's), so the coast road runs on.
 Closed, it turned the junctions either side into corners with a single way out, where a car fleeing the police was pinned against the quay (`r2_police_escape*`).
-The bridges, the canal's and the bays', are drawn in the city's cells, their parapets as balustrades on the colliders: a concrete plinth and coping, capped piers at most 4 m apart and two painted rails between them up to the collider's 1.05 m.
-Drawn whole, their rails' 15,000 triangles would go with every view of the city.
+The bridges, the canal's and the bays', are drawn as two meshes, the west's (the canal and Pelican Harbor) and the north shore's (the bays and the lookout), their parapets as balustrades on the colliders: a concrete plinth and coping, capped piers at most 5 m apart and two painted rails between them up to the collider's 1.05 m.
+As one mesh their 21,000 triangles would go with every view of the city; in the city's 256 m cells the canal alone would take four draws.
 The two stunt ramps that stood in Pelican Harbor and Gull Bay moved along their promenades, and Hot Delivery's drop is now found from the block south of Northshore Bay.
 The ramps' plates and side panels are drawn as one mesh each: five ramps across the city would only add draws if split into cells.
 

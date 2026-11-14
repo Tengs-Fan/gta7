@@ -48,13 +48,13 @@ export function buildCoast(view: CityView): void {
   view.add(walls.build(), view.surface('concrete', 1, 3), { name: 'quay' });
 
   // The bridges over the canal and the bays: concrete slabs (the road's asphalt is drawn on the carriageway), each
-  // footway's parapet a balustrade on its collider (bridgeParapet), the lookout's rail the same. A mesh to each stretch
-  // of water (the canal's 8,700 triangles, the north bays', Pelican Harbor's, the lookout's), each drawn only where it is
-  // in view: as one mesh their 21,000 triangles went with every view of the city, and the city's 256 m cells gave the
-  // canal alone four draws.
+  // footway's parapet a balustrade on its collider (bridgeParapet), the lookout's rail the same. Two meshes, each drawn
+  // only where it is in view: the west's (the canal and Pelican Harbor) and the north shore's (the bays and the
+  // lookout). As one mesh their 21,000 triangles went with every view of the city, and in the city's 256 m cells the
+  // canal alone took four draws.
   const groups = new Map<string, GeoBuilder>();
   const group = (r: Rect) => {
-    const key = r.minX >= CANAL_X0 && r.maxX <= CANAL_X1 ? 'canal' : r.maxZ < -400 ? 'north' : r.maxX < -400 ? 'west' : 'other';
+    const key = r.maxX <= CANAL_X1 ? 'west' : 'north';
     let g = groups.get(key);
     if (!g) groups.set(key, (g = new GeoBuilder(true)));
     return g;
@@ -99,8 +99,7 @@ export function buildCoast(view: CityView): void {
   }
 }
 
-/** Cortez Canal's bridges lie between these x (m): the canal's 32 m between its quays. */
-const CANAL_X0 = -192;
+/** Cortez Canal's bridges and Pelican Harbor's lie west of this x (m); the bays' and the lookout's east of it. */
 const CANAL_X1 = -158;
 
 /** A balustrade's piers stand at most this far apart (m), and its parts' heights over its foot. */

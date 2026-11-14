@@ -306,8 +306,6 @@ describe('round 2 city: layout', () => {
     // The city's buildings: Las Lomas County's farmhouses and Dry Creek's stores stand on no block and have no ground
     // floor.
     for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
-      // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), not as a block with fronts, signs and parapets.
-      if (b.special === 'stadium') continue;
       const f = front.get(b)!;
       expect(f, `building ${b.id} has a block`).toBeTruthy();
       expect(b.groundSides).toEqual(f.sides);

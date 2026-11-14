@@ -272,7 +272,8 @@ function stadium(g: GeoBuilder, atlas: Atlas, r: Rect, b: Bands): void {
     flat(x0, cz - pz, x0 + (2 * px) / stripes, cz + pz, y, i % 2 === 0 ? [0.07, 0.25, 0.05] : [0.055, 0.2, 0.04]);
   }
   const line: RGB = [0.95, 0.95, 0.93];
-  const ly = y + 0.02;
+  // 6 cm over the grass: at 2 cm they fought it in the depth buffer from the stands' rim.
+  const ly = y + 0.06;
   const lw = 0.15;
   flat(cx - px, cz - pz, cx + px, cz - pz + lw, ly, line);
   flat(cx - px, cz + pz - lw, cx + px, cz + pz, ly, line);
