@@ -26,6 +26,7 @@ import {
 import { dressingItems, type DressingItem, type DressingKind } from './dressing';
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
+import { ferrisLegsGeometry, ferrisWheelGeometry, gondolaGeometry } from './setPieceModels';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
 import { speakerGeometry } from './country/driveIn';
 import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
@@ -1467,20 +1468,8 @@ export class PropsView {
     const hubY = p.y + FERRIS_HUB;
     const steel = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.5 });
     const wheel = new THREE.Group();
-    const rimParts: THREE.BufferGeometry[] = [];
-    for (const z of [-1.6, 1.6]) {
-      rimParts.push(new THREE.TorusGeometry(R, 0.3, 6, 64).translate(0, 0, z));
-      rimParts.push(new THREE.TorusGeometry(R * 0.35, 0.2, 6, 24).translate(0, 0, z));
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2;
-        const s = new THREE.BoxGeometry(0.14, R, 0.14).translate(0, R / 2, z);
-        s.rotateZ(a);
-        rimParts.push(s);
-      }
-    }
-    // The axle, out to the A-frames' legs.
-    rimParts.push(new THREE.CylinderGeometry(0.9, 0.9, 2 * FERRIS_LEG_Z + 0.6, 12).rotateX(Math.PI / 2));
-    const rim = new THREE.Mesh(merged(rimParts), steel);
+    // The braced rims, spokes and hub, and the axle out to the A-frames' legs (setPieceModels.ts).
+    const rim = new THREE.Mesh(ferrisWheelGeometry(R, FERRIS_LEG_Z + 0.3), steel);
     rim.castShadow = true;
     wheel.add(rim);
     const lights = new THREE.InstancedMesh(new THREE.SphereGeometry(FERRIS_BULB_R, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), FERRIS_LIGHTS);
@@ -1505,26 +1494,16 @@ export class PropsView {
     wheel.position.set(p.x, hubY, p.z);
     wheel.rotation.y = p.rot;
     this.group.add(wheel);
-    const gondolas = new THREE.InstancedMesh(merged([box(2.2, 2.0, 2.4, 0, -1.6, 0), box(0.1, 0.8, 0.1, 0, -0.3, 0)]), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }), 16);
+    const gondolas = new THREE.InstancedMesh(gondolaGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5 }), 16);
     for (let i = 0; i < 16; i++) gondolas.setColorAt(i, new THREE.Color().setHSL(i / 16, 0.7, 0.55));
     gondolas.castShadow = true;
     this.group.add(gondolas);
     // A-frame supports: each leg straight from the hub through x = +-FERRIS_LEG_X at the prop's y, beside the deck, and on
     // down to the seabed (StaticWorld stands a post round it where it meets the water).
-    const legs: THREE.BufferGeometry[] = [];
     const rise = hubY - p.y;
     const sink = p.y - SEABED_Y;
     const out = FERRIS_LEG_X * (1 + sink / rise);
-    const len = Math.hypot(out, rise + sink);
-    for (const z of [-FERRIS_LEG_Z, FERRIS_LEG_Z]) {
-      for (const sx of [-1, 1]) {
-        const g = new THREE.BoxGeometry(0.6, len, 0.6).translate(0, len / 2, 0);
-        g.rotateZ(sx * Math.atan2(out, rise + sink));
-        g.translate(sx * out, -sink, z);
-        legs.push(g);
-      }
-    }
-    const legMesh = new THREE.Mesh(merged(legs), steel);
+    const legMesh = new THREE.Mesh(ferrisLegsGeometry(out, sink, rise, FERRIS_LEG_Z), steel);
     legMesh.name = 'ferrisLegs';
     legMesh.position.set(p.x, p.y, p.z);
     legMesh.rotation.y = p.rot;
