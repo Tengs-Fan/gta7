@@ -241,8 +241,12 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     const y = hips.getAttribute('position');
     for (let i = 0; i < n.count; i++) {
       const k = THREE.MathUtils.smoothstep(y.getY(i), -.1, .03);
+      const h = Math.hypot(n.getX(i), n.getZ(i));
+      // The pole under the crotch faces straight down and has no side to turn to, so it keeps its normal: turned, it is
+      // a normal of no length, the triangles round it shade as NaN, and High's bloom spreads one such pixel over a
+      // rectangle of the frame (black from whichever side the crotch shows).
+      if (h < 1e-6) continue;
       const ny = n.getY(i) * k;
-      const h = Math.hypot(n.getX(i), n.getZ(i)) || 1;
       const out = Math.sqrt(Math.max(0, 1 - ny * ny)) / h;
       n.setXYZ(i, n.getX(i) * out, ny, n.getZ(i) * out);
     }

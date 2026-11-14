@@ -195,6 +195,22 @@ describe('the figure', () => {
     }
   });
 
+  it('every vertex of every part has a normal of length one, in both shapes (one of no length shades as NaN, and the bloom blacks the frame with it)', () => {
+    for (const [name, geo] of Object.entries(g)) {
+      for (const attr of ['normal', 'normalB'] as const) {
+        const n = geo.getAttribute(attr);
+        if (!n) continue;
+        for (let i = 0; i < n.count; i++) {
+          const len = Math.hypot(n.getX(i), n.getY(i), n.getZ(i));
+          expect(len, `${name}.${attr} vertex ${i}`).toBeGreaterThan(0.99);
+          expect(len, `${name}.${attr} vertex ${i}`).toBeLessThan(1.01);
+        }
+      }
+      const q = geo.getAttribute('position');
+      for (let i = 0; i < q.count; i++) expect(Number.isFinite(q.getX(i) + q.getY(i) + q.getZ(i)), `${name}.position vertex ${i}`).toBe(true);
+    }
+  });
+
   it('a person costs about what he did: under 3,600 triangles dressed plainly, 4,600 at most (no distance level draws him cheaper)', () => {
     const t = (name: keyof typeof g): number => tris(g[name]);
     const plain = t('torso') + t('hips') + t('head') + t('face') + t('hair') + t('neck') + 2 * (t('upperArm') + t('forearm') + t('hand') + t('thigh') + t('shin') + t('shoe') + t('shoulder'));
