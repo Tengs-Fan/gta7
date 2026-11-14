@@ -508,6 +508,23 @@ The county's models redrawn (the farmsteads' tin, porches and cupolas, the hedge
 Across the 39 views the triangles rose 1.0 to 5.7% (median 2.3%), most of it the sun's cascades drawing the hedgerows again; the two over 5% (5.5% and 5.7%) are the two that frame the elevator, whose own 2,800 triangles more the cascades draw again too.
 Frame rates on the RTX 5090 were 44 to 60 fps before and 35 to 61 after, with other agents' browsers on the GPU, so they are not compared; Medium, Low and the software fallback draw the barns, the elevator and the shoulders (`tiers.mjs`; the software tier at 13 to 24 fps under the same load).
 
+The second pass (Dry Creek's fronts, Hollister Farm, the ranch house, the silos and bins, the drive-in) with the first pass's fixes (the hedge pillows' closed ends among them), on 2026-11-14, through the round's `county2/scripts/shoot2.mjs` (32 views, traffic and people gone, 1600x900), on the round9 base (4009fc2) and the head: no mesh more (385 under the city's and the county's groups on both), and the draw calls the same in every view but those that swing by 15 to 17 between two runs of the same build (the base's own two runs differ so at the Feed & Seed and Pinewood); the triangles moved -1.4 to +5.0%, the views over 3% being those whose calls swung too.
+
+| View (traffic and people gone) | Draw calls before | after | Triangles before | after |
+| --- | ---: | ---: | ---: | ---: |
+| Dry Creek's main street, facing west | 304 | 304 | 1.72 M | 1.75 M |
+| the Feed & Seed's front | 240 | 236 | 0.95 M | 0.97 M |
+| the Rusty Spur's front | 484 | 495 | 2.05 M | 2.12 M |
+| Hollister Farm's barn | 836 | 835 | 4.06 M | 4.06 M |
+| the Lazy Q's ranch house, its gable | 288 | 289 | 1.28 M | 1.29 M |
+| the grain bins | 216 | 216 | 1.22 M | 1.23 M |
+| the drive-in's screen from the lot | 814 | 814 | 2.80 M | 2.81 M |
+| Pinewood's lookout | 236 | 253 | 1.40 M | 1.47 M |
+| Coyote Pass | 304 | 304 | 1.74 M | 1.74 M |
+| the ridge's flank | 296 | 296 | 2.26 M | 2.27 M |
+
+Medium and Low draw the fronts, the barn, the ranch house and the drive-in's scaffold and film (`county2/scripts/tiers2.mjs`).
+
 ## Software fallback
 
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,
