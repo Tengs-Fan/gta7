@@ -7,6 +7,7 @@ import { WEAPONS, weaponKindOf } from '../sim/specs';
 import { predictThrow, throwLaunch, type Thrown } from '../sim/throwables';
 import type { ViewState } from '../sim/viewState';
 import type { Effects } from './effects';
+import { heldModel } from './weaponModels';
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const MAX_THROWN = 32;
@@ -50,10 +51,11 @@ export class ThrowView {
 
   constructor() {
     this.group.name = 'throws';
-    const grenadeGeo = new THREE.SphereGeometry(0.05, 8, 6).scale(1, 1.25, 1);
-    const molotovGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.22, 8);
-    this.grenades = new THREE.InstancedMesh(grenadeGeo, new THREE.MeshStandardMaterial({ color: 0x4c5a2c, roughness: 0.6, metalness: 0.3 }), MAX_THROWN);
-    this.molotovs = new THREE.InstancedMesh(molotovGeo, new THREE.MeshStandardMaterial({ color: 0x3d7a42, roughness: 0.2, metalness: 0.1, emissive: 0x401800 }), MAX_THROWN);
+    // The models held in the hand (weaponModels.ts), centred on what they tumble about, coloured by their vertices.
+    const grenadeGeo = heldModel('grenade').clone().center();
+    const molotovGeo = heldModel('molotov').clone().center();
+    this.grenades = new THREE.InstancedMesh(grenadeGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.3 }), MAX_THROWN);
+    this.molotovs = new THREE.InstancedMesh(molotovGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.1, emissive: 0x401800 }), MAX_THROWN);
     for (const m of [this.grenades, this.molotovs]) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.count = 0;

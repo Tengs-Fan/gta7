@@ -48,6 +48,7 @@ const FINISHES = {
   dash: { color: 0x101114, roughness: 0.5, metalness: 0.1 },
   cowl: { color: 0x17181b, roughness: 0.3, metalness: 0.2 },
   cowlWhite: { color: 0xe7e7e3, roughness: 0.3, metalness: 0.1 },
+  amber: { color: 0xd98a1c, roughness: 0.25, metalness: 0.1 },
 } as const satisfies Record<string, Finish>;
 
 export type FinishName = keyof typeof FINISHES;

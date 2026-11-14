@@ -4,7 +4,6 @@
 // passengers are drawn in their seats.
 
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp, lerp, wrapAngle } from '../core/math';
 import type { Character, Vehicle } from '../sim/entities';
 import { isWoman } from '../sim/appearance';
@@ -20,7 +19,7 @@ import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type G
 import { onDrawn, riderMount } from './riders';
 import { seaHeightAt, type SeaWaveUniforms } from './sea';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
-import { GUN_IDS, gunGeometry } from './weaponModels';
+import { GUN_IDS, gunGeometry, heldModel, HELD_IDS } from './weaponModels';
 
 const MAX = 240;
 /**
@@ -186,12 +185,6 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number): 
   return new THREE.BoxGeometry(w, h, d).translate(x, y, z);
 }
 
-function mergeAll(gs: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const m = mergeGeometries(gs.map((g) => g.toNonIndexed()), false);
-  if (!m) throw new Error('merge failed');
-  return m;
-}
-
 interface Part {
   mesh: THREE.InstancedMesh;
   n: number;
@@ -284,26 +277,6 @@ const S = {
   heldHand: V(),
   heldElbow: V(),
 };
-
-/**
- * Melee weapons and throwables in the hand: geometry along its +y from the grip (origin), and its colour. CrowdView points
- * +y out of the fist (see heldItem).
- */
-const HELD_COLOR: Readonly<Partial<Record<WeaponId, number>>> = { bat: 0x9b6b3c, knife: 0xb8bec6, grenade: 0x4c5a2c, molotov: 0x3d7a42 };
-function heldGeometry(id: WeaponId): THREE.BufferGeometry | null {
-  switch (id) {
-    case 'bat':
-      return new THREE.CylinderGeometry(0.035, 0.018, 0.86, 8).translate(0, 0.37, 0);
-    case 'knife':
-      return mergeAll([box(0.03, 0.1, 0.03, 0, 0.0, 0), box(0.012, 0.17, 0.035, 0, 0.13, 0)]);
-    case 'grenade':
-      return mergeAll([new THREE.SphereGeometry(0.045, 8, 6).scale(1, 1.25, 1).translate(0, 0.04, 0.02), box(0.02, 0.03, 0.02, 0, 0.1, 0.02)]);
-    case 'molotov':
-      return mergeAll([new THREE.CylinderGeometry(0.035, 0.035, 0.16, 8).translate(0, 0.05, 0), new THREE.CylinderGeometry(0.012, 0.03, 0.08, 8).translate(0, 0.17, 0), box(0.02, 0.05, 0.02, 0, 0.23, 0)]);
-    default:
-      return null;
-  }
-}
 
 const ik = makeTwoBone();
 
@@ -567,10 +540,9 @@ export class CrowdView {
     const weaponGeo = Object.fromEntries(GUN_IDS.map((g) => [g, gunGeometry(g)])) as Partial<Record<Gun, THREE.BufferGeometry>>;
     this.phone = make(box(0.05, 0.1, 0.016, 0, 0.03, 0), MAX);
     this.phone.mesh.name = 'held-phone';
-    for (const id of ['bat', 'knife', 'grenade', 'molotov'] as const) {
-      const geo = heldGeometry(id);
-      if (!geo) continue;
-      const p = make(geo, MAX);
+    // Melee weapons and throwables (weaponModels.ts heldModel): along +y out of the fist, coloured by their vertices.
+    for (const id of HELD_IDS) {
+      const p = make(heldModel(id).clone(), MAX);
       p.mesh.name = 'held-' + id;
       this.weapons.set(id, p);
     }
@@ -1299,7 +1271,7 @@ export class CrowdView {
     X.normalize();
     const Z = S.bz.crossVectors(X, Y);
     S.inst.makeBasis(X, Y, Z).setPosition(hand);
-    this.put(part, S.inst, HELD_COLOR[id] ?? 0x888888);
+    this.put(part, S.inst, 0xffffff);
   }
 
   /**

@@ -9,10 +9,17 @@
 // grip, a magazine, a stock, a scope) and the tones (a grey steel slide or receiver over black polymer, wood, olive),
 // not sub-pixel grooves. The crowd draws every gun with one lit material (metalness 0.45), under which the colours
 // below are what the eye sees; anything darker than about 0x303030 reads as black there.
+//
+// The melee weapons and throwables (bat, knife, grenade, molotov) are modelled here too, along +y out of the fist
+// (`heldModel`), for the hand and for throws in flight; `pickupModel` lays any of them out as a pickup in the world.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { WeaponId } from '../sim/specs';
+
+/** The melee weapons and throwables held in the hand. */
+export type HeldId = 'bat' | 'knife' | 'grenade' | 'molotov';
+export const HELD_IDS: readonly HeldId[] = ['bat', 'knife', 'grenade', 'molotov'];
 
 /** The guns (WEAPON_POINTS has a point set for each). */
 export type GunId = 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rocket' | 'sniper';
@@ -476,10 +483,66 @@ function merge(pieces: readonly Piece[]): THREE.BufferGeometry {
   });
   const m = mergeGeometries(parts, false);
   if (!m) throw new Error('weapon merge failed');
-  m.computeBoundingBox();
-  m.computeBoundingSphere();
-  return m;
+  const out = soundNormals(m);
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
 }
+
+/**
+ * Drops the triangles of no area (a chamfered outline's inset can fold an edge to a point; a lathe's pole has them) and
+ * gives any vertex whose normal is not of unit length its face's normal: a normal of no length shades as NaN, which the
+ * bloom spreads over the frame.
+ */
+function soundNormals(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const p = g.getAttribute('position');
+  const n = g.getAttribute('normal');
+  const c = g.getAttribute('color');
+  const keep: number[] = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const f = new THREE.Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i);
+    b.fromBufferAttribute(p, i + 1).sub(a);
+    d.fromBufferAttribute(p, i + 2).sub(a);
+    f.crossVectors(b, d);
+    if (f.lengthSq() < 1e-14) continue;
+    keep.push(i);
+  }
+  const pos = new Float32Array(keep.length * 9);
+  const nor = new Float32Array(keep.length * 9);
+  const col = new Float32Array(keep.length * 9);
+  const v = new THREE.Vector3();
+  keep.forEach((i, k) => {
+    a.fromBufferAttribute(p, i);
+    b.fromBufferAttribute(p, i + 1).sub(a);
+    d.fromBufferAttribute(p, i + 2).sub(a);
+    f.crossVectors(b, d).normalize();
+    for (let j = 0; j < 3; j++) {
+      const o = k * 9 + j * 3;
+      pos[o] = p.getX(i + j);
+      pos[o + 1] = p.getY(i + j);
+      pos[o + 2] = p.getZ(i + j);
+      v.fromBufferAttribute(n, i + j);
+      const len = v.length();
+      if (!(Math.abs(len - 1) < 1e-3)) v.copy(f);
+      nor[o] = v.x;
+      nor[o + 1] = v.y;
+      nor[o + 2] = v.z;
+      col[o] = c.getX(i + j);
+      col[o + 1] = c.getY(i + j);
+      col[o + 2] = c.getZ(i + j);
+    }
+  });
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return out;
+}
+
 
 const cache = new Map<GunId, GunModel>();
 
@@ -503,6 +566,96 @@ export function gunGeometry(id: GunId): THREE.BufferGeometry {
 /** Whether a weapon is one of the modelled guns (the rest are melee weapons and throwables, held in the hand). */
 export function isGunId(id: WeaponId): id is GunId {
   return (GUN_IDS as readonly string[]).includes(id);
+}
+
+// --- Held in the hand: melee weapons and throwables ------------------------------------------------------------
+
+/** A lathed part about y from [radius, y] points (bottom to top), `seg` round. */
+function turned(points: Pts, seg: number): THREE.BufferGeometry {
+  return new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+}
+
+/** The bat: a lathed bat with a knob and a taped handle, held 6 cm above the knob, 85 cm long as before. */
+function bat(): Piece[] {
+  return [
+    { geo: turned([[0, -0.07], [0.022, -0.07], [0.025, -0.062], [0.016, -0.052]], 8), color: WOOD_DARK },
+    { geo: turned([[0.0145, -0.052], [0.0145, 0.16]], 8), color: RUBBER },
+    { geo: turned([[0.0145, 0.16], [0.016, 0.26], [0.024, 0.42], [0.031, 0.56], [0.034, 0.68], [0.033, 0.75], [0.026, 0.772], [0, 0.774]], 8), color: 0xb8875a },
+  ];
+}
+
+/** The knife: a black handle between a steel guard and pommel, its blade in the y-z plane (thin across x) to a point. */
+function knife(): Piece[] {
+  return [
+    { geo: slab([[-0.012, -0.05], [0.012, -0.05], [0.014, -0.03], [0.012, 0.0], [0.013, 0.046], [-0.013, 0.046], [-0.012, 0.0], [-0.014, -0.03]], 0.022, 0.005), color: RUBBER },
+    { geo: box(0.024, 0.008, 0.05, 0, 0.05, 0), color: STEEL },
+    { geo: box(0.022, 0.008, 0.03, 0, -0.054, 0), color: STEEL },
+    { geo: slab([[-0.014, 0.054], [0.014, 0.054], [0.012, 0.17], [0, 0.222], [-0.008, 0.19], [-0.014, 0.12]], 0.004, 0.001), color: 0xc9ced4 },
+  ];
+}
+
+/** The grenade: a ribbed olive body with its fuse head, the spoon down its side and the pull ring. */
+function grenade(): Piece[] {
+  return [
+    { geo: turned([[0, -0.012], [0.024, -0.008], [0.04, 0.012], [0.044, 0.04], [0.04, 0.07], [0.026, 0.088], [0.015, 0.094]], 10), color: OLIVE },
+    ...[0.022, 0.042, 0.062].map((y): Piece => ({ geo: turned([[0.0438, y - 0.003], [0.0455, y], [0.0438, y + 0.003]], 10), color: OLIVE_DARK })),
+    { geo: turned([[0.015, 0.09], [0.015, 0.112], [0.008, 0.118], [0, 0.118]], 8), color: BLUED },
+    { geo: slab([[0.004, 0.112], [0.016, 0.112], [0.047, 0.06], [0.046, 0.02], [0.04, 0.022], [0.041, 0.058], [0.011, 0.104], [0.004, 0.104]], 0.014, 0.001), color: STEEL },
+    { geo: new THREE.TorusGeometry(0.011, 0.0018, 3, 8).rotateY(Math.PI / 2).translate(0, 0.12, -0.012), color: STEEL },
+  ];
+}
+
+/** The molotov: a green bottle with its neck, a rag stuffed in and hanging out. */
+function molotov(): Piece[] {
+  return [
+    { geo: turned([[0, -0.03], [0.03, -0.03], [0.034, -0.024], [0.034, 0.1], [0.026, 0.13], [0.012, 0.15], [0.011, 0.19], [0.013, 0.195], [0, 0.195]], 10), color: 0x3f7f46 },
+    { geo: turned([[0, 0.18], [0.012, 0.18], [0.014, 0.205], [0.01, 0.235], [0, 0.24]], 6), color: 0xd8c49a },
+    { geo: slab([[0.01, 0.2], [0.02, 0.21], [0.03, 0.17], [0.024, 0.13], [0.016, 0.16]], 0.012, 0.002), color: 0xc0aa80 },
+  ];
+}
+
+const HELD_BUILDERS: Readonly<Record<HeldId, () => Piece[]>> = { bat, knife, grenade, molotov };
+const heldCache = new Map<HeldId, THREE.BufferGeometry>();
+
+/**
+ * A melee weapon or throwable as held: along +y out of the fist (the grip at the origin), with vertex colours (shared:
+ * callers clone it to own it).
+ */
+export function heldModel(id: HeldId): THREE.BufferGeometry {
+  let g = heldCache.get(id);
+  if (!g) {
+    g = merge(HELD_BUILDERS[id]());
+    heldCache.set(id, g);
+  }
+  return g;
+}
+
+/** Whether a weapon is held in the hand as a melee weapon or throwable (it has a heldModel). */
+export function isHeldId(id: WeaponId): id is HeldId {
+  return (HELD_IDS as readonly string[]).includes(id);
+}
+
+/** A pickup's model is at least this long (m), so a pistol or a grenade lying 20 m off still reads; at most 3.5 times its size. */
+const PICKUP_LENGTH = 0.7;
+
+/**
+ * A weapon as a pickup lying in the world: its own model, centred on the origin, lying along z (a gun's barrel, a bat's
+ * or a knife's length; a grenade and a bottle stand), grown to PICKUP_LENGTH if it is shorter; null for a weapon with
+ * no model (fists). A fresh geometry the caller owns.
+ */
+export function pickupModel(id: WeaponId): THREE.BufferGeometry | null {
+  let g: THREE.BufferGeometry;
+  if (isGunId(id)) g = gunModel(id).geometry.clone();
+  else if (isHeldId(id)) {
+    g = heldModel(id).clone();
+    if (id === 'bat' || id === 'knife') g.rotateX(Math.PI / 2);
+  } else return null;
+  g.computeBoundingBox();
+  const size = g.boundingBox!.getSize(new THREE.Vector3());
+  const s = Math.min(3.5, Math.max(1, PICKUP_LENGTH / Math.max(size.x, size.y, size.z)));
+  g.center().scale(s, s, s);
+  g.computeBoundingSphere();
+  return g;
 }
 
 /**

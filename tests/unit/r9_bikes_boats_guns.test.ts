@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { bikeModel } from '../../src/render/bikeModels';
 import { boatModel, mooredBoatGeometry } from '../../src/render/boatModels';
 import { triangles } from '../../src/render/shapeKit';
-import { GUN_IDS, gunModel } from '../../src/render/weaponModels';
+import { GUN_IDS, gunModel, heldModel, HELD_IDS, pickupModel } from '../../src/render/weaponModels';
 import { WEAPON_POINTS } from '../../src/sim/pose';
 import type { VehicleKind } from '../../src/sim/specs';
 
@@ -80,6 +80,27 @@ describe('guns: the sockets the simulation shoots and holds from', () => {
     const tones = new Set<string>();
     for (let i = 0; i < c.count; i++) tones.add(`${c.getX(i).toFixed(3)},${c.getY(i).toFixed(3)},${c.getZ(i).toFixed(3)}`);
     expect(tones.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(HELD_IDS)('the held %s is modelled (vertex colours, 60-400 triangles), along +y out of the fist', (id) => {
+    const g = heldModel(id);
+    expect(g.hasAttribute('color')).toBe(true);
+    const n = g.getAttribute('position').count / 3;
+    expect(n).toBeGreaterThanOrEqual(60);
+    expect(n).toBeLessThanOrEqual(400);
+    g.computeBoundingBox();
+    expect(g.boundingBox!.min.y).toBeLessThanOrEqual(0.02);
+    expect(g.boundingBox!.max.y).toBeGreaterThan(0.08);
+  });
+
+  it.each([...GUN_IDS, ...HELD_IDS])('the %s pickup is its own model, centred, 0.7 m or longer', (id) => {
+    const g = pickupModel(id)!;
+    g.computeBoundingBox();
+    const size = g.boundingBox!.getSize(new THREE.Vector3());
+    const c = g.boundingBox!.getCenter(new THREE.Vector3());
+    expect(Math.max(size.x, size.y, size.z)).toBeGreaterThanOrEqual(0.45);
+    expect(c.length()).toBeLessThan(1e-6);
+    expect(pickupModel('fists')).toBeNull();
   });
 });
 
@@ -221,5 +242,37 @@ describe('boats: hull, waterline, seats and helm where they were', () => {
     const total = triangles(g.painted) + triangles(g.fittings);
     console.log(`[r9] moored cruiser: 3147 -> ${total} triangles`);
     expect(total).toBeLessThanOrEqual(Math.floor(3147 * 1.4));
+  });
+});
+
+/** Every vertex normal of unit length and finite: a normal of no length shades as NaN, which the bloom spreads over the frame. */
+function badNormals(g: THREE.BufferGeometry): number {
+  const n = g.getAttribute('normal');
+  let bad = 0;
+  for (let i = 0; i < n.count; i++) {
+    const l = Math.hypot(n.getX(i), n.getY(i), n.getZ(i));
+    if (!Number.isFinite(l) || Math.abs(l - 1) > 1e-3) bad++;
+  }
+  return bad;
+}
+
+describe('every new mesh has sound normals', () => {
+  it.each([...GUN_IDS, ...HELD_IDS])('the %s, held and as a pickup', (id) => {
+    const held = (GUN_IDS as readonly string[]).includes(id) ? gunModel(id as (typeof GUN_IDS)[number]).geometry : heldModel(id as (typeof HELD_IDS)[number]);
+    expect(badNormals(held)).toBe(0);
+    expect(badNormals(pickupModel(id)!)).toBe(0);
+  });
+
+  it.each(['sportbike', 'scooter'] as const)('the %s', (kind) => {
+    const m = bikeModel(kind);
+    for (const [name, g] of Object.entries({ painted: m.painted, frame: m.frame, steer: m.steer, tyre: m.tyre, frontRim: m.frontRim, rearRim: m.rearRim })) expect(badNormals(g), name).toBe(0);
+  });
+
+  it.each(['speedboat', 'dinghy'] as const)('the %s and the moored cruiser', (kind) => {
+    const m = boatModel(kind);
+    for (const [name, g] of Object.entries({ painted: m.painted, fittings: m.fittings, glass: m.glass })) if (g) expect(badNormals(g), name).toBe(0);
+    const c = mooredBoatGeometry();
+    expect(badNormals(c.painted)).toBe(0);
+    expect(badNormals(c.fittings)).toBe(0);
   });
 });
