@@ -10,7 +10,7 @@ import { assets } from '../../src/render/assets';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
 import { DRESSING_SIZE, DressingRules, dressingItems, footprint, GARAGE_ITEM_HEIGHT, garageSpecs, houseLots, type DressingItem } from '../../src/render/dressing';
 import {
-  broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_TILES, PALM_RING, palmCurve, palmTrunkGeometry, TREE_LIMBS,
+  broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, cypressTrunkGeometry, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_TILES, PALM_RING, palmCurve, palmFrondsGeometry, palmTrunkGeometry, TREE_FORKS, TREE_LIMBS, treeTrunkGeometry,
 } from '../../src/render/foliage';
 import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, lensAt, railGeometry, signalGeometry, signalLayout, triangles } from '../../src/render/furniture';
 import { OCCLUDER_AXIS, occluderOpacity } from '../../src/render/occluderFade';
@@ -715,6 +715,55 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
     // outside [valley.firstProp, valley.endProp)). That is draws, 1.70 times the d98da7b 387: the cap is what the props need.
     expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 80);
     for (const n of perGeo.values()) expect(n).toBeLessThanOrEqual(cells + 4);
+  });
+});
+
+describe('VAL-PRP-011 street trees and lamps: shape and triangle budget per kind', () => {
+  it('each kind keeps within its triangles: a tree or lamp is drawn hundreds of times in every street view', () => {
+    const budget: Array<[string, number, number]> = [
+      ['tree trunk', triangles(treeTrunkGeometry()), 250],
+      ['cypress trunk', triangles(cypressTrunkGeometry()), 60],
+      ['tree canopy', triangles(broadleafGeometry('tree')), LEAF_CARDS.tree * 4],
+      ['palm', triangles(palmTrunkGeometry()) + triangles(palmFrondsGeometry()), 2300],
+      ['lamp', triangles(lampPoleGeometry(LAMP_HEAD)) + triangles(lampHeadGeometry(LAMP_HEAD)) + triangles(lampLensGeometry(LAMP_HEAD)), 560],
+    ];
+    console.log(`[props] triangles per kind: ${budget.map(([k, n, max]) => `${k} ${n} (at most ${max})`).join(', ')}`);
+    for (const [k, n, max] of budget) expect(n, k).toBeLessThanOrEqual(max);
+  });
+
+  it('the trunk flares at its foot inside the 0.32 m collider, is barked (uv), and every fork ends inside the canopy', () => {
+    const g = treeTrunkGeometry();
+    const pos = g.getAttribute('position');
+    let foot = 0;
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) < 0.05) foot = Math.max(foot, Math.hypot(pos.getX(i), pos.getZ(i)));
+    expect(foot).toBeGreaterThan(0.25);
+    expect(foot).toBeLessThan(0.32);
+    expect(g.getAttribute('uv')).toBeTruthy();
+    expect(cypressTrunkGeometry().getAttribute('uv')).toBeTruthy();
+    const clusters = broadleafClusters('tree');
+    expect(TREE_FORKS.length).toBe(TREE_LIMBS.length);
+    for (const [x, y, z] of TREE_FORKS.flat()) expect(clusters.some(({ at, scale }) => Math.hypot(x - at[0], y - at[1], z - at[2]) < Math.max(...scale))).toBe(true);
+    const props = new PropsView(W);
+    let barked = 0;
+    props.group.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && o.geometry.getAttribute('uv') && (o.material as THREE.MeshStandardMaterial).normalMap) barked++;
+    });
+    expect(barked).toBeGreaterThan(0);
+  });
+
+  it('the luminaire covers its lens from above, and the lens stays at the head point', () => {
+    const head = sizeOf(lampHeadGeometry(LAMP_HEAD));
+    const hb = lampHeadGeometry(LAMP_HEAD);
+    hb.computeBoundingBox();
+    const lens = lampLensGeometry(LAMP_HEAD);
+    lens.computeBoundingBox();
+    expect(hb.boundingBox!.min.x).toBeLessThanOrEqual(lens.boundingBox!.min.x);
+    expect(hb.boundingBox!.max.x).toBeGreaterThanOrEqual(lens.boundingBox!.max.x);
+    expect(hb.boundingBox!.min.z).toBeLessThanOrEqual(lens.boundingBox!.min.z);
+    expect(hb.boundingBox!.max.z).toBeGreaterThanOrEqual(lens.boundingBox!.max.z);
+    // Nothing of the head below the lens, where the halo hangs.
+    expect(hb.boundingBox!.min.y).toBeGreaterThanOrEqual(LAMP_HEAD.y + 0.02);
+    expect(head.z).toBeLessThanOrEqual(1.0);
   });
 });
 
