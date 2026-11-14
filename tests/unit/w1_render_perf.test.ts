@@ -120,7 +120,8 @@ describe('vehicle part batches', () => {
     view.group.traverse((o) => {
       if (o instanceof THREE.Mesh && o.layers.isEnabled(PART_LAYER) && o.visible) parts.push(o);
     });
-    expect(parts.length).toBe(16);
+    // Revised (round 9 cars): and the light bar's divider and two end caps.
+    expect(parts.length).toBe(19);
     const inst = new THREE.Matrix4();
     for (const p of parts) {
       const want = p.matrixWorld.clone();

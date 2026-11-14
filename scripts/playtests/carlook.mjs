@@ -10,7 +10,7 @@
 // The camera is held where the script puts it (the game's own camera is suspended), and the player stands behind it.
 
 const KINDS = (process.env.CARLOOK_KINDS ?? 'sedan,compact,taxi,sports,muscle,pickup,van,police,bus,ambulance,firetruck,swat,tractor,sportbike,scooter').split(',');
-const PARTS = (process.env.CARLOOK_PARTS ?? 'day,night,chase,street,ride,dent,dents,brakes').split(',');
+const PARTS = (process.env.CARLOOK_PARTS ?? 'day,night,chase,street,ride,dent,dents,brakes,eight').split(',');
 
 /** Runs in the page: holds the camera at window.__fixed ({ pos, at, fov }) while it is set. */
 function installCamera(g) {
@@ -288,6 +288,57 @@ export default async function (t) {
       window.__brake = false;
       g.setTime(11);
     });
+  }
+  if (PARTS.includes('eight')) {
+    // A street of standing cars in the traffic mix on High, two in three of them dented (8, 15 and 40 cm, front, back,
+    // flank and roof), from the chase camera at eight headings: no frame may go black (a NaN normal, spread by the
+    // bloom, blacks a rectangle of it).
+    await t.game((g) => {
+      const sim = g.sim;
+      g.game.applySettings({ ...g.game.settings, quality: 'high' }, false);
+      for (const v of [...sim.vehicles]) if (v.missionTag === 'look' || v.missionTag === 'street') sim.removeVehicle(v);
+      window.__fixed = null;
+      const st = window.__street;
+      if (sim.player.vehicle) sim.playerCtl.ejectPlayer(true);
+      g.teleport(st.x, st.z - 5.2);
+      const mix = ['sedan', 'compact', 'taxi', 'pickup', 'van', 'muscle', 'sports', 'police', 'bus', 'swat', 'ambulance'];
+      const depths = [0.08, 0.15, 0.4];
+      let n = 0;
+      for (let d = 9; d <= 80; d += 7) {
+        for (const lane of [0, 3.6]) {
+          const kind = mix[n % mix.length];
+          const v = sim.spawnVehicle(kind, st.x + d + (lane ? 3 : 0), st.z + lane, lane ? -Math.PI / 2 : Math.PI / 2);
+          v.persistent = true;
+          v.missionTag = 'street';
+          if (n % 3 !== 2) {
+            const { length: L, width: W, height: H } = v.spec;
+            const depth = depths[n % 3];
+            v.dents.push({ lx: 0.1, ly: H * 0.45, lz: L / 2 - 0.05, nx: 0, nz: -1, depth }, { lx: -0.2, ly: H * 0.45, lz: -L / 2 + 0.05, nx: 0, nz: 1, depth }, { lx: W / 2 - 0.02, ly: H * 0.4, lz: 0.2, nx: -1, nz: 0, depth }, { lx: 0, ly: H, lz: 0, nx: 0, nz: 0, depth });
+            v.dentVersion++;
+          }
+          n++;
+        }
+      }
+      const v = sim.spawnVehicle('sedan', st.x, st.z, st.heading, window.__stage.colors.sedan);
+      v.missionTag = 'look';
+      v.persistent = true;
+      v.dents.push({ lx: 0, ly: v.spec.height * 0.45, lz: -v.spec.length / 2 + 0.05, nx: 0, nz: 1, depth: 0.15 });
+      v.dentVersion++;
+      sim.seat(sim.player, v, 0);
+      v.usedByPlayer = true;
+      g.game.renderer.cameraCtl.reset(sim);
+    });
+    await t.wait(2500);
+    // (The chase camera settles behind the car: the car is turned to each heading where it stands.)
+    for (let k = 0; k < 8; k++) {
+      await t.game((g, k) => {
+        const st = window.__street;
+        g.place(st.x, st.z, st.heading + (k * Math.PI) / 4);
+        g.game.renderer.cameraCtl.reset(g.sim);
+      }, k);
+      await t.wait(1200);
+      await t.shot(`eight-${k}`);
+    }
   }
   await t.snap('end');
 }

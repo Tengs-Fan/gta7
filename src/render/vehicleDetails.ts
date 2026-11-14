@@ -17,6 +17,9 @@ export interface ExteriorProfile {
   wheelRear: number;
   lightY: number;
   rearSeats: boolean;
+  /** Glazed panes on the profile (the first a box van's or the bus's windscreen), and how far their glass stands off it. */
+  panes?: ReadonlyArray<{ readonly a: Pt; readonly b: Pt; readonly x0: number; readonly x1: number }>;
+  paneOut?: number;
 }
 
 /** Signed width of the pressed side panel. Keep the shoulder and wheel arch dimensions; tuck the sill in. */
@@ -224,6 +227,29 @@ export function tireGeometry(radius: number): THREE.BufferGeometry {
 }
 
 /**
+ * A farm tyre `radius` across its lugs: chevron lugs round its tread, two staggered rows of blocks leaning from the
+ * middle out, standing 2.5 cm proud of a tread that much smaller (the wheel turns on the lugs' radius).
+ */
+export function lugTireGeometry(radius: number): THREE.BufferGeometry {
+  const pieces = [tireGeometry(radius - 0.025)];
+  const count = 22;
+  for (let k = 0; k < count; k++) {
+    for (const half of [-1, 1]) {
+      const lug = new THREE.BoxGeometry(0.085, 0.035, 0.05);
+      lug.rotateY(half * 0.45);
+      lug.translate(half * 0.05, radius - 0.0175, 0);
+      lug.rotateX(((k + (half > 0 ? 0.5 : 0)) / count) * Math.PI * 2);
+      const n = lug.getAttribute('position').count;
+      lug.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(TYRE_TREAD), 3));
+      pieces.push(lug);
+    }
+  }
+  const g = mergeGeometries(pieces)!;
+  for (const piece of pieces) piece.dispose();
+  return g;
+}
+
+/**
  * A lamp lens one unit wide, high and deep (as BoxGeometry(1, 1, 1)), scaled per lamp: a rounded rectangle whose face
  * (+z) bulges out over bevelled edges, so head and tail lamps read as moulded lenses rather than flat boxes.
  */
@@ -257,7 +283,8 @@ export function lensGeometry(): THREE.BufferGeometry {
 
 /**
  * Machined lip, open spokes, hub and wheel nuts on the wheel's outboard face (+x; the view turns the right-hand
- * wheels round), over a brake rotor and a dark inboard backing, in one wheel draw inside the tyre width. The inboard
+ * wheels round), dished: the spokes run in from the lip to a hub sunk 1.5 cm behind it, over the rim's barrel (seen
+ * between the spokes), a brake rotor and a dark inboard backing, in one wheel draw inside the tyre width. The inboard
  * face is the tyre's dark closed side: a second bright alloy there showed under the car as a pale disc through the
  * opposite wheel arch.
  */
@@ -266,27 +293,32 @@ export function alloyGeometry(radius: number, kind: VehicleKind): THREE.BufferGe
   const sporty = kind === 'sports' || kind === 'muscle';
   const rim = radius * (sporty ? 0.74 : 0.65);
   const count = sporty ? 5 : kind === 'pickup' || kind === 'swat' ? 6 : 7;
+  /** The lip's face and the hub's, along the axle (m). */
+  const lip = 0.128;
+  const hubX = 0.113;
   {
-    const side = 1;
-    const face = side * 0.128;
     const ring = new THREE.TorusGeometry(rim - 0.012, 0.018, 5, 28);
     ring.rotateY(Math.PI / 2);
-    ring.translate(face, 0, 0);
+    ring.translate(lip, 0, 0);
     pieces.push(ring);
-    const hub = new THREE.CylinderGeometry(rim * 0.22, rim * 0.22, 0.027, 14);
+    const hub = new THREE.CylinderGeometry(rim * 0.22, rim * 0.24, 0.027, 14);
     hub.rotateZ(Math.PI / 2);
-    hub.translate(side * 0.132, 0, 0);
+    hub.translate(hubX + 0.004, 0, 0);
     pieces.push(hub);
+    // Each spoke from the hub (r 0.2 rim) out to under the lip (0.95 rim), leaning out to the face as it goes.
+    const r0 = rim * 0.2;
+    const r1 = rim * 0.95;
+    const lean = Math.atan2(lip - 0.005 - hubX, r1 - r0);
     for (let k = 0; k < count; k++) {
       const angle = (k / count) * Math.PI * 2;
-      const spoke = new THREE.BoxGeometry(0.024, rim * 0.83, sporty ? 0.045 : 0.037);
-      spoke.translate(0, rim * 0.49, 0);
+      const spoke = new THREE.BoxGeometry(0.024, Math.hypot(r1 - r0, lip - 0.005 - hubX), sporty ? 0.045 : 0.037);
+      spoke.rotateZ(-lean);
+      spoke.translate((hubX + lip - 0.005) / 2, (r0 + r1) / 2, 0);
       spoke.rotateX(angle);
-      spoke.translate(side * 0.127, 0, 0);
       pieces.push(spoke);
       const nut = new THREE.CylinderGeometry(0.012, 0.012, 0.02, 6);
       nut.rotateZ(Math.PI / 2);
-      nut.translate(side * 0.138, Math.cos(angle) * rim * 0.14, Math.sin(angle) * rim * 0.14);
+      nut.translate(hubX + 0.014, Math.cos(angle) * rim * 0.14, Math.sin(angle) * rim * 0.14);
       pieces.push(nut);
     }
   }
@@ -301,6 +333,15 @@ export function alloyGeometry(radius: number, kind: VehicleKind): THREE.BufferGe
     g.setAttribute('color', new THREE.BufferAttribute(c, 3));
     return g;
   };
+  // The rim's barrel, from the lip in to the rotor, a shade darker than the face.
+  const barrel = new THREE.CylinderGeometry(rim - 0.02, rim - 0.02, lip - 0.07, 28, 1, true);
+  // (Turned inside out: it is seen from within, between the spokes, and the rim's back faces are culled.)
+  (barrel.getIndex()!.array as Uint16Array).reverse();
+  const bn = barrel.getAttribute('normal');
+  for (let i = 0; i < bn.count; i++) bn.setXYZ(i, -bn.getX(i), -bn.getY(i), -bn.getZ(i));
+  barrel.rotateZ(Math.PI / 2);
+  barrel.translate((lip + 0.07) / 2, 0, 0);
+  pieces.push(tone(barrel, 0.55));
   const rotor = new THREE.CylinderGeometry(rim * 0.83, rim * 0.83, 0.008, 28);
   rotor.rotateZ(Math.PI / 2);
   rotor.translate(0.117, 0, 0);
@@ -319,12 +360,13 @@ const BACK_DOORS: ReadonlySet<VehicleKind> = new Set(['van', 'swat', 'ambulance'
 
 /**
  * Where a procedural body's tail lamps sit (x out from the middle, y up) and their lenses' width and height: tall
- * clusters up the back corners of the box vans, whose doors fill their backs, and of the bus, beside its engine grille;
- * a wide lamp beside the plate on the rest.
+ * clusters up the back corners of the box vans, whose doors fill their backs, of the bus, beside its engine grille, and
+ * of the fire engine, beside its ladder; a wide lamp beside the plate on the rest.
  */
 export function tailLamp(kind: VehicleKind, half: number, lightY: number): { x: number; y: number; w: number; h: number } {
   if (BACK_DOORS.has(kind)) return { x: half - 0.13, y: lightY + 0.22, w: 0.15, h: 0.42 };
   if (kind === 'bus') return { x: half - 0.16, y: lightY + 0.35, w: 0.2, h: 0.5 };
+  if (kind === 'firetruck') return { x: half - 0.16, y: lightY + 0.25, w: 0.17, h: 0.44 };
   return { x: half - 0.3, y: lightY + 0.05, w: 0.36, h: kind === 'sports' ? 0.085 : 0.14 };
 }
 
@@ -482,6 +524,28 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
   if (kind === 'firetruck') fireEngineKit(p, s.width, L, H, box, flank);
   if (kind === 'bus') busKit(p, s.width, L, H, box);
   if (BACK_DOORS.has(kind)) backDoors(kind, s.width, L, H, ly, bumperY, box);
+  if ((BACK_DOORS.has(kind) || kind === 'bus') && p.panes?.[0] && p.paneOut !== undefined) {
+    // Wipers resting along the windscreen's foot, a centimetre off the glass.
+    const w = p.panes[0];
+    const dz = w.b[0] - w.a[0];
+    const dy = w.b[1] - w.a[1];
+    const len = Math.hypot(dz, dy);
+    const off = p.paneOut + 0.012;
+    const at = (x: number, t: number): THREE.Vector3 => new THREE.Vector3(x, w.a[1] + dy * t - (dz / len) * off, w.a[0] + dz * t + (dy / len) * off);
+    const t = 0.09 / len;
+    for (const [x0, x1] of [[w.x0 + 0.08, -0.06], [0.06, w.x1 - 0.2]] as const) line(at(x0, t), at(x1, t + 0.04 / len), 0.011);
+  }
+  if (BACK_DOORS.has(kind) && commercial) {
+    // Rubber seals round the cab's side windows (cut into the flank; the ambulance's cab is a glass cabin).
+    const c = p.cabin;
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < c.length; i++) {
+        const a = c[i]!;
+        const b = c[(i + 1) % c.length]!;
+        line(new THREE.Vector3(side * (hw + 0.006), a[1], a[0]), new THREE.Vector3(side * (hw + 0.006), b[1], b[0]), 0.014);
+      }
+    }
+  }
   if (kind === 'muscle') {
     // A raised intake on the bonnet.
     const z = L * 0.22;
@@ -554,8 +618,8 @@ function tractorKit(p: ExteriorProfile, width: number, L: number, H: number, box
 
 /**
  * The fire engine's equipment body: satin aluminium roller shutters over its lockers (grooved across), between the
- * arches and over and behind the rear one, a broad chrome grille and bumper on the nose, and a chrome rail at the
- * waist of the equipment body.
+ * arches and over and behind the rear one, a broad chrome grille and bumper on the nose, a chrome rail at the waist of
+ * the equipment body, and a ladder and a step on its back.
  */
 function fireEngineKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn, flank: (side: number, y: number) => number): void {
   const archGap = 0.11;
@@ -583,6 +647,13 @@ function fireEngineKit(p: ExteriorProfile, width: number, L: number, H: number, 
     // The chrome rail along the top of the equipment body.
     box(flank(side, top + 0.06), top + 0.07, (cabBack - 0.1 - L / 2 + 0.12) / 2, 0.03, 0.03, cabBack - 0.1 + L / 2 - 0.12, 1);
   }
+  // On its back, a satin ladder up to the roof on the left of the middle, and a satin step across its foot.
+  const back = -L / 2 - 0.004;
+  const ly0 = p.lightY * H;
+  // (Within 3 cm of the back: VAL-CAR-002 holds the body to the sim's length.)
+  for (const x of [0.12, 0.5]) box(x, (H * 0.3 + top + 0.1) / 2, back - 0.012, 0.03, top + 0.1 - H * 0.3, 0.024, 1);
+  for (let y = H * 0.36; y < top + 0.05; y += 0.26) box(0.31, y, back - 0.016, 0.38, 0.022, 0.02, 1);
+  box(0, ly0 - 0.3, back - 0.012, width * 0.86, 0.05, 0.03, 1);
   // Grille and bumper.
   const ly = p.lightY * H;
   box(0, ly + 0.28, L / 2 + 0.005, width * 0.56, 0.42, 0.024, 1);

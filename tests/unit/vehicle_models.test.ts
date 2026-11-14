@@ -225,10 +225,11 @@ describe('vehicle models', () => {
       return { camera, parts, casters };
     };
     expect(count('sedan')).toEqual({ camera: 3, parts: 13, casters: 1 });
-    // (The cruiser's parts include the gold star it wears as the sheriff's.)
-    expect(count('police')).toEqual({ camera: 4, parts: 17, casters: 1 });
+    // (The cruiser's parts include the gold star it wears as the sheriff's, and, revised in round 9, its light bar's
+    // divider and two end caps.)
+    expect(count('police')).toEqual({ camera: 4, parts: 20, casters: 1 });
     expect(count('taxi')).toEqual({ camera: 3, parts: 14, casters: 1 });
-    expect(count('swat')).toEqual({ camera: 3, parts: 16, casters: 1 });
+    expect(count('swat')).toEqual({ camera: 3, parts: 19, casters: 1 });
     for (const kind of ['compact', 'sports', 'muscle', 'pickup', 'van', 'bus'] as const) expect(count(kind), kind).toEqual({ camera: 3, parts: 13, casters: 1 });
     // Named for tests and tools.
     const names = new Set<string>();

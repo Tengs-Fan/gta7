@@ -14,7 +14,7 @@ import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, bendNormals, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
-import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, sculptBody, tailLamp, taperCabin, tireGeometry } from './vehicleDetails';
+import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, lugTireGeometry, sculptBody, tailLamp, taperCabin, tireGeometry } from './vehicleDetails';
 import { carModel, type CarModel, type ModelLamp } from './vehicleModels';
 import type { Suspension } from './suspension';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
@@ -877,13 +877,13 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   let rearWheel = wheel;
   let rearRim = rim;
   if (rearR !== prof.wheelR) {
-    rearWheel = coarse ? new THREE.CylinderGeometry(rearR, rearR, 0.26, 8) : tireGeometry(rearR);
+    rearWheel = coarse ? new THREE.CylinderGeometry(rearR, rearR, 0.26, 8) : kind === 'tractor' ? lugTireGeometry(rearR) : tireGeometry(rearR);
     if (coarse) rearWheel.rotateZ(Math.PI / 2);
     rearWheel.scale(REAR_TYRE_BROAD, 1, 1);
     // (The rim's face out on the broad tyre's.)
     rearRim = alloyGeometry(rearR, kind).translate((REAR_TYRE_BROAD - 1) * TYRE_HALF, 0, 0);
   }
-  const exterior = coarse ? new THREE.BufferGeometry() : round.geometry(exteriorGeometry(kind, prof), false);
+  const exterior = coarse ? new THREE.BufferGeometry() : round.geometry(exteriorGeometry(kind, { ...prof, paneOut: BEVEL + GLASS_LIFT }), false);
   const lamp: LensSize = [0.36, kind === 'sports' ? 0.085 : 0.14, 0.05];
   const reverse: LensSize = [0.18, 0.08, 0.04];
   a = { body, cabin, exterior, wheel, rim, rearWheel, rearRim, lamp, reverse, prof, round, farBody: body, farCabin: cabin, farExterior: exterior, model: null };
@@ -1052,8 +1052,11 @@ export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeome
   }
   g = mergeGeometries(parts)!;
   for (const p of parts) p.dispose();
-  // Flat normals let a dented car bend its own copy (DentedGeometry), so its shadow shows the dent too.
+  // Flat normals let a dented car bend its own copy (DentedGeometry), so its shadow shows the dent too. (A sliver with
+  // no area gets an upward one: it casts only depth, but no normal anywhere may be zero, which shades NaN.)
   g.computeVertexNormals();
+  const n = g.getAttribute('normal');
+  for (let i = 0; i < n.count; i++) if (!(Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) > 0.5)) n.setXYZ(i, 0, 1, 0);
   g.computeBoundingBox();
   g.computeBoundingSphere();
   shadowBodies.set(key, g);
@@ -1550,10 +1553,18 @@ export class VehicleView {
       r.position.set(s.width * 0.18, roofY + 0.14, barZ);
       const b = new THREE.Mesh(sharedBox(s.width * 0.32, 0.14, 0.28), blue);
       b.position.set(-s.width * 0.18, roofY + 0.14, barZ);
-      this.group.add(base, r, b);
+      // A dark divider between the lenses and a cap on each end, so the bar reads as one housing with two lenses in it
+      // (in the base's batch).
+      const frame = [new THREE.Mesh(sharedBox(0.05, 0.15, 0.3), barBaseMat), ...[-1, 1].map(() => new THREE.Mesh(sharedBox(0.035, 0.16, 0.31), barBaseMat))];
+      frame[0]!.position.set(0, roofY + 0.135, barZ);
+      frame[1]!.position.set(-(s.width * 0.35 - 0.0175), roofY + 0.14, barZ);
+      frame[2]!.position.set(s.width * 0.35 - 0.0175, roofY + 0.14, barZ);
+      this.group.add(base, r, b, ...frame);
       this.sirenLenses = { red: r, blue: b };
-      this.attached.push({ obj: base, base: base.position.clone() }, { obj: r, base: r.position.clone() }, { obj: b, base: b.position.clone() });
-      for (const m of [base, r, b]) this.livery.push({ mesh: m, mat: m.material as THREE.Material });
+      for (const m of [base, r, b, ...frame]) {
+        this.attached.push({ obj: m, base: m.position.clone() });
+        this.livery.push({ mesh: m, mat: m.material as THREE.Material });
+      }
       if (kind === 'police') {
         // White doors livery stripe.
         const geo = stripeGeometry(kind).clone();
