@@ -10,7 +10,7 @@ import { SKELETON } from '../sim/pose';
 
 export type CharacterPartName =
   | 'torso' | 'hips' | 'head' | 'face' | 'hair' | 'hairSweep' | 'hat' | 'neck' | 'upperArm' | 'forearm' | 'hand' | 'thigh' | 'shin' | 'shoe'
-  | 'shirtInset' | 'jacketTrim' | 'badge' | 'glasses' | 'sleeve' | 'shortLeg'
+  | 'badge' | 'glasses' | 'sleeve' | 'shortLeg' | 'collar' | 'hem' | 'shoulder'
   | 'hairLong' | 'hairTail' | 'hairFull';
 
 /** A woman's shoulders, arms and legs against a man's (CrowdView): the drawn spread of the shoulders and the limbs' girth. */
@@ -26,8 +26,11 @@ export const DRAWN_SHOULDER = { x: 0.185, pad: 0.045, drop: 0.035 } as const;
 export const BARE_ARM = 0.86;
 export const BARE_LEG = 0.84;
 
-/** Height, half width, half depth, depth offset, and linear colour multiplier. */
-type Ring = readonly [number, number, number, number?, number?];
+/** Height, half width, half depth (in front), depth offset, linear colour multiplier, and half depth behind (else the same). */
+type Ring = readonly [number, number, number, number?, number?, number?];
+
+/** How far the neckline drops at the front of the throat (m). */
+const NECKLINE = .024;
 
 /** The torso's cross-section: a superellipse, a little squarer than round. */
 const TORSO_ROUND = 0.84;
@@ -49,12 +52,12 @@ const TORSO_F: readonly Ring[] = [
   [.602, .162, .088, -.006], [.630, .096, .07, -.006], [.648, .058, .058, -.004, .66],
 ];
 
-/** Where the torso's surface is at height y, x across it: its front (or its back) z. */
-function torsoZ(x: number, y: number, back = false): number {
+/** Where the torso's surface (a man's, or the rings given) is at height y, x across it: its front (or its back) z. */
+function torsoZ(x: number, y: number, back = false, rings: readonly Ring[] = TORSO): number {
   let j = 1;
-  while (j < TORSO.length - 1 && TORSO[j]![0] < y) j++;
-  const a = TORSO[j - 1]!;
-  const b = TORSO[j]!;
+  while (j < rings.length - 1 && rings[j]![0] < y) j++;
+  const a = rings[j - 1]!;
+  const b = rings[j]!;
   const t = THREE.MathUtils.clamp((y - a[0]) / (b[0] - a[0]), 0, 1);
   const w = THREE.MathUtils.lerp(a[1], b[1], t);
   const d = THREE.MathUtils.lerp(a[2], b[2], t);
@@ -70,12 +73,12 @@ function profile(rings: readonly Ring[], segments = 12, roundness = 1, openBotto
   const color: number[] = [];
   const indices: number[] = [];
   for (let j = 0; j < rings.length; j++) {
-    const [y, width, depth, z = 0, shade = 1] = rings[j]!;
+    const [y, width, depth, z = 0, shade = 1, back = depth] = rings[j]!;
     for (let i = 0; i <= segments; i++) {
       const a = i / segments * Math.PI * 2;
       const sx = Math.sin(a);
       const cz = Math.cos(a);
-      p.push(Math.sign(sx) * Math.abs(sx) ** roundness * width, y, Math.sign(cz) * Math.abs(cz) ** roundness * depth + z);
+      p.push(Math.sign(sx) * Math.abs(sx) ** roundness * width, y, Math.sign(cz) * Math.abs(cz) ** roundness * (cz < 0 ? back : depth) + z);
       uv.push(i / segments, j / (rings.length - 1));
       color.push(shade, shade, shade);
       if (j && i) {
@@ -121,7 +124,7 @@ function limb(rings: readonly Ring[], segments: number, roundness: number, botto
   const dome = (r: Ring, h: number, sign: number): Ring[] =>
     [0.55, 0.9].map((t) => {
       const k = Math.sqrt(1 - t * t);
-      return [r[0] + sign * h * t, r[1] * k, r[2] * k, r[3] ?? 0, r[4] ?? 1] as const;
+      return [r[0] + sign * h * t, r[1] * k, r[2] * k, r[3] ?? 0, r[4] ?? 1, (r[5] ?? r[2]) * k] as const;
     });
   const out: Ring[] = [];
   if (bottom > 0) out.push(...dome(rings[0]!, bottom, -1).reverse());
@@ -154,37 +157,6 @@ function merge(gs: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return g;
 }
 
-/** Thin cloth panel following the chest surface, rather than floating in front of its curved silhouette. */
-function panel(points: readonly (readonly [number, number])[], lift: number, hex: number): THREE.BufferGeometry {
-  const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x, y)));
-  const flat = new THREE.ShapeGeometry(shape).toNonIndexed();
-  const src = flat.getAttribute('position');
-  const positions: number[] = [];
-  // A few triangles spanning the whole collar would cut through the convex chest between vertices.
-  // Subdivide before wrapping so the entire cloth surface follows the body.
-  function subdivide(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, depth: number): void {
-    if (!depth) { positions.push(ax, ay, 0, bx, by, 0, cx, cy, 0); return; }
-    const abx = (ax + bx) / 2; const aby = (ay + by) / 2;
-    const bcx = (bx + cx) / 2; const bcy = (by + cy) / 2;
-    const cax = (cx + ax) / 2; const cay = (cy + ay) / 2;
-    subdivide(ax, ay, abx, aby, cax, cay, depth - 1);
-    subdivide(abx, aby, bx, by, bcx, bcy, depth - 1);
-    subdivide(cax, cay, bcx, bcy, cx, cy, depth - 1);
-    subdivide(abx, aby, bcx, bcy, cax, cay, depth - 1);
-  }
-  for (let i = 0; i < src.count; i += 3) subdivide(src.getX(i), src.getY(i), src.getX(i + 1), src.getY(i + 1), src.getX(i + 2), src.getY(i + 2), 2);
-  flat.dispose();
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(positions.flatMap((_, i) => i % 3 === 0 ? [positions[i]!, positions[i + 1]!] : []), 2));
-  const p = g.getAttribute('position');
-  for (let i = 0; i < p.count; i++) p.setZ(i, torsoZ(p.getX(i), p.getY(i)) + lift);
-  g.computeVertexNormals();
-  // Other components are indexed when merged; this panel can share sequential indices without welds.
-  g.setIndex(Array.from({ length: p.count }, (_, i) => i));
-  return paint(g, hex);
-}
-
 export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeometry> {
   const K = SKELETON;
   // The torso and the hips each carry a second shape, a woman's, ring for ring: CrowdView blends to it per person
@@ -197,11 +169,72 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     return g;
   };
   const torso = second(profile(TORSO, 14, TORSO_ROUND), profile(TORSO_F, 14, .88));
-  // The seat and the waistband, which is outside what is worn above it and a shade darker along its top, as a belt is.
+  // The neckline dips in front, so the throat shows between the collar and the jaw: with the collar level at 64.8 cm
+  // over the hips the chin, 2.5 cm above it, hid the neck from the front.
+  {
+    for (const name of ['position', 'positionB'] as const) {
+      const q = torso.getAttribute(name);
+      for (let i = 0; i < q.count; i++) {
+        if (q.getY(i) > .6 && q.getZ(i) > 0) q.setY(i, q.getY(i) - NECKLINE * Math.min(1, q.getZ(i) / .06) * (q.getY(i) - .6) / .048);
+      }
+    }
+    torso.computeVertexNormals();
+    const b = new THREE.BufferGeometry();
+    b.setAttribute('position', torso.getAttribute('positionB'));
+    b.setIndex(torso.getIndex());
+    b.computeVertexNormals();
+    torso.setAttribute('normalB', b.getAttribute('normal'));
+  }
+  // The seat and the waistband. Below the hip joints the seat tucks in behind the trouser legs in front (its front is
+  // 2 to 3 cm behind theirs), so only the crotch shows between them, and stands out behind them as a seat does: drawn
+  // round and as wide as the thighs in front, it read from the street as briefs worn over the trousers. The belt is the
+  // band from 6.8 to 9.4 cm, a few millimetres proud of the cloth (its colour is the shader's: CrowdView clothShader).
   const hips = second(
-    profile([[-.078, .1, .084, 0, .92], [-.05, .172, .11, -.004], [-.01, .187, .119, -.004], [.04, .18, .12], [.072, .172, .121], [.076, .173, .122, 0, .52], [.094, .169, .12, 0, .52]], 12, .84),
-    profile([[-.078, .1, .084, 0, .92], [-.05, .178, .112, -.005], [-.01, .193, .122, -.007], [.04, .184, .12, -.003], [.072, .168, .117], [.076, .169, .118, 0, .52], [.094, .162, .114, 0, .52]], 12, .88),
+    profile([
+      [-.1, .03, .1, 0, 1, .06], [-.075, .085, .106, 0, 1, .09], [-.045, .15, .11, 0, 1, .108],
+      [-.01, .182, .112, 0, 1, .124], [.03, .181, .116, 0, 1, .122], [.064, .174, .12],
+      [.068, .177, .125], [.094, .175, .124], [.098, .166, .117],
+    ], 12, .84),
+    profile([
+      [-.1, .03, .1, 0, 1, .062], [-.075, .09, .106, 0, 1, .096], [-.045, .158, .11, 0, 1, .114],
+      [-.01, .19, .11, 0, 1, .128], [.03, .184, .112, 0, 1, .122], [.064, .168, .114, 0, 1, .116],
+      [.068, .171, .118], [.094, .165, .117], [.098, .157, .11],
+    ], 12, .88),
   );
+  // Under the hip joints the front of the trousers narrows to the fly between the legs, and the legs take over: a full
+  // seat in front, as wide as both thighs, read from the street as a pair of briefs worn over the trousers (round 9).
+  for (const name of ['position', 'positionB'] as const) {
+    const q = hips.getAttribute(name);
+    for (let i = 0; i < q.count; i++) {
+      const k = 1 - THREE.MathUtils.smoothstep(q.getY(i), -.06, .03);
+      const front = Math.max(0, q.getZ(i)) / .1;
+      // Behind, the seat's lower curve runs into the backs of the legs a little lower down.
+      const seat = 1 - THREE.MathUtils.smoothstep(q.getY(i), -.085, -.015);
+      const back = Math.max(0, -q.getZ(i)) / .1;
+      q.setX(i, q.getX(i) * (1 - .72 * k * Math.min(1, front) - .5 * seat * Math.min(1, back)));
+    }
+  }
+  hips.computeVertexNormals();
+  {
+    const b = new THREE.BufferGeometry();
+    b.setAttribute('position', hips.getAttribute('positionB'));
+    b.setIndex(hips.getIndex());
+    b.computeVertexNormals();
+    hips.setAttribute('normalB', b.getAttribute('normal'));
+  }
+  // Under the hip joints the seat's surface turns down to the crotch while the trouser legs it meets face out: lit as
+  // modelled, it is a dark U between bright thighs. Its normals there face out as the legs' do, so the cloth reads as one.
+  for (const name of ['normal', 'normalB'] as const) {
+    const n = hips.getAttribute(name);
+    const y = hips.getAttribute('position');
+    for (let i = 0; i < n.count; i++) {
+      const k = THREE.MathUtils.smoothstep(y.getY(i), -.1, .03);
+      const ny = n.getY(i) * k;
+      const h = Math.hypot(n.getX(i), n.getZ(i)) || 1;
+      const out = Math.sqrt(Math.max(0, 1 - ny * ny)) / h;
+      n.setXYZ(i, n.getX(i) * out, ny, n.getZ(i) * out);
+    }
+  }
   const skull: readonly Ring[] = [
     [.025, .057, .062, .012, .88], [.045, .078, .088, .008], [.085, .099, .104, .003],
     [.145, .112, .112], [.205, .11, .112, -.004], [.255, .103, .102, -.008],
@@ -282,7 +315,7 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   const upperArm = limb([
     [-K.upperArm, ELBOW, ELBOW + .002], [-.235, .046, .05, .002], [-.14, .052, .057, .004],
     [-.06, .055, .06, .003], [0, .052, .056],
-  ], 8, 1, ELBOW, .03);
+  ], 8, 1, ELBOW, .012);
   const forearm = limb([
     [-K.forearm, .029, .031], [-.2, .033, .035, -.001], [-.12, .04, .043, -.003],
     [-.05, .044, .047, -.003], [0, ELBOW, ELBOW + .002],
@@ -290,7 +323,7 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   // A sleeve to above the elbow, worn over a bare arm: its hem a shade darker.
   const sleeve = limb([
     [-.135, .06, .064, .003, .7], [-.118, .061, .066, .003], [-.06, .06, .065, .003], [0, .056, .06],
-  ], 8, 1, 0, .033);
+  ], 8, 1, 0, .014);
   // The hand hangs with its palm to the thigh: thin across the body, broad fore and aft, the thumb in front.
   const hand = merge([
     limb([[-.088, .013, .026, .002], [-.058, .017, .037, .002], [-.02, .02, .041, .001], [.02, .022, .036], [.05, .027, .03]], 6, .8, .012, 0),
@@ -300,8 +333,8 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   const KNEE = .064;
   // (Narrower across than it is deep where it leaves the seat, so two of them side by side are no wider than the hips.)
   const thigh = limb([
-    [-K.thigh, KNEE, KNEE + .003, .002], [-.36, .07, .075, .004], [-.24, .08, .089, .006],
-    [-.1, .082, .098, .006], [0, .078, .096, .004],
+    [-K.thigh, KNEE, KNEE + .003, .002], [-.36, .07, .075, .004], [-.24, .081, .09, .006],
+    [-.1, .085, .104, .008, 1, .1], [0, .083, .108, .006, 1, .1],
   ], 10, .9, KNEE, .06);
   const shin = limb([
     [-K.shin - .02, .053, .056, 0, .6], [-K.shin + .012, .054, .058, 0, .82], [-.3, .056, .06, -.003],
@@ -311,31 +344,78 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   const shortLeg = limb([
     [-.285, .095, .105, .006, .7], [-.262, .096, .106, .006], [-.1, .092, .106, .006], [0, .086, .102, .004],
   ], 10, .9, 0, .06);
+  // The sole in the second colour (CrowdView's sole), the upper in the first: `trimMask` says which.
+  const sole = (g: THREE.BufferGeometry, k: number): THREE.BufferGeometry => {
+    g.setAttribute('trimMask', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(k), 1));
+    return g;
+  };
   const shoe = merge([
     // Flat sole obeys exactly the gait's heel/toe envelope; the uppers taper away from it.
-    paint(profile([[-K.ankleY, .075, (K.heel + K.toe) / 2, (K.toe - K.heel) / 2], [-.055, .075, .13, .06], [-.047, .071, .126, .06]], 12, .6), 0xc3c8c7),
-    paint(profile([[-.047, .068, .122, .058], [-.013, .066, .116, .056], [.011, .06, .102, .04], [.024, .049, .07, .005]], 12, .75), 0x272d34),
-    box(.065, .005, .009, 0, .014, .072, 0xa4b2b8),
-    box(.06, .005, .009, 0, .02, .052, 0xa4b2b8),
-    box(.053, .005, .009, 0, .026, .032, 0xa4b2b8),
+    sole(paint(profile([[-K.ankleY, .075, (K.heel + K.toe) / 2, (K.toe - K.heel) / 2], [-.055, .075, .13, .06], [-.047, .071, .126, .06]], 12, .6), 0xe4e4e2), 1),
+    sole(profile([[-.047, .068, .122, .058, .9], [-.04, .068, .122, .058], [-.013, .066, .116, .056], [.011, .06, .102, .04], [.024, .049, .07, .005, .92]], 12, .75), 0),
+    sole(box(.058, .005, .009, 0, .014, .072, 0x8a8f94), 0),
+    sole(box(.054, .005, .009, 0, .02, .052, 0x8a8f94), 0),
+    sole(box(.048, .005, .009, 0, .026, .032, 0x8a8f94), 0),
   ]);
-  const shirtInset = panel([[-.067, .622], [-.073, .565], [-.049, .492], [0, .47], [.049, .492], [.073, .565], [.067, .622]], .007, 0xffffff);
-  const jacketTrim = merge([
-    panel([[-.066, .619], [-.135, .578], [-.07, .48], [-.026, .53]], .013, 0xaab4bd),
-    panel([[.066, .619], [.135, .578], [.07, .48], [.026, .53]], .013, 0xaab4bd),
-    panel([[-.0045, .1], [.0045, .1], [.0045, .16], [.0045, .29], [.0045, .45], [-.0045, .45], [-.0045, .29], [-.0045, .16]], .006, 0xb0b7ba),
-    box(.045, .008, .007, -.105, .263, torsoZ(.105, .263) + .003, 0xc4c8c8),
-    box(.045, .008, .007, .105, .263, torsoZ(.105, .263) + .003, 0xc4c8c8),
-    // Rear yoke seam and waist ribbing make the player's back readable during play.
-    box(.27, .009, .007, 0, .46, torsoZ(0, .46, true), 0x7e8792),
-    box(.25, .012, .007, 0, .112, torsoZ(0, .112, true), 0xa1a7ad),
-  ]);
+  // An untucked top's hem, hanging over the waistband: on the torso's frame, a man's and a woman's shape.
+  const hem = second(
+    profile([[.035, .186, .131, 0, .7], [.045, .187, .132], [.1, .181, .128], [.15, .165, .12], [.205, .152, .108]], 12, TORSO_ROUND, true),
+    profile([[.035, .182, .127, 0, .7], [.045, .183, .128], [.1, .17, .121], [.15, .146, .109], [.205, .13, .1]], 12, .88, true),
+  );
+  // A shirt's or a jacket's collar: a band standing round the neck, folded down over itself, open in front where its
+  // points lie on the chest. Its cross-section, as it goes round, from the inside foot to the outside edge.
+  const collar = (() => {
+    const p: number[] = [];
+    const idx: number[] = [];
+    const steps = 14;
+    const open = .42;
+    const section = (r: number, tip: number): Array<[number, number]> => [
+      [r, .628], [r - .003, .668], [r + .004, .676], [r + .02 + .012 * tip, .64 - .045 * tip], [r + .028 + .016 * tip, .628 - .05 * tip],
+    ];
+    for (let i = 0; i <= steps; i++) {
+      const a = open + (Math.PI * 2 - 2 * open) * i / steps;
+      const end = Math.max(0, 1 - Math.min(i, steps - i) / 2);
+      const ring = section(.062, end);
+      for (const [r, y] of ring) p.push(Math.sin(a) * r, y - NECKLINE * .8 * Math.max(0, Math.cos(a)), Math.cos(a) * r * .95);
+      if (i) {
+        const n = ring.length;
+        for (let k = 0; k < n; k++) {
+          const a0 = (i - 1) * n + k;
+          const a1 = (i - 1) * n + (k + 1) % n;
+          idx.push(a0, a0 + n, a1, a1, a0 + n, a1 + n);
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(p.length / 3 * 2), 2));
+    const b = g.clone();
+    const q = b.getAttribute('position');
+    for (let i = 0; i < q.count; i++) q.setXYZ(i, q.getX(i) * .9, q.getY(i), q.getZ(i) * .92);
+    b.computeVertexNormals();
+    return second(paint(g, 0xffffff), b);
+  })();
+  // The deltoid: a cap over the top of each arm, on the chest's frame at the drawn shoulder (CrowdView.shoulders),
+  // whose inside sinks into the torso's slope; it rounds the shoulder from the collar over the arm, where the arm's own
+  // dome met the torso's side in a crease and read as a sleeve stuck on.
+  const shoulder = profile([
+    [-.07, .04, .045], [-.04, .053, .058], [-.015, .06, .064], [0, .056, .061], [.01, .044, .05], [.016, .016, .02],
+  ], 8, .9, true);
   const badge = merge([
     ellipsoid(.026, .033, .007, .1, .455, torsoZ(.1, .455) + .003, 0xd5b564),
     box(.061, .014, .009, -.1, .455, torsoZ(.1, .455) + .003, 0xb2bfca),
     box(.044, .084, .017, -.1, .37, torsoZ(.1, .37) + .006, 0x1e2933),
-    paint(profile([[.066, .172, .124], [.098, .171, .123]], 14, .84), 0x242830),
-    box(.04, .029, .013, 0, .082, .13, 0xadb3ad),
+    // The duty belt over the trousers' own: its buckle, a holster on the right hip with the grip showing, two
+    // magazine pouches on the left of the buckle and a cuff case behind.
+    paint(profile([[.062, .184, .132], [.1, .183, .131]], 14, .84), 0x1d2025),
+    box(.04, .03, .012, 0, .081, .136, 0xb8bcb8),
+    paint(profile([[-.12, .02, .028], [-.1, .025, .034], [.06, .027, .037], [.09, .028, .038]], 6, .8).translate(-.196, 0, .012), 0x17191c),
+    box(.026, .052, .03, -.196, .108, .004, 0x2b2c2e),
+    box(.028, .042, .022, .062, .074, .142, 0x1d2025),
+    box(.028, .042, .022, .098, .074, .136, 0x1d2025),
+    box(.052, .036, .026, .07, .078, -.142, 0x1d2025),
   ]);
   const glasses = merge([
     ellipsoid(.043, .024, .009, -.052, .179, .118, 0x182830),
@@ -344,5 +424,5 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     box(.007, .009, .1, -.102, .188, .065, 0x24282c),
     box(.007, .009, .1, .102, .188, .065, 0x24282c),
   ]);
-  return { torso, hips, head, face, hair, hairSweep, hat, neck, upperArm, forearm, hand, thigh, shin, shoe, shirtInset, jacketTrim, badge, glasses, sleeve, shortLeg, hairLong, hairTail, hairFull };
+  return { torso, hips, head, face, hair, hairSweep, hat, neck, upperArm, forearm, hand, thigh, shin, shoe, badge, glasses, sleeve, shortLeg, hairLong, hairTail, hairFull, collar, hem, shoulder };
 }

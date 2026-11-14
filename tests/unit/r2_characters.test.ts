@@ -1350,7 +1350,12 @@ describe('the crowd draws the local player by id', () => {
   }
 
   /** The origins of the jacket insets drawn: only the player in the local seat wears one here. */
-  const insets = (cv: CrowdView): THREE.Vector3[] => all(parts(cv).shirtInset!).map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+  const insets = (cv: CrowdView): THREE.Vector3[] => {
+    // The player's jacket is open over a pale shirt (0xc8c7bc), the torso's second colour, which no one else wears.
+    const torso = parts(cv).torso! as unknown as { mesh: THREE.InstancedMesh; trim: Float32Array };
+    const pale = new THREE.Color(0xc8c7bc);
+    return all(parts(cv).torso!).filter((_, i) => Math.abs(torso.trim[i * 3]! - pale.r) < 1e-4 && Math.abs(torso.trim[i * 3 + 2]! - pale.b) < 1e-4).map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+  };
   const near = (p: THREE.Vector3, c: Character): boolean => Math.hypot(p.x - c.pos.x, p.z - c.pos.z) < 1.5;
 
   it('dresses the local player as the player even when another player character comes first', () => {
@@ -1401,7 +1406,7 @@ describe('the crowd draws the local player by id', () => {
     expect(now.samples.length).toBe(baseline.samples.length);
     // The baseline must hold the player and the people around him, drawn with a gun.
     expect(baseline.samples[0]!.parts.torso!.count).toBe(4);
-    expect(baseline.samples[0]!.parts.shirtInset!.count).toBeGreaterThanOrEqual(1);
+    expect(baseline.samples[0]!.parts.collar!.count).toBeGreaterThanOrEqual(1);
     expect(baseline.samples[0]!.weapons.pistol!.count).toBe(1);
     for (let i = 0; i < baseline.samples.length; i++) {
       const want = baseline.samples[i]!;
@@ -1433,7 +1438,7 @@ describe('the crowd draws the local player by id', () => {
       for (let i = 0; i < 20; i++) cv.sync([sim.player, npc], sim.player.pos.x, sim.player.pos.z, 1 / 60, id);
       return Object.fromEntries(Object.entries(parts(cv)).map(([k, p]) => [k, p.mesh.count]));
     };
-    expect(counts(sim.player.id).shirtInset).toBeGreaterThanOrEqual(1);
+    expect(counts(sim.player.id).hem).toBeGreaterThanOrEqual(1);
     expect(counts(-1).torso).toBe(counts(sim.player.id).torso);
   });
 });

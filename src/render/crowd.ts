@@ -15,6 +15,7 @@ import {
 } from '../sim/pose';
 import { isGun, type VehicleKind, type WeaponId } from '../sim/specs';
 import { BARE_ARM, BARE_LEG, characterGeometries, DRAWN_SHOULDER, WOMAN, type CharacterPartName } from './characterGeometry';
+import { PAINT, paintShader } from './characterPaint';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type GaitStyle, type LegPose } from './gait';
 import { onDrawn, riderMount } from './riders';
 import { seaHeightAt, type SeaWaveUniforms } from './sea';
@@ -196,6 +197,9 @@ interface Part {
   n: number;
   /** For a part with two shapes: each instance's share of the second (see shapeByInstance). */
   shape?: Float32Array;
+  /** For a painted part (characterPaint): each instance's second colour (linear rgb) and style. */
+  trim?: Float32Array;
+  style?: Float32Array;
 }
 
 type PartName = CharacterPartName;
@@ -395,6 +399,67 @@ function inShorts(c: Character, local: boolean): boolean {
   return seeded(c.id, 32) < 0.24;
 }
 
+/**
+ * What someone wears beyond the simulation's colours (characterPaint's styles), by his id: the top (0 a tee, 1 a V neck,
+ * 2 a shirt, 3 a uniform shirt, 4 a jacket open over a shirt) and its second colour (the skin in a V, the shirt under a
+ * jacket), a jacket zipped or buttoned, a top worn over the belt or tucked in, a shirt's or jacket's collar, a belt
+ * (its colour, or 0 for none), jeans, and shoes and their soles. The player wears his zipped jacket over a pale shirt,
+ * jeans and a belt; the law its uniform, a black belt and boots.
+ */
+interface Dress {
+  top: number;
+  inner: number;
+  zip: boolean;
+  untucked: boolean;
+  collar: boolean;
+  belt: number;
+  jeans: boolean;
+  shoe: number;
+  sole: number;
+}
+
+/** Belts: dark brown, black, tan. */
+const BELTS = [0x2e1f15, 0x141414, 0x6e4c2c];
+/** Shoes and their soles: white trainers, dark trainers with white soles, black and brown leather, canvas in red. */
+const SHOES: ReadonlyArray<readonly [number, number, number]> = [
+  [0.3, 0xe6e6e1, 0xf0f0ec], [0.25, 0x272d34, 0xe4e4e2], [0.22, 0x19191b, 0x2b2622], [0.15, 0x5b3b23, 0x2b2622], [0.08, 0x9c2b25, 0xeeeeea],
+];
+/** Pants colours drawn as denim, which takes the stitching of jeans on some (sim/appearance.ts PANTS). */
+const DENIM = new Set([0x2c3e50, 0x34495e, 0x2e4053, 0x154360]);
+
+function dressOf(c: Character, local: boolean, out: Dress): Dress {
+  const id = c.id;
+  if (local) {
+    Object.assign(out, { top: 4, inner: 0xc8c7bc, zip: true, untucked: true, collar: true, belt: BELTS[0]!, jeans: true, shoe: 0x272d34, sole: 0xe4e4e2 });
+    return out;
+  }
+  if (c.isLaw) {
+    Object.assign(out, { top: 3, inner: 0, zip: false, untucked: false, collar: true, belt: BELTS[1]!, jeans: false, shoe: 0x141518, sole: 0x141518 });
+    return out;
+  }
+  const short = shortSleeved(c, local);
+  const t = seeded(id, 50);
+  out.top = !short && seeded(id, 21) > 0.55 ? 4 : t < 0.5 ? 0 : t < 0.75 ? 1 : 2;
+  out.inner = out.top === 1 ? c.appearance.skin : seeded(id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48;
+  out.zip = seeded(id, 51) < 0.5;
+  out.untucked = out.top === 4 || seeded(id, 52) < (out.top === 2 ? 0.35 : 0.65);
+  out.collar = out.top === 2 || out.top === 4;
+  out.belt = seeded(id, 53) < 0.7 ? BELTS[Math.floor(seeded(id, 54) * BELTS.length)]! : 0;
+  out.jeans = DENIM.has(c.appearance.pants) && seeded(id, 55) < 0.75;
+  let k = seeded(id, 56);
+  let shoe = SHOES[SHOES.length - 1]!;
+  for (const s of SHOES) {
+    if (k < s[0]) {
+      shoe = s;
+      break;
+    }
+    k -= s[0];
+  }
+  out.shoe = shoe[1];
+  out.sole = shoe[2];
+  return out;
+}
+
 /** Recoil strength 0..1 from the time left on the shot timer. */
 export function kickAmount(shotTimer: number): number {
   return shotTimer > 0 ? clamp(shotTimer / KICK_HOLD, 0, 1) : 0;
@@ -437,6 +502,11 @@ export class CrowdView {
   private drawFade = 1;
   /** And, for a part with two shapes, its share of the second (a woman's torso and hips: 1). */
   private drawShape = 0;
+  /** And, for a painted part, its second colour and style (characterPaint). */
+  private drawTrim = 0;
+  private readonly drawStyle = [0, 0, 0, 0];
+  /** What the character being posed wears (dressOf, in torso(), which every pose draws first). */
+  private readonly dress: Dress = { top: 0, inner: 0, zip: false, untucked: false, collar: false, belt: 0, jeans: false, shoe: 0, sole: 0 };
   /**
    * The latest characters drawn for the first time (on foot): id, place, and the fade of that first frame. For checks
    * in the browser (`__gta7.game.renderer.crowd.firstDrawn`); holds the last FIRST_DRAWN_LOG.
@@ -445,25 +515,36 @@ export class CrowdView {
 
   constructor() {
     this.group.name = 'crowd';
-    const mat = (vertexColors: boolean, shaped: boolean) => {
+    const mat = (vertexColors: boolean, shaped: boolean, paint?: { name: string; glsl: string; masked: boolean }) => {
       const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.83, metalness: 0, vertexColors });
-      m.onBeforeCompile = shaped
+      m.onBeforeCompile = shaped || paint
         ? (shader) => {
             fadeNearLens(shader);
-            shapeByInstance(shader);
+            if (shaped) shapeByInstance(shader);
+            if (paint) paintShader(shader, paint.glsl, paint.masked);
           }
         : fadeNearLens;
+      // Three keys a program on the text of onBeforeCompile, which is one closure for every painted part.
+      if (paint) m.customProgramCacheKey = () => `crowd-paint:${paint.name}:${shaped}`;
       m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
     const depth = characterDepthMaterial();
     const depthShaped = characterDepthMaterial(true);
-    const make = (geo: THREE.BufferGeometry, count: number): Part => {
+    const make = (geo: THREE.BufferGeometry, count: number, name?: PartName): Part => {
       geo.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage));
       const shaped = geo.hasAttribute('positionB');
       const shape = shaped ? new Float32Array(count) : undefined;
       if (shape) geo.setAttribute('instanceShape', new THREE.InstancedBufferAttribute(shape, 1).setUsage(THREE.DynamicDrawUsage));
-      const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color'), shaped), count);
+      const glsl = name ? PAINT[name] : undefined;
+      const trim = glsl ? new Float32Array(count * 3) : undefined;
+      const style = glsl ? new Float32Array(count * 4) : undefined;
+      if (trim && style) {
+        geo.setAttribute('instanceTrim', new THREE.InstancedBufferAttribute(trim, 3).setUsage(THREE.DynamicDrawUsage));
+        geo.setAttribute('instanceStyle', new THREE.InstancedBufferAttribute(style, 4).setUsage(THREE.DynamicDrawUsage));
+      }
+      const paint = name && glsl ? { name, glsl, masked: geo.hasAttribute('trimMask') } : undefined;
+      const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color'), shaped, paint), count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.customDepthMaterial = shaped ? depthShaped : depth;
       mesh.castShadow = true;
@@ -473,12 +554,12 @@ export class CrowdView {
       // Allocate the colour buffer up front.
       mesh.setColorAt(0, new THREE.Color(1, 1, 1));
       this.group.add(mesh);
-      return { mesh, n: 0, shape };
+      return { mesh, n: 0, shape, trim, style };
     };
     const geometry = characterGeometries();
-    const pairs = new Set<PartName>(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'shoe', 'sleeve', 'shortLeg']);
+    const pairs = new Set<PartName>(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'shoe', 'sleeve', 'shortLeg', 'shoulder']);
     this.parts = Object.fromEntries(Object.entries(geometry).map(([name, geo]) => {
-      const p = make(geo, MAX * (pairs.has(name as PartName) ? 2 : 1));
+      const p = make(geo, MAX * (pairs.has(name as PartName) ? 2 : 1), name as PartName);
       p.mesh.name = 'character-' + name;
       return [name, p];
     })) as Record<PartName, Part>;
@@ -577,11 +658,29 @@ export class CrowdView {
 
   private put(part: Part, m: THREE.Matrix4, color: number): void {
     if (part.n >= part.mesh.instanceMatrix.count) return;
+    // Shoes are put by every pose: they are the wearer's, with their soles.
+    if (part === this.parts.shoe) {
+      color = this.dress.shoe;
+      this.paint(this.dress.sole, 0);
+    }
     part.mesh.setMatrixAt(part.n, m);
     part.mesh.setColorAt(part.n, colorOf(color));
     (part.mesh.geometry.getAttribute('instanceFade').array as Float32Array)[part.n] = this.drawFade;
     if (part.shape) part.shape[part.n] = this.drawShape;
+    if (part.trim && part.style) {
+      const t = colorOf(this.drawTrim);
+      part.trim.set([t.r, t.g, t.b], part.n * 3);
+      part.style.set(this.drawStyle, part.n * 4);
+    }
     part.n++;
+  }
+
+  /** The second colour and style the next painted parts are put with (characterPaint). */
+  private paint(trim: number, x: number, y = 0, z = 0): void {
+    this.drawTrim = trim;
+    this.drawStyle[0] = x;
+    this.drawStyle[1] = y;
+    this.drawStyle[2] = z;
   }
 
   /** The fade (0..1) `c` was last drawn with, or undefined when it was not drawn. */
@@ -657,6 +756,10 @@ export class CrowdView {
       if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
       p.mesh.geometry.getAttribute('instanceFade').needsUpdate = true;
       if (p.shape) p.mesh.geometry.getAttribute('instanceShape').needsUpdate = true;
+      if (p.trim) {
+        p.mesh.geometry.getAttribute('instanceTrim').needsUpdate = true;
+        p.mesh.geometry.getAttribute('instanceStyle').needsUpdate = true;
+      }
     };
     for (const p of Object.values(this.parts)) finish(p);
     for (const p of this.weapons.values()) finish(p);
@@ -725,12 +828,17 @@ export class CrowdView {
     const wrist = S.wrist.copy(elbow).lerp(hand, SKELETON.forearm / (SKELETON.forearm + SKELETON.hand));
     const local = c === this.player;
     const g = woman(c, local) ? WOMAN.arm : 1;
+    // Which way the upper arm's outside faces in its own frame (its x is `side` for both arms), for a patch on it.
+    const out = shoulder === S.shR ? -1 : 1;
     if (shortSleeved(c, local)) {
       // A bare arm, slimmer than a sleeve, with the sleeve over its top.
       this.bone(this.parts.sleeve, shoulder, elbow, side, s, a.shirt, g);
+      this.paint(0, 0);
       this.bone(this.parts.upperArm, shoulder, elbow, side, s, a.skin, BARE_ARM * g);
       this.bone(this.parts.forearm, elbow, wrist, side, s, a.skin, BARE_ARM * g);
     } else {
+      // An officer's sleeve carries the force's patch: navy with a gold edge.
+      this.paint(0x1b2550, 1, out, c.isLaw ? 1 : 0);
       this.bone(this.parts.upperArm, shoulder, elbow, side, s, a.shirt, g);
       this.bone(this.parts.forearm, elbow, wrist, side, s, a.shirt, g);
     }
@@ -805,20 +913,17 @@ export class CrowdView {
     const s = a.height;
     const local = c === this.player;
     const she = woman(c, local);
+    const d = dressOf(c, local, this.dress);
     S.inst.copy(S.body).scale(S.sc.set(a.build, s, a.build)).setPosition(pelvis);
     this.drawShape = she ? 1 : 0;
+    this.paint(d.inner, d.top, d.zip ? 1 : 0);
     this.put(this.parts.torso, S.inst, a.shirt);
+    if (d.untucked) this.put(this.parts.hem, S.inst, a.shirt);
+    if (d.collar) this.put(this.parts.collar, S.inst, a.shirt);
+    this.paint(d.belt, d.belt ? 1 : 0, d.jeans ? 1 : 0);
     this.put(this.parts.hips, S.inst, a.pants);
     this.drawShape = 0;
     this.put(this.parts.neck, S.inst, a.skin);
-    // The player's jacket has a light inset and rear yoke. Civilians mix zip jackets and plain tops;
-    // uniforms instead carry a badge, name plate and radio. Choice is stable across streaming and saves.
-    // (The jacket's panels are cut to the man's torso; a badge and a belt sit near enough on hers.)
-    const jacket = local || (!c.isLaw && !she && seeded(c.id, 21) > 0.4 && !shortSleeved(c, local));
-    if (jacket) {
-      this.put(this.parts.shirtInset, S.inst, local ? 0xc8c7bc : seeded(c.id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48);
-      this.put(this.parts.jacketTrim, S.inst, a.shirt);
-    }
     if (c.isLaw) {
       // Cut to the man's torso: on hers it is drawn in a little, so the badge lies on her chest and the belt on her hips.
       if (she) S.inst.copy(S.body).scale(S.sc.set(a.build * WOMAN.badge.x, s, a.build * WOMAN.badge.z)).setPosition(pelvis);
@@ -861,6 +966,12 @@ export class CrowdView {
     const shY = (SKELETON.shoulderY - DRAWN_SHOULDER.drop) * s;
     S.shL.copy(pelvis).addScaledVector(S.up, shY).addScaledVector(S.left, sx);
     S.shR.copy(pelvis).addScaledVector(S.up, shY).addScaledVector(S.left, -sx);
+    // The deltoids over the tops of the arms, on the chest's frame.
+    const g = woman(c, c === this.player) ? WOMAN.arm : 1;
+    for (const sh of [S.shL, S.shR]) {
+      S.inst.copy(S.body).scale(S.sc.set(s * g, s, s * g)).setPosition(sh);
+      this.put(this.parts.shoulder, S.inst, c.appearance.shirt);
+    }
   }
 
   /**
