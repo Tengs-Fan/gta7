@@ -9,7 +9,7 @@ import { CameraController, FOOT_BOOM, FOOT_BOOM_AIM, FOOT_BOOM_FAR, FOOT_FOV_AIM
 import { CrowdView } from '../../src/render/crowd';
 import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
-import { input, makeSim, teleport } from './helpers';
+import { input, makeSim, placeInCar, teleport } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -148,7 +148,8 @@ describe('the on-foot camera frames him close, over the right shoulder', () => {
 
   it('the Field of view setting moves every foot lens with it, the far zoom always wider than rest and aiming narrower', () => {
     let last = Infinity;
-    for (const base of [55, 68, 80, 90]) {
+    let lastBoom = Infinity;
+    for (const base of [55, 62, 68, 80, 90]) {
       expect(footFov(base, false, false, 0)).toBe(base + FOOT_FOV_REST);
       expect(footFov(base, false, true, 0)).toBe(base + FOOT_FOV_FAR);
       expect(footFov(base, true, false, 0)).toBe(base + FOOT_FOV_AIM);
@@ -164,10 +165,12 @@ describe('the on-foot camera frames him close, over the right shoulder', () => {
       expect(f.share, `setting ${base}`).toBeGreaterThan(0.3);
       expect(f.bottom, `setting ${base}`).toBeGreaterThan(-0.92);
       expect(boom(r), `setting ${base}`).toBeCloseTo(footBoom(base, false), 1);
-      if (base < 60) expect(footBoom(base, false)).toBeGreaterThan(FOOT_BOOM + 0.5);
-      else expect(footBoom(base, false)).toBe(FOOT_BOOM);
+      expect(footBoom(base, false)).toBeLessThanOrEqual(lastBoom);
+      lastBoom = footBoom(base, false);
       last = f.share;
     }
+    expect(footBoom(55, false)).toBeGreaterThan(FOOT_BOOM + 0.8);
+    expect(footBoom(68, false)).toBe(FOOT_BOOM);
   });
 });
 
@@ -245,6 +248,22 @@ describe('the on-foot camera moves with him', () => {
     expect(highest - lowest).toBeLessThan(0.01);
     expect(Math.abs(highest - y0)).toBeLessThan(0.01);
   });
+
+  it('a pan of the view as he walks or sprints on is the look, not a change of his pace: no sway', () => {
+    for (const sprint of [false, true]) {
+      const r = openRoad();
+      for (let i = 0; i < 90; i++) frame(r, { moveZ: 1, sprint });
+      let most = 0;
+      // A quarter turn in half a second, as a flick of the mouse.
+      for (let i = 0; i < 30; i++) {
+        r.cam.look(-(Math.PI / 2) / 30 / 0.0024, 0);
+        frame(r, { moveZ: 1, sprint });
+        most = Math.max(most, (r.cam as unknown as { swayNow: THREE.Vector3 }).swayNow.length());
+      }
+      // Taken in the world his velocity swung round with the view, and the camera swung out by its whole 0.32 m.
+      expect(most, sprint ? 'sprint' : 'walk').toBeLessThan(0.06);
+    }
+  });
 });
 
 describe('aiming over the shoulder', () => {
@@ -283,5 +302,37 @@ describe('aiming over the shoulder', () => {
         expect(civ.health, label).toBeLessThan(before);
       }
     }
+  });
+});
+
+describe('getting out of a car', () => {
+  it('the chase camera hands over to the boom behind him: no look down from over him, an ease in, never in the car', () => {
+    const r = openRoad();
+    const p = r.sim.player;
+    const v = r.sim.spawnVehicle('sedan', p.pos.x, p.pos.z, r.h);
+    placeInCar(r.sim, v);
+    r.cam.reset(r.sim);
+    for (let i = 0; i < 90; i++) frame(r);
+    expect(p.vehicle).toBe(v);
+    expect(r.sim.playerCtl.exitVehicle(false)).toBe(true);
+    const booms: number[] = [];
+    for (let i = 0; i < 45; i++) {
+      frame(r);
+      const label = `frame ${i}`;
+      // (The follow point eased out of the car's body left the boom's root inside it: the camera stood right over him
+      // looking 50 degrees down for the first quarter second.)
+      expect(Math.asin(r.cam.camera.getWorldDirection(new THREE.Vector3()).y), label).toBeGreaterThan(-0.3);
+      const c = r.cam.camera.position;
+      const dx = c.x - v.pos.x;
+      const dz = c.z - v.pos.z;
+      const along = dx * Math.sin(v.heading) + dz * Math.cos(v.heading);
+      const across = dx * Math.cos(v.heading) - dz * Math.sin(v.heading);
+      expect(Math.abs(along) > v.halfL + 0.1 || Math.abs(across) > v.halfW + 0.1 || c.y > v.pos.y + v.spec.height + 0.1, label).toBe(true);
+      booms.push(boom(r));
+    }
+    // From further back than the boom, in to it within half a second, never back out.
+    expect(booms[0]).toBeGreaterThan(FOOT_BOOM + 1);
+    for (let i = 1; i < booms.length; i++) expect(booms[i]!).toBeLessThanOrEqual(booms[i - 1]! + 0.01);
+    expect(booms[30]!).toBeCloseTo(FOOT_BOOM, 1);
   });
 });

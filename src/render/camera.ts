@@ -50,6 +50,12 @@ const RESET_PITCH = -0.12;
  */
 export const FOOT_LIFT = 0;
 /**
+ * Aiming it stands FOOT_LIFT_AIM over that line, as it always did: level with his head the crosshair over his shoulder
+ * met someone standing right beside it (0.12 to 0.2 m ahead) at head height, and the gun, turned onto the crosshair's
+ * point, shot him.
+ */
+export const FOOT_LIFT_AIM = 0.18;
+/**
  * In the water the camera stands as it did on land before: SWIM_BOOM back, SWIM_LIFT up, on the full setting's lens. It
  * cannot dip under the surface to look up at a swimmer, and the glide that looks over quays and decks (liftSight) is
  * tuned to it: on the closer boom a pan round a swimmer at a deck's edge turned the view 5.7 degrees in a frame, and
@@ -73,7 +79,8 @@ export function footFov(base: number, aim: boolean, far: boolean, speed: number)
 /**
  * The boom stands back at least FOOT_FRAME_BELOW / tan(half the lens at rest) (m) from his head, so his soles stay in the
  * frame on a narrow Field of view setting: on the narrowest (55 degrees, a 47 degree foot lens) FOOT_BOOM left them 11%
- * of the frame below its bottom edge, and the boom stands 4.1 m back instead. From 60 degrees up it is FOOT_BOOM.
+ * of the frame below its bottom edge, and the boom stands 4.1 m back instead (3.5 m on 62). From 67 degrees up it is
+ * FOOT_BOOM, which leaves them 8% of the frame clear on the default 68.
  */
 const FOOT_FRAME_BELOW = 1.8;
 export function footBoom(base: number, far: boolean): number {
@@ -148,6 +155,12 @@ const RAISE_KEEP_AIM_CUT = 0.8;
 const RAISE_BOTTOM = 0.05;
 const RAISE_MAX = 1.4;
 const RAISE_SIDE = 0.2;
+/**
+ * Risen this far (m) the lens has opened from the foot lens to the full Field of view setting: with his back to a wall
+ * 1.2 m behind him the raised camera (0.9 m up, looking 0.5 rad down) held 63% of him in the frame on the foot lens and
+ * 72% on the setting's.
+ */
+const RAISE_WIDE = 0.6;
 /** The slide reaches RAISE_SIDE once the camera has risen this far (m). */
 const RAISE_SIDE_AT = 0.8;
 const RAISE_EASE = 10;
@@ -469,7 +482,7 @@ export class CameraController {
   private roll = 0;
   private fov = 68;
   private dist = FOOT_BOOM;
-  /** How far (m) the on-foot camera stands over the line back from his head: FOOT_LIFT, SWIM_LIFT in the water. */
+  /** How far (m) the on-foot camera stands over the line back from his head: FOOT_LIFT, FOOT_LIFT_AIM aiming, SWIM_LIFT in the water. */
   private lift = FOOT_LIFT;
   /**
    * The on-foot camera's weight (see FOOT_SWAY_OMEGA): its offset (m, over the ground) from where the boom puts it and
@@ -478,6 +491,8 @@ export class CameraController {
   private readonly sway = new THREE.Vector3();
   private readonly swayVel = new THREE.Vector3();
   private readonly lastVel = new THREE.Vector3();
+  /** The view's yaw when lastVel was taken. */
+  private lastVelYaw = 0;
   private swayOn = 0;
   private swayFresh = true;
   /** The weight as applied this frame (sway x swayOn), which rayFor() adds as update() does. */
@@ -747,9 +762,11 @@ export class CameraController {
       this.pitch = RESET_PITCH;
       // The view jumps from the chase camera to the boom, so a trunk in the way is a cut, as after a reset.
       this.freshBoom = true;
-      // The boom eases in from as far as the chase camera stood from him (as the aim's does), instead of cutting in
-      // from 6.6 m behind the car to 3.2 m behind him.
-      this.dist = Math.max(FOOT_BOOM, Math.min(12, cam.position.distanceTo(this.scratch.set(p.pos.x, p.pos.y + 1.58 * p.appearance.height, p.pos.z))));
+      // The follow point starts at his head: eased from the car's (in its body), the boom's root began inside the car,
+      // which stopped it at once and raised the camera right over him, looking down, for the first quarter second. The
+      // boom then eases in from as far as the chase camera stood from him (as the aim's does) instead of cutting in.
+      this.target.set(p.pos.x, p.pos.y + 1.58 * p.appearance.height, p.pos.z);
+      this.dist = Math.max(FOOT_BOOM, Math.min(12, cam.position.distanceTo(this.target)));
     }
     this.wasInVehicle = !!v;
 
@@ -843,7 +860,7 @@ export class CameraController {
       this.stepSway(dt, p.vel, aim || swimming || lying);
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
       const distTarget = aim ? FOOT_BOOM_AIM : swimming ? Math.max(SWIM_BOOM, footBoom(this.baseFov, this.zoomLevel === 1)) : footBoom(this.baseFov, this.zoomLevel === 1);
-      this.lift = damp(this.lift, swimming ? SWIM_LIFT : FOOT_LIFT, 10, dt);
+      this.lift = damp(this.lift, swimming ? SWIM_LIFT : aim ? FOOT_LIFT_AIM : FOOT_LIFT, 10, dt);
       this.dist = damp(this.dist, distTarget, 10, dt);
       const cy = Math.cos(this.pitch);
       this.dir.set(Math.sin(this.yaw) * cy, Math.sin(this.pitch), Math.cos(this.yaw) * cy);
@@ -864,6 +881,8 @@ export class CameraController {
       lookFrom = new THREE.Vector3(this.target.x + rx * shoulder * 0.5, this.target.y, this.target.z + rz * shoulder * 0.5);
       // (A swimmer on the full setting's lens: see SWIM_BOOM.)
       fovTarget = footFov(this.baseFov, aim, swimming || this.zoomLevel === 1, swimming ? 0 : Math.hypot(p.vel.x, p.vel.z));
+      // Raised over him by a wall at his back, the lens opens to the full setting (see RAISE_WIDE).
+      if (!aim) fovTarget = Math.max(fovTarget, footFov(this.baseFov, false, false, 0) - FOOT_FOV_REST * clamp(this.raiseUp / RAISE_WIDE, 0, 1));
     }
 
     // Shake, speed rumble and impact kick, before the collision checks below so that none of them
@@ -1081,7 +1100,9 @@ export class CameraController {
   /**
    * Steps the on-foot camera's weight (see FOOT_SWAY_OMEGA) over `dt` s for his velocity `vel`, easing it out while it is
    * `off` (aiming, swimming, down). A change of his pace is a change of the camera's own pace against his, which the
-   * spring then takes out; a jump in his speed (the first frame on foot) is not.
+   * spring then takes out; a jump in his speed (the first frame on foot) is not. His pace is taken in the view's frame:
+   * walking on as the view turns he turns with it, and that is not his change of pace but the player's look (taken in
+   * the world, a pan at a sprint swung the camera wide by its whole 0.32 m).
    */
   private stepSway(dt: number, vel: V3, off: boolean): void {
     const s = this.sway;
@@ -1092,8 +1113,14 @@ export class CameraController {
       this.swayOn = off ? 0 : 1;
       this.swayFresh = false;
     } else if (dt > 0) {
-      v.x -= vel.x - this.lastVel.x;
-      v.z -= vel.z - this.lastVel.z;
+      // Last frame's velocity turned with the view since.
+      const a = wrapAngle(this.yaw - this.lastVelYaw);
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const lx = this.lastVel.x * ca + this.lastVel.z * sa;
+      const lz = -this.lastVel.x * sa + this.lastVel.z * ca;
+      v.x -= vel.x - lx;
+      v.z -= vel.z - lz;
       // Sub-steps, as for the kick spring: at 10 fps one step of the spring would overshoot.
       const n = Math.ceil(dt * 240);
       const h = dt / n;
@@ -1114,6 +1141,7 @@ export class CameraController {
       this.swayOn = damp(this.swayOn, off ? 0 : 1, 12, dt);
     }
     this.lastVel.set(vel.x, 0, vel.z);
+    this.lastVelYaw = this.yaw;
     this.swayNow.copy(s).multiplyScalar(this.swayOn);
   }
 

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { V3 } from '../../src/core/math';
 import { wrapAngle } from '../../src/core/math';
-import { CameraController, FOOT_BOOM, FOOT_BOOM_AIM, FOOT_LIFT, FOOT_SHOULDER, FOOT_SHOULDER_AIM } from '../../src/render/camera';
+import { CameraController, FOOT_BOOM, FOOT_BOOM_AIM, FOOT_LIFT, FOOT_LIFT_AIM, FOOT_SHOULDER, FOOT_SHOULDER_AIM } from '../../src/render/camera';
 import { CrowdView } from '../../src/render/crowd';
 import { Effects, FLASH_SIZE } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
@@ -144,7 +144,7 @@ function shoulderAim(sim: Sim, yaw: number, pitch: number, target: V3 | null, ov
   const headY = p.pos.y + 1.58 * p.appearance.height;
   const ox = p.pos.x - vx * dist - Math.cos(yaw) * sh;
   const oz = p.pos.z - vz * dist + Math.sin(yaw) * sh;
-  const o = { x: ox, y: Math.max(headY - vy * dist + FOOT_LIFT, sim.world.groundHeight(ox, oz) + 0.35), z: oz };
+  const o = { x: ox, y: Math.max(headY - vy * dist + (aiming ? FOOT_LIFT_AIM : FOOT_LIFT), sim.world.groundHeight(ox, oz) + 0.35), z: oz };
   let d = { x: vx, y: vy, z: vz };
   if (target) {
     const l = Math.hypot(target.x - o.x, target.y - o.y, target.z - o.z);
@@ -1616,7 +1616,7 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
    * The player aiming along an open road (aimed or from the hip), with an enemy `ahead` m in front of him (behind him
    * when negative) standing so that the crosshair ray passes `u` m to the left of his axis, crossing it at `k` of his
    * height. The shoulder camera's ray always runs through a point over the player's right shoulder (the shoulder offset
-   * to his right, 0.18 m over his head height), so the pitch follows from where it has to cross the enemy.
+   * to his right, FOOT_LIFT_AIM or FOOT_LIFT over his head height), so the pitch follows from where it has to cross the enemy.
    * The player's body is free to turn: aiming, it turns to the point-blank aim convergence (PlayerController.convergeAim),
    * the gun towards the crosshair's point on him.
    */
@@ -1626,7 +1626,7 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
     arm(sim, weapon);
     const p = sim.player;
     const home = { x: p.pos.x, z: p.pos.z };
-    const right = (aiming ? 0.62 : 0.42) + u;
+    const right = (aiming ? FOOT_SHOULDER_AIM : FOOT_SHOULDER) + u;
     const e = npcAt(sim, 'gang', home.x + f.fx * ahead + f.rx * right, home.z + f.fz * ahead + f.rz * right);
     e.armor = 5000;
     const spot = { x: e.pos.x, z: e.pos.z };
@@ -1638,7 +1638,7 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
       e.vel.x = 0;
       e.vel.z = 0;
     };
-    const over = p.pos.y + 1.58 * p.appearance.height + 0.18;
+    const over = p.pos.y + 1.58 * p.appearance.height + (aiming ? FOOT_LIFT_AIM : FOOT_LIFT);
     const y = e.pos.y + k * e.height;
     const pitch = ahead > 0 ? Math.atan2(y - over, ahead) : Math.atan2(over - y, -ahead);
     // Within the camera's pitch range.

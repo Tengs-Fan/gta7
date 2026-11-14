@@ -291,7 +291,14 @@ export default async function (t) {
   await pan(-1.6);
   await t.wait(1200);
   await t.shot('sprint-pan');
+  // A flick of the mouse at a sprint: a quarter turn in 0.4 s, and back.
+  await label('sprint-flick');
+  await pan(4);
+  await t.wait(400);
+  await pan(-4);
+  await t.wait(400);
   await pan(0);
+  await t.wait(400);
   await key('ShiftLeft', false);
   await key('KeyW', false);
   await label('stop2');

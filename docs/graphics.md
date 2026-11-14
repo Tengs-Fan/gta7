@@ -82,19 +82,22 @@ It has weight: it falls up to 0.8 m behind a car that pulls away and closes up t
 
 The motion check (`scripts/playtests/motion.mjs`, see the README) measured the car at 141 px of a 1600 px frame at rest and 115 px above 72 km/h before, and 242 px and 222 px now.
 
+Round 8 on 2026-11-13 (`--scenario perf`, 1600x900, the machine otherwise idle): on the RTX 5090 at High every one of the 18 scenes at 60 fps, 205 to 1,009 draw calls, no console errors.
+On the Radeon iGPU at Medium this build runs about 1 fps under `a746489`: the twelve scenes that are neither capped at 60 fps nor the one outlier (beach-dusk, 56 against 47) average 43.3 fps against 44.7, all 18 average 48.7 against 49.1, and the driving scenes were 1 to 3 fps lower in each of three runs (single runs, which differ by 2 to 3 fps a scene from one to the next): the new-game street 34 from 36, downtown 40 from 40, the four-star pursuit 41 from 41, the valley pass drive 39 from 41.
+That is with Medium taking 80% of the fuller streets' traffic and 70% of their crowd, and five samples in the speed blur; at 90% of both the same three scenes ran at 33, 38 and 38.
+
 ## On-foot camera
 
 On foot the camera stands `FOOT_BOOM` (3.2 m) back from the player's head along the view and `FOOT_SHOULDER` (0.42 m) out over his right shoulder, level with his head (`FOOT_LIFT`), on a lens 8 degrees under the Field of view setting (`footFov`, 60 degrees at the default 68).
 He stands 47% of the frame's height there, his head just above the middle and left of the crosshair, his soles 8% clear of the bottom edge; it stood 4.3 m back on the full setting, 0.18 m higher, and showed him at 31%.
-The far zoom (V) stands 4.6 m back on the full setting, about that old view (29%); aiming stands 2.4 m back and 0.62 m out on a lens 16 degrees under the setting, his upper body at the frame's left, clear of the crosshair.
-On a setting under 60 degrees the boom stands further back (`footBoom`, 4.1 m on the narrowest, 55) so his feet stay in the frame; on the widest, 90, he is 33% of it.
+The far zoom (V) stands 4.6 m back on the full setting, about that old view (29%); aiming stands as it did, 2.4 m back, 0.62 m out and 0.18 m up (`FOOT_LIFT_AIM`) on a lens 16 degrees under the setting, his upper body at the frame's left, clear of the crosshair (level with his head, the crosshair met someone right beside his shoulder at head height and the gun shot him).
+With his back to a wall the raised camera (see `RAISE_DEPTH`) opens the lens to the full setting as it rises (`RAISE_WIDE`): 1.2 m from a wall the foot lens held 63% of him in the frame, the setting's 72%.
+On a setting under 67 degrees the boom stands further back (`footBoom`, 3.5 m on 62, 4.1 m on the narrowest, 55) so his feet stay in the frame; on the widest, 90, he is 33% of it.
 The camera keeps up with him at a steady pace (its follow point aims ahead by its own easing; it trailed a sprinter by 0.34 m) and sprinting opens the lens by up to 4 degrees.
-It has a little weight: a change of his pace is a change of the camera's own against his, which a critically damped spring (8.5 rad/s) takes out, so it drops about 0.18 m back as he sets off, drifts up to 0.32 m in as he stops from a sprint and swings a little wide as he turns, and is back in place within half a second; none while aiming or swimming, and no bob or roll.
-Leaving a car the boom eases in from as far back as the chase camera stood, as the aim's does, instead of cutting in.
-
-Round 8 on 2026-11-13 (`--scenario perf`, 1600x900, the machine otherwise idle): on the RTX 5090 at High every one of the 18 scenes at 60 fps, 205 to 1,009 draw calls, no console errors.
-On the Radeon iGPU at Medium this build runs about 1 fps under `a746489`: the twelve scenes that are neither capped at 60 fps nor the one outlier (beach-dusk, 56 against 47) average 43.3 fps against 44.7, all 18 average 48.7 against 49.1, and the driving scenes were 1 to 3 fps lower in each of three runs (single runs, which differ by 2 to 3 fps a scene from one to the next): the new-game street 34 from 36, downtown 40 from 40, the four-star pursuit 41 from 41, the valley pass drive 39 from 41.
-That is with Medium taking 80% of the fuller streets' traffic and 70% of their crowd, and five samples in the speed blur; at 90% of both the same three scenes ran at 33, 38 and 38.
+It has a little weight: a change of his pace is a change of the camera's own against his, which a critically damped spring (8.5 rad/s) takes out, so it drops about 0.18 m back as he sets off, drifts up to 0.32 m in as he stops from a sprint and swings a little wide as he turns off his line, and is back in place within half a second; none while aiming or swimming, and no bob or roll.
+His pace is taken in the view's frame, so a pan of the view as he walks on (he turns with it) is the player's look and moves nothing; taken in the world, a quick pan at a sprint swung the camera out by its whole 0.32 m.
+Leaving a car the follow point starts at his head and the boom eases in from as far back as the chase camera stood, as the aim's does; the follow point used to ease out of the car's body, which put the boom's root inside the car and the camera right over him looking a radian down for the first quarter second.
+In the water the camera keeps the geometry it had on land before (4.3 m back, 0.18 m up, the full setting's lens): it cannot dip under the surface, and the glide over quays and decks is tuned to it.
 
 ## Night lights
 
