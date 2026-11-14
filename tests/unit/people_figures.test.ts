@@ -182,6 +182,19 @@ describe('the figure', () => {
     }
   });
 
+  it('the head is within the cap and the hair: no higher than their crowns, inside a cap band, under the crown of the hair', () => {
+    const p = g.head.getAttribute('position');
+    const hair = g.hair.getAttribute('position');
+    let crown = 0;
+    for (let i = 0; i < hair.count; i++) crown = Math.max(crown, hair.getY(i));
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      expect(y).toBeLessThan(crown);
+      // A cap's band is 12.3 cm across and 12.8 cm deep from 26.7 cm up.
+      if (y > 0.267) expect((p.getX(i) / 0.123) ** 2 + (p.getZ(i) / 0.128) ** 2).toBeLessThan(1);
+    }
+  });
+
   it('a person costs about what he did: under 3,600 triangles dressed plainly, 4,600 at most (no distance level draws him cheaper)', () => {
     const t = (name: keyof typeof g): number => tris(g[name]);
     const plain = t('torso') + t('hips') + t('head') + t('face') + t('hair') + t('neck') + 2 * (t('upperArm') + t('forearm') + t('hand') + t('thigh') + t('shin') + t('shoe') + t('shoulder'));
