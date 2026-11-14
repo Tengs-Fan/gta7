@@ -194,6 +194,24 @@ describe('walking and running', () => {
     expect(worst.elbowBack).toBeLessThan(1);
   });
 
+  it('a sprinter’s hands come up to his chest, never into his face', () => {
+    let nearest = Infinity;
+    for (const id of IDS) {
+      for (const speed of [6.3, 7.4]) {
+        const c = person(id);
+        walk(c, speed, 0.5, (cv) => {
+          const head = origin(matrixAt(parts(cv).head!, 0));
+          // The head's middle, above the neck pivot it turns on.
+          head.y += 0.12 * c.appearance.height;
+          const hands = parts(cv).hand!;
+          for (let i = 0; i < 2; i++) nearest = Math.min(nearest, origin(matrixAt(hands, i)).distanceTo(head));
+        });
+      }
+    }
+    // (0.35 m at the nearest, over 40 people.)
+    expect(nearest).toBeGreaterThan(0.25);
+  });
+
   it('a jogger’s hand goes back past his hip and comes forward to his chest, the elbow bent more in front', () => {
     const c = person(2);
     let back = Infinity;
@@ -275,8 +293,8 @@ describe('everyone his own way', () => {
 });
 
 describe('turning', () => {
-  it('the head leads a turn and the chest follows it ahead of the hips; with a gun the chest is the simulation’s', () => {
-    const turn = (armed: boolean) => {
+  it('the head leads a turn, the chest follows it ahead of the hips and he leans into it; with a gun the chest is the simulation’s', () => {
+    const turn = (armed: boolean, speed = 1.45) => {
       const c = person(3);
       if (armed) {
         c.inventory.give('pistol', 30);
@@ -285,7 +303,8 @@ describe('turning', () => {
       const cv = new CrowdView();
       let head = 0;
       let chest = 0;
-      walk(c, 1.45, 0.25, () => {}, cv);
+      let bank = 0;
+      walk(c, speed, 0.25, () => {}, cv);
       // Turning left at 9 rad/s, as a walker steers round a corner.
       for (let i = 0; i < 24; i++) {
         c.heading += 9 / 240;
@@ -300,15 +319,20 @@ describe('turning', () => {
         return Math.atan2(f.x, f.z);
       };
       head = yaw(matrixAt(p.head!, 0)) - c.heading;
+      bank = local(c, new THREE.Vector3().setFromMatrixColumn(matrixAt(p.torso!, 0), 1).add(c.pos)).x;
       chest = yaw(matrixAt(p.torso!, 0)) - trunkPose(c, makeTrunk()).chestYaw;
-      return { head, chest };
+      return { head, chest, bank };
     };
     const free = turn(false);
     expect(free.head).toBeGreaterThan(0.2);
     expect(free.chest).toBeGreaterThan(0.08);
     expect(free.head).toBeGreaterThan(free.chest);
+    // Moving, he leans into the turn (his chest tips to his left, the way he turns); faster, further.
+    expect(free.bank).toBeGreaterThan(0.01);
+    expect(turn(false, 4.3).bank).toBeGreaterThan(free.bank);
     const armed = turn(true);
     expect(armed.head).toBeGreaterThan(0.2);
     expect(Math.abs(armed.chest)).toBeLessThan(1e-6);
+    expect(Math.abs(armed.bank)).toBeLessThan(0.02);
   });
 });

@@ -355,7 +355,7 @@ function styleOf(c: Character, local: boolean, out: Style): Style {
  * as drawn; only someone at rest with nothing in his hands also moves them, this far over the leg he stands on and
  * half the drop down.
  */
-const STAND_SHIFT = 0.03;
+const STAND_SHIFT = 0.045;
 const STAND_DROP = 0.02;
 
 function shortSleeved(c: Character, local: boolean): boolean {
@@ -971,8 +971,8 @@ export class CrowdView {
     if (loose) {
       chestYaw += clamp(TURN_CHEST * anim.turn, -TURN_CHEST_MAX, TURN_CHEST_MAX);
       bank = clamp(-TURN_BANK * anim.turn * c.speed * walk, -TURN_BANK_MAX, TURN_BANK_MAX);
-      // His own carriage: some walk tall, some a little stooped.
-      lean += st.slouch;
+      // His own carriage: some walk tall, some a little stooped (not crouching: the simulation ducks him that far).
+      if (!crouch) lean += st.slouch;
     }
     // At rest on one leg (anim.ease, as the glance): the hips over it and down a little.
     const rest = anim.ease * (1 - walk);
@@ -998,14 +998,18 @@ export class CrowdView {
     const blend = walk < 0.999 || anim.air > 0.001 || drop > 0 || step > 0;
     // Toes turned out standing, less so walking.
     const toe = lerp(st.toe, 0.06, walk);
-    // Standing: feet a little apart, the free one forward.
-    const standX = (side: number) => (crouch ? side * (hx + 0.08) : side * (hx + st.apart));
-    const standZ = (side: number) => (crouch ? 0.05 * s : side !== st.support ? st.free : 0);
+    // Standing: feet a little apart, the free one forward (x to the left, z ahead of the point under each hip).
+    const standLx = crouch ? hx + 0.08 : hx + st.apart;
+    const standLz = crouch ? 0.05 * s : st.support < 0 ? st.free : 0;
+    const standRz = crouch ? 0.05 * s : st.support > 0 ? st.free : 0;
     // Setting off or stopping, the foot with further to go between the stride and its standing place is lifted on an
     // arc as high as a fifth of that way (at most STEP_LIFT), the other a third as much, so he steps into his stance
     // and out of it instead of sliding his feet. (By the rate the gait comes and goes: a steady crawl, part walking and
     // part standing, keeps its feet down.)
-    const ways = blend ? g.legs.map((l, i) => Math.hypot(l.foot.x - standX(i === 0 ? 1 : -1), l.foot.z - standZ(i === 0 ? 1 : -1))) : null;
+    const fl = g.legs[0]!.foot;
+    const fr = g.legs[1]!.foot;
+    const wayL = blend ? Math.hypot(fl.x - standLx, fl.z - standLz) : 0;
+    const wayR = blend ? Math.hypot(fr.x + standLx, fr.z - standRz) : 0;
     const arc = clamp(anim.shift / 10, 0, 1) * 4 * walk * (1 - walk);
     for (let i = 0; i < 2; i++) {
       const side = i === 0 ? 1 : -1;
@@ -1013,10 +1017,10 @@ export class CrowdView {
       const slack = side !== st.support;
       const hipX = side * hx + shift;
       const legY = hipY - (slack ? sag : 0);
-      if (ways) {
-        const way = ways[i]!;
-        const lift = Math.min(STEP_LIFT * s, 0.2 * way) * arc * (way >= ways[1 - i]! ? 1 : 0.3);
-        this.blendLeg(leg, side, hipX, legY, s, walk, anim.air, step, standX(side), standZ(side), lift);
+      if (blend) {
+        const way = i === 0 ? wayL : wayR;
+        const lift = Math.min(STEP_LIFT * s, 0.2 * way) * arc * (way >= (i === 0 ? wayR : wayL) ? 1 : 0.3);
+        this.blendLeg(leg, side, hipX, legY, s, walk, anim.air, step, side * standLx, i === 0 ? standLz : standRz, lift);
       }
       // Hip frame (yaw only, origin on the ground under the hips) to world.
       const hip = (i === 0 ? S.hipL : S.hipR).set(c.pos.x + hc * hipX, c.pos.y + legY, c.pos.z - hs * hipX);
