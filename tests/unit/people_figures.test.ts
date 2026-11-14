@@ -168,8 +168,16 @@ describe('the figure', () => {
     expect(girthAt(second('hips'), -0.01).x).toBeGreaterThan(girthAt(g.hips, -0.01).x);
     // No other part has a second shape.
     // Nor do the parts that lie on them, the collar and an untucked hem, lack one; no other part has a second shape.
-    for (const name of ['collar', 'hem'] as const) expect(g[name].getAttribute('positionB').count, name).toBe(g[name].getAttribute('position').count);
-    for (const [name, geo] of Object.entries(g)) if (!['torso', 'hips', 'collar', 'hem'].includes(name)) expect(geo.hasAttribute('positionB'), name).toBe(false);
+    for (const name of ['collar', 'hem', 'head'] as const) expect(g[name].getAttribute('positionB').count, name).toBe(g[name].getAttribute('position').count);
+    for (const [name, geo] of Object.entries(g)) if (!['torso', 'hips', 'collar', 'hem', 'head'].includes(name)) expect(geo.hasAttribute('positionB'), name).toBe(false);
+    // Her jaw is narrower than his.
+    const jaw = (attr: 'position' | 'positionB'): number => {
+      const q = g.head.getAttribute(attr);
+      let x = 0;
+      for (let i = 0; i < q.count; i++) if (Math.abs(q.getY(i) - 0.065) < 0.004) x = Math.max(x, Math.abs(q.getX(i)));
+      return x;
+    };
+    expect(jaw('positionB')).toBeLessThan(jaw('position') - 0.005);
   });
 
   it('every way of wearing hair stays under the roof a rider is fitted to (vehicleView HEAD_TOPS: 0.34 up, 0.14 back)', () => {
@@ -179,6 +187,53 @@ describe('the figure', () => {
       const p = g[name].getAttribute('position');
       // Above the ears nothing reaches further back than the envelope; a tail and long hair hang below it.
       for (let i = 0; i < p.count; i++) if (p.getY(i) > 0.27) expect(p.getZ(i), name).toBeGreaterThan(-0.141);
+    }
+  });
+
+  it('the hair covers the head from its hairline up, and a cap covers the hair: neither pokes through the other', () => {
+    const mesh = (geo: THREE.BufferGeometry) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    const head = mesh(g.head);
+    const ray = new THREE.Raycaster();
+    const from = new THREE.Vector3(0, 0.2, -0.005);
+    const far = (m: THREE.Mesh, d: THREE.Vector3): number => {
+      ray.set(from, d);
+      const hits = ray.intersectObject(m);
+      return hits.length ? hits[hits.length - 1]!.distance : -Infinity;
+    };
+    for (const [name, rise] of [['hair', 0.75], ['hairSweep', 0.75], ['hairFull', 0.75], ['hat', 1.0]] as const) {
+      const cover = mesh(g[name]);
+      for (let a = 0; a < 32; a++) {
+        for (const up of [rise, 1.1, 1.35]) {
+          const d = new THREE.Vector3(Math.sin((a / 32) * Math.PI * 2) * Math.cos(up), Math.sin(up), Math.cos((a / 32) * Math.PI * 2) * Math.cos(up));
+          // Looking out from inside the head, the head's surface comes before the hair's or the cap's.
+          expect(far(cover, d), `${name} at ${a}, ${up}`).toBeGreaterThan(far(head, d));
+        }
+      }
+    }
+    // The cap of hair stays inside a hat's band, so a hat over it shows none of it through its crown.
+    // (The hat's crown is its first part: rings of 13 vertices, the band at the bottom.)
+    const hat = g.hat.getAttribute('position');
+    const rings: Array<[number, number, number]> = [];
+    for (let r = 0; r * 13 + 12 < hat.count && (r === 0 || hat.getY(r * 13) > rings[r - 1]![0]); r++) {
+      let w = 0;
+      let d = 0;
+      for (let i = r * 13; i < r * 13 + 13; i++) { w = Math.max(w, Math.abs(hat.getX(i))); d = Math.max(d, Math.abs(hat.getZ(i))); }
+      rings.push([hat.getY(r * 13), w, d]);
+    }
+    const band = (y: number): [number, number] => {
+      let j = 1;
+      while (j < rings.length - 1 && rings[j]![0] < y) j++;
+      const a = rings[j - 1]!;
+      const b = rings[j]!;
+      const t = THREE.MathUtils.clamp((y - a[0]) / (b[0] - a[0]), 0, 1);
+      return [THREE.MathUtils.lerp(a[1], b[1], t), THREE.MathUtils.lerp(a[2], b[2], t)];
+    };
+    const hair = g.hair.getAttribute('position');
+    for (let i = 0; i < hair.count; i++) {
+      const y = hair.getY(i);
+      if (y < 0.27) continue;
+      const [w, d] = band(Math.min(y, 0.35));
+      expect((hair.getX(i) / (w * 0.96)) ** 2 + (hair.getZ(i) / (d * 0.96)) ** 2, `hair vertex ${i} at ${y}`).toBeLessThan(1);
     }
   });
 
@@ -214,7 +269,8 @@ describe('the figure', () => {
   it('a person costs about what he did: under 3,600 triangles dressed plainly, 4,600 at most (no distance level draws him cheaper)', () => {
     const t = (name: keyof typeof g): number => tris(g[name]);
     const plain = t('torso') + t('hips') + t('head') + t('face') + t('hair') + t('neck') + 2 * (t('upperArm') + t('forearm') + t('hand') + t('thigh') + t('shin') + t('shoe') + t('shoulder'));
-    const most = plain + 2 * (t('sleeve') + t('shortLeg')) + Math.max(t('hairLong'), t('hairTail'), t('hairFull'), t('hairSweep')) + t('collar') + t('hem') + t('glasses');
+    // (A hat is worn over the cap of hair, or over long hair instead of it.)
+    const most = plain + 2 * (t('sleeve') + t('shortLeg')) + Math.max(t('hairLong'), t('hairTail'), t('hairFull'), t('hairSweep'), t('hat'), t('hat') + t('hairLong') - t('hair')) + t('collar') + t('hem') + t('glasses');
     console.log(`[people] ${plain} triangles dressed plainly, ${most} at most (2,884 before round 9, 3,308 and 3,900 after its first pass)`);
     expect(plain).toBeLessThan(3600);
     expect(most).toBeLessThanOrEqual(4600);
@@ -222,6 +278,37 @@ describe('the figure', () => {
 });
 
 describe('the figure in the crowd', () => {
+  it('standing, nothing pokes through: the hands hang clear of the thighs, the right hand is the left mirrored', () => {
+    const { people } = row(40);
+    for (const c of people) {
+      const cv = new CrowdView();
+      for (let i = 0; i < 30; i++) cv.sync([c], c.pos.x, c.pos.z, 1 / 60);
+      const p = parts(cv);
+      const g2 = characterGeometries();
+      for (const k of [0, 1]) {
+        const hand = matrixAt(p.hand!, k);
+        // Its mirror: the left hand's frame turns the right way, the right hand's is mirrored across.
+        expect(Math.sign(hand.determinant())).toBe(k === 0 ? 1 : -1);
+        const thigh = matrixAt(p.thigh!, k);
+        const top = origin(thigh);
+        const axis = new THREE.Vector3(0, -1, 0).transformDirection(thigh);
+        // Every vertex of the hand is outside the thigh (a tube 9 cm round its axis at most, scaled by his girth).
+        const girth = new THREE.Vector3().setFromMatrixColumn(thigh, 0).length();
+        const q = g2.hand.getAttribute('position');
+        const v = new THREE.Vector3();
+        let nearest = Infinity;
+        for (let i = 0; i < q.count; i++) {
+          v.fromBufferAttribute(q, i).applyMatrix4(hand).sub(top);
+          const along = v.dot(axis);
+          nearest = Math.min(nearest, v.addScaledVector(axis, -along).length());
+        }
+        expect(nearest, `${c.id} hand ${k}`).toBeGreaterThan(0.085 * girth);
+      }
+    }
+    const hand = parts(new CrowdView()).hand!.mesh.material as THREE.Material;
+    expect(hand.side).toBe(THREE.DoubleSide);
+  });
+
   it('the arms are drawn from inside and below the joints the simulation aims from, and a hand still holds the gun where it is', () => {
     const { sim, people } = row(1, 'swat');
     const c = people[0]!;
@@ -260,7 +347,9 @@ describe('the figure in the crowd', () => {
       // One body: a torso, hips, a head and a face, two of every limb, a cap of hair or a hat.
       expect([d.torso, d.hips, d.head, d.face, d.neck]).toEqual([1, 1, 1, 1, 1]);
       expect([d.upperArm, d.forearm, d.hand, d.thigh, d.shin, d.shoe]).toEqual([2, 2, 2, 2, 2, 2]);
-      expect(d.hair! + d.hat!).toBe(1);
+      // The cap of hair, or long hair, under a hat too.
+      expect(d.hair! + (d.hat ? d.hairLong! : 0)).toBe(1);
+      expect([0, 1]).toContain(d.hat);
       expect([0, 2]).toContain(d.sleeve);
       expect([0, 2]).toContain(d.shortLeg);
       if (d.sleeve) bare++;
@@ -405,6 +494,10 @@ describe('the figure in the crowd', () => {
         expect(sh.fragmentShader, name).toContain('float pxFill(');
       }
     }
+    // The hands, drawn from both sides: a mirrored (right) hand's faces count as its front.
+    const hand = compile(parts(cv).hand!.mesh.material as THREE.Material, THREE.ShaderLib.standard);
+    expect(hand.fragmentShader).toContain('float faceDirection = ( gl_FrontFacing ? 1.0 : - 1.0 ) * vMirror;');
+    expect(hand.vertexShader).toContain('vMirror = sign( determinant( mat3( instanceMatrix ) ) );');
     // Two programs, not one: three keys a program on the text of its patch, or on the key a painted part names.
     const key = (m: THREE.Material) => m.customProgramCacheKey();
     expect(key(torso.material as THREE.Material)).not.toBe(key(arm.material as THREE.Material));

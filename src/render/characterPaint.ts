@@ -152,6 +152,48 @@ col = mix( col, vec3( 0.75, 0.62, 0.3 ), pxLine( mark * 0.03, 0.0016 ) * outside
 const SHOE = /* glsl */ `
 col = mix( col, vSecond, vTrimMask );`;
 
+/**
+ * The face on the head (vTrim: the hair's colour; vStyle.x the beard: 0 none, 1 stubble, 2 a moustache, 3 a short
+ * beard, 4 a goatee; vStyle.y 1 for a woman; vStyle.z how heavy the brows are): shade in the sockets round the eyes,
+ * brows arched over them, thinner and higher on a woman, the lips and the line of the mouth, redder on a woman.
+ * Heights in the head's frame from the neck's pivot: the eyes at 0.177 m, 4.6 cm either side; the mouth at 0.088.
+ */
+const FACE = /* glsl */ `
+float ax = abs( p.x );
+float face = smoothstep( 0.035, 0.07, p.z );
+float she = vStyle.y;
+float socket = length( vec2( ( ax - 0.046 ) / 0.032, ( p.y - 0.183 ) / 0.019 ) );
+col *= mix( 1.0, 0.86, ( 1.0 - smoothstep( 0.55, 1.0, socket ) ) * face );
+float bx = ( ax - 0.048 ) / 0.026;
+float browY = 0.2 + 0.004 * she + 0.005 * ( 1.0 - bx * bx ) + 0.002 * bx;
+float browT = mix( 0.0034 + 0.0022 * vStyle.z, 0.0022, she ) * ( 1.15 - 0.45 * bx );
+float brow = max( abs( p.y - browY ) - browT, ( abs( bx ) - 1.0 ) * 0.026 );
+col = mix( col, vTrim * 0.85, pxFill( brow ) * face );
+vec3 lip = col * mix( vec3( 0.86, 0.66, 0.62 ), vec3( 0.8, 0.44, 0.44 ), she );
+float upper = length( vec2( p.x / 0.022, ( p.y - 0.0915 ) / 0.0042 ) ) - 1.0;
+col = mix( col, lip, pxFill( upper * 0.005 ) * face );
+float lower = step( p.y, 0.087 ) * step( 0.077, p.y ) * step( ax, 0.03 ) * step( 0.096, p.z );
+col = mix( col, lip, lower );
+col = mix( col, col * 0.4, pxLine( p.y - 0.0875 - 6.0 * p.x * p.x, 0.0011 ) * step( ax, 0.022 ) * face );
+float beard = vStyle.x;
+float mouth = step( ax, 0.025 ) * step( 0.076, p.y ) * step( p.y, 0.0965 );
+float jaw = step( p.y, 0.095 + max( ax - 0.03, 0.0 ) * 0.5 ) * step( -0.03, p.z ) * step( ax, 0.098 ) * ( 1.0 - mouth );
+float tache = step( ax, 0.03 - ( p.y - 0.095 ) * 0.6 ) * step( 0.0955, p.y ) * step( p.y, 0.106 ) * face;
+float chin = step( ax, 0.032 ) * step( p.y, 0.077 ) * face;
+float cover = beard < 0.5 ? 0.0 : beard < 1.5 ? max( jaw, tache ) * 0.33 : beard < 2.5 ? tache * 0.92 : beard < 3.5 ? max( jaw, tache ) * 0.9 : max( chin, tache ) * 0.9;
+col = mix( col, vTrim, cover );`;
+
+/** Hair: fine strands from the hairline to the crown, faded out where they are finer than a pixel. */
+const HAIR = /* glsl */ `
+float strands = atan( p.x, p.z ) * 34.0 + p.y * 30.0;
+float seen = clamp( 1.6 - fwidth( strands ), 0.0, 1.0 );
+col *= 1.0 - 0.14 * seen * ( 0.5 + 0.5 * sin( strands ) );`;
+
+/** A hand: the grooves between its four fingers, below the knuckles. */
+const HAND = /* glsl */ `
+float g = min( abs( p.z + 0.0195 ), min( abs( p.z ), abs( p.z - 0.0195 ) ) );
+col = mix( col, base * 0.58, pxLine( g, 0.0011 ) * step( p.y, -0.036 ) );`;
+
 /** Which parts are painted, and how. */
 export const PAINT: Partial<Record<CharacterPartName, string>> = {
   torso: TOP,
@@ -161,6 +203,11 @@ export const PAINT: Partial<Record<CharacterPartName, string>> = {
   forearm: FOREARM,
   upperArm: UPPER_ARM,
   shoe: SHOE,
+  head: FACE,
+  hair: HAIR,
+  hairSweep: HAIR,
+  hairFull: HAIR,
+  hand: HAND,
 };
 
 /**
