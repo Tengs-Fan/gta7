@@ -265,8 +265,10 @@ describe('his back to a wall, the camera rises over his shoulder and he stays dr
           expect(d.dissolving, `${label}: ${JSON.stringify(d)}`).toBeLessThanOrEqual(0.02 * d.inFrame);
           // And in the frame: all of him looking straight out, much of him with the view turned along the wall. (Turned a
           // radian, 0.36 m off, the frame's bottom edge runs across his legs from right over him: a centimetre's change in
-          // where the shorter boom meets the wall took the 46% in the frame to 42%.)
-          expect(d.inFrame / d.total, `${label}: ${JSON.stringify(d)}`).toBeGreaterThan(off === 0 ? 0.7 : 0.4);
+          // where the shorter boom meets the wall took the 46% in the frame to 42%. The share is of his vertices: round 9
+          // paints his jacket's panels where it modelled them, so his chest has fewer and the same two frames, the camera
+          // where it was, hold 39% of them and, looking straight out 1.2 m off, 65% where they held 72%.)
+          expect(d.inFrame / d.total, `${label}: ${JSON.stringify(d)}`).toBeGreaterThan(off === 0 ? 0.62 : 0.36);
           // On his side of the wall.
           const c = r.cam.camera.position;
           expect((c.x - f.x) * f.ox + (c.z - f.z) * f.oz, label).toBeGreaterThan(0);
