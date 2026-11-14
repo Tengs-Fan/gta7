@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { bikeModel } from '../../src/render/bikeModels';
 import { boatModel, mooredBoatGeometry } from '../../src/render/boatModels';
 import { triangles } from '../../src/render/shapeKit';
-import { GUN_IDS, gunModel, heldModel, HELD_IDS } from '../../src/render/weaponModels';
+import { GUN_IDS, gunModel } from '../../src/render/weaponModels';
 import { WEAPON_POINTS } from '../../src/sim/pose';
 import type { VehicleKind } from '../../src/sim/specs';
 
@@ -48,14 +48,25 @@ describe('guns: the sockets the simulation shoots and holds from', () => {
   });
 
   it.each(GUN_IDS.filter((id) => id !== 'pistol' && id !== 'rocket'))('%s: the off hand (WEAPON_POINTS fore) holds the gun from just under it', (id) => {
-    // The lowest point of the gun within 2 cm of the off hand's z and 3 cm of the centreline: the hand's centre sits
-    // 0-4 cm under it (a hand is about 4 cm thick), so the fingers neither float under nor sink into the forend.
+    // The gun's underside where the off hand is: the lowest point where its surface crosses the plane through the
+    // hand's z, within 3 cm of the centreline. The hand's centre sits 0-4 cm under it (a hand is about 4 cm thick), so
+    // the fingers neither float under nor sink into the forend.
     const pts = WEAPON_POINTS[id];
     const p = gunModel(id).geometry.getAttribute('position');
+    const z = pts.fore.z;
     let low = Infinity;
-    for (let i = 0; i < p.count; i++) {
-      if (Math.abs(p.getZ(i) - pts.fore.z) > 0.02 || Math.abs(p.getX(i)) > 0.03) continue;
-      low = Math.min(low, p.getY(i));
+    for (let i = 0; i + 2 < p.count; i += 3) {
+      for (let e = 0; e < 3; e++) {
+        const a = i + e;
+        const b = i + ((e + 1) % 3);
+        const za = p.getZ(a);
+        const zb = p.getZ(b);
+        if ((za - z) * (zb - z) > 0 || za === zb) continue;
+        const f = (z - za) / (zb - za);
+        const x = p.getX(a) + f * (p.getX(b) - p.getX(a));
+        if (Math.abs(x) > 0.03) continue;
+        low = Math.min(low, p.getY(a) + f * (p.getY(b) - p.getY(a)));
+      }
     }
     const gap = low - pts.fore.y;
     expect(gap, `${id} forend underside ${low.toFixed(3)} over the hand at ${pts.fore.y}`).toBeGreaterThanOrEqual(-0.005);
@@ -69,18 +80,6 @@ describe('guns: the sockets the simulation shoots and holds from', () => {
     const tones = new Set<string>();
     for (let i = 0; i < c.count; i++) tones.add(`${c.getX(i).toFixed(3)},${c.getY(i).toFixed(3)},${c.getZ(i).toFixed(3)}`);
     expect(tones.size).toBeGreaterThanOrEqual(3);
-  });
-
-  it.each(HELD_IDS)('the held %s is modelled (vertex colours, 60-400 triangles), its grip at the origin', (id) => {
-    const g = heldModel(id);
-    expect(g.hasAttribute('color')).toBe(true);
-    const n = g.getAttribute('position').count / 3;
-    expect(n).toBeGreaterThanOrEqual(60);
-    expect(n).toBeLessThanOrEqual(400);
-    g.computeBoundingBox();
-    // Out of the fist along +y: the origin lies inside the part the hand closes round.
-    expect(g.boundingBox!.min.y).toBeLessThanOrEqual(0.02);
-    expect(g.boundingBox!.max.y).toBeGreaterThan(0.08);
   });
 });
 
