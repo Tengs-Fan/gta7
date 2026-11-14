@@ -66,7 +66,11 @@ function torsoZ(x: number, y: number, back = false, rings: readonly Ring[] = TOR
   return z + (back ? -1 : 1) * d * Math.sqrt(1 - side * side) ** TORSO_ROUND;
 }
 
-/** A capped elliptical/superelliptical profile, with smooth normals round each ring. */
+/**
+ * A capped elliptical/superelliptical profile, with smooth normals round each ring. A roundness under 1 squares the
+ * ring by raising sine and cosine to it, which leaves a cusp where either is zero (a ridge down each side); one of 2 or
+ * more is the exponent of a squircle, |x|^n + |z|^n = 1, which is as square and smooth all round.
+ */
 function profile(rings: readonly Ring[], segments = 12, roundness = 1, openBottom = false): THREE.BufferGeometry {
   const p: number[] = [];
   const uv: number[] = [];
@@ -76,9 +80,17 @@ function profile(rings: readonly Ring[], segments = 12, roundness = 1, openBotto
     const [y, width, depth, z = 0, shade = 1, back = depth] = rings[j]!;
     for (let i = 0; i <= segments; i++) {
       const a = i / segments * Math.PI * 2;
-      const sx = Math.sin(a);
-      const cz = Math.cos(a);
-      p.push(Math.sign(sx) * Math.abs(sx) ** roundness * width, y, Math.sign(cz) * Math.abs(cz) ** roundness * (cz < 0 ? back : depth) + z);
+      let sx = Math.sin(a);
+      let cz = Math.cos(a);
+      if (roundness >= 2) {
+        const k = (Math.abs(sx) ** roundness + Math.abs(cz) ** roundness) ** (-1 / roundness);
+        sx *= k;
+        cz *= k;
+      } else {
+        sx = Math.sign(sx) * Math.abs(sx) ** roundness;
+        cz = Math.sign(cz) * Math.abs(cz) ** roundness;
+      }
+      p.push(sx * width, y, cz * (cz < 0 ? back : depth) + z);
       uv.push(i / segments, j / (rings.length - 1));
       color.push(shade, shade, shade);
       if (j && i) {
@@ -142,8 +154,8 @@ function paint(g: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   return g;
 }
 
-function ellipsoid(w: number, h: number, d: number, x: number, y: number, z: number, hex = 0xffffff): THREE.BufferGeometry {
-  return paint(new THREE.SphereGeometry(1, 8, 5).scale(w, h, d).translate(x, y, z), hex);
+function ellipsoid(w: number, h: number, d: number, x: number, y: number, z: number, hex = 0xffffff, around = 8, down = 5): THREE.BufferGeometry {
+  return paint(new THREE.SphereGeometry(1, around, down).scale(w, h, d).translate(x, y, z), hex);
 }
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number, hex = 0xffffff): THREE.BufferGeometry {
@@ -240,23 +252,34 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     [.145, .112, .112], [.205, .11, .112, -.004], [.255, .103, .102, -.008],
     [.285, .075, .077, -.01], [.297, .025, .032, -.01],
   ];
+  // The head inside the skull's envelope above (which the hair, caps and roof clearances are fitted to), ring by ring
+  // no wider, deeper or higher: a cranium rounded as a squircle (the skull's squared rings left a box from behind and a
+  // ridge down each side), the back of it fuller than the face, and the cheeks narrowing to a jaw and a chin forward
+  // of the neck. Height, half width, half depth in front, offset, shade, half depth behind.
+  const cranium: readonly Ring[] = [
+    [.03, .03, .022, .05, .9, .02], [.045, .054, .05, .036, .95, .05], [.065, .072, .074, .022, 1, .07],
+    [.09, .087, .092, .012, 1, .088], [.12, .099, .1, .004, 1, .1], [.15, .106, .108, 0, 1, .108],
+    [.185, .108, .109, -.003, 1, .11], [.215, .106, .106, -.005, 1, .108], [.245, .099, .095, -.008, 1, .1],
+    [.268, .084, .078, -.01, 1, .085], [.285, .06, .054, -.01, 1, .062], [.295, .028, .025, -.01, 1, .03],
+  ];
   const head = merge([
-    profile(skull, 12, .82),
-    // Ears, a shaped nose and lower lip give the face a readable profile at three-quarter angles.
-    ellipsoid(.018, .034, .023, -.111, .153, -.002, 0xe9e1d8),
-    ellipsoid(.018, .034, .023, .111, .153, -.002, 0xe9e1d8),
-    profile([[.112, .017, .014, .108, .88], [.132, .023, .025, .119], [.158, .013, .023, .117], [.193, .009, .005, .106]], 8),
-    ellipsoid(.031, .006, .008, 0, .083, .105, 0xc7aaa0),
+    profile(cranium, 14, 2.3),
+    // Ears standing a little off the side of the head, turned to face forward, their rims a shade lighter.
+    paint(new THREE.SphereGeometry(1, 6, 4).scale(.011, .032, .021).rotateY(-.4).translate(-.11, .15, -.008), 0xeee4da),
+    paint(new THREE.SphereGeometry(1, 6, 4).scale(.011, .032, .021).rotateY(.4).translate(.11, .15, -.008), 0xeee4da),
+    // The nose: a wedge from the bridge between the eyes to its tip, its wings either side of the base.
+    profile([[.118, .013, .01, .104, .86], [.124, .02, .016, .111], [.135, .015, .02, .119], [.15, .01, .016, .117], [.17, .008, .012, .11], [.19, .007, .006, .103]], 6),
+    ellipsoid(.029, .006, .007, 0, .083, .101, 0xc7aaa0, 8, 4),
   ]);
   const face = merge([
     // Small, recessed eyes with lids; whites are intentionally subtle rather than toy-like disks.
-    ellipsoid(.022, .009, .006, -.046, .177, .105, 0xd4cabb),
-    ellipsoid(.022, .009, .006, .046, .177, .105, 0xd4cabb),
-    ellipsoid(.008, .008, .004, -.046, .177, .111, 0x201e1b),
-    ellipsoid(.008, .008, .004, .046, .177, .111, 0x201e1b),
-    box(.04, .008, .009, -.046, .199, .108, 0x382c26),
-    box(.04, .008, .009, .046, .199, .108, 0x382c26),
-    box(.036, .003, .006, 0, .09, .112, 0x6a4032),
+    ellipsoid(.022, .009, .006, -.046, .177, .102, 0xd4cabb, 8, 4),
+    ellipsoid(.022, .009, .006, .046, .177, .102, 0xd4cabb, 8, 4),
+    ellipsoid(.008, .008, .004, -.046, .177, .108, 0x201e1b, 6, 3),
+    ellipsoid(.008, .008, .004, .046, .177, .108, 0x201e1b, 6, 3),
+    box(.04, .008, .009, -.046, .199, .102, 0x382c26),
+    box(.04, .008, .009, .046, .199, .102, 0x382c26),
+    box(.036, .003, .006, 0, .09, .106, 0x6a4032),
   ]);
   // Hair follows the skull, with a lower back edge and an open face; no rectangular helmet.
   const hair = profile([[.2, .11, .11], [.23, .11, .11], [.26, .1, .1], [.29, .07, .07], [.31, .04, .04], [.319, .008, .01, -.01]], 12, .82, true);
