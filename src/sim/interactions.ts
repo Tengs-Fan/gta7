@@ -6,6 +6,7 @@ import { getActivity } from './activities';
 import { cabTakesEnter } from './activities/cab';
 import { monorailPrompt, rideMonorail } from './activities/monorail';
 import { places } from './activities/places';
+import { canTakeVehicle, enterPromptFor } from './entry';
 import { epitaphMarkers, readEpitaph } from './epitaphs';
 import { cowMarkers, cowPrompt, tipCow } from './farms';
 import { answerPayphone } from './payphone';
@@ -191,24 +192,17 @@ export class Interactions {
   /**
    * On foot or swimming beside the vehicle F would enter (the cab the player called, which the cab system takes the key
    * for and seats him in as its passenger, else the controller's own choice, so the prompt cannot name a vehicle F then
-   * passes over): what F does there. Markers and the retry offer come first, a notice of why the retry waits after.
-   * One with someone at the wheel is a carjacking, an empty police vehicle a theft.
+   * passes over): what F does there (enterPromptFor). Markers and the retry offer come first, a notice of why the retry
+   * waits after.
    */
   private enterPrompt(slot: PlayerView): string | null {
     const p = slot.character;
     // The controller ignores every key while control is locked (a ride on AzuraLink, a countdown).
-    if (!p.onFoot || slot.down || slot.controlLock > 0) return null;
+    if (!canTakeVehicle(slot)) return null;
     const cab = cabTakesEnter(this.sim, slot);
     if (cab) return `Press F to get in the ${cab.spec.name}`;
     const v = this.sim.resolveSlot(slot.id)!.ctl.findEnterable(p, p.state === 'swimming');
-    if (!v) return null;
-    const name = v.spec.name;
-    if (v.driver) return `Press F to carjack the ${name}`;
-    if (v.spec.class === 'boat') return `Press F to board the ${name}`;
-    if (v.spec.class === 'bike') return `Press F to get on the ${name}`;
-    // The controller's own test for the theft: a cruiser the police still own (one left at a roadblock), not one he has taken and left.
-    if (v.owner === 'police') return `Press F to steal the ${name}`;
-    return `Press F to get in the ${name}`;
+    return v ? enterPromptFor(v) : null;
   }
 
   /** Offers the retry of a mission that just failed, while its few seconds last (markers under the player come first). */

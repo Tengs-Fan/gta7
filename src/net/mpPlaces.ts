@@ -8,6 +8,8 @@ import { MP_NO_MONORAIL } from '../sim/activities/monorail';
 import { places } from '../sim/activities/places';
 import { MP_NO_REGATTA } from '../sim/activities/regatta';
 import { streetRunCourses } from '../sim/activities/streetRun';
+import { canTakeVehicle, enterPromptFor, findEnterable } from '../sim/entry';
+import type { Vehicle } from '../sim/entities';
 import { monorailMarker, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
 import { CONTACTS, contactColorNumber, contactUnlocked } from '../sim/missions/contacts';
 import { STORY } from '../sim/missions';
@@ -52,8 +54,11 @@ function markersOf(world: StaticWorld): Marker[] {
   return out;
 }
 
-/** The InteractionsView of a multiplayer client. */
-export function multiplayerInteractions(world: StaticWorld): InteractionsView {
+/**
+ * The InteractionsView of a multiplayer client over `vehicles`, the ones its mirror holds. A marker's reason comes first,
+ * else what F does beside the vehicle it would take, as the single-player game words it.
+ */
+export function multiplayerInteractions(world: StaticWorld, vehicles: readonly Vehicle[]): InteractionsView {
   const markers = markersOf(world);
   const current = (slot: PlayerView): Marker | null => {
     const p = slot.character;
@@ -65,11 +70,17 @@ export function multiplayerInteractions(world: StaticWorld): InteractionsView {
     }
     return null;
   };
+  const vehiclePrompt = (slot: PlayerView): string | null => {
+    // A watcher has no controls to press F with.
+    if (!canTakeVehicle(slot) || (slot.slot ?? 0) < 0) return null;
+    const v = findEnterable({ vehicles, world }, slot.character, slot.character.state === 'swimming');
+    return v ? enterPromptFor(v) : null;
+  };
   return {
     markers,
     current,
     canSave: () => false,
-    prompt: (slot) => (slot ? current(slot)?.label || null : null),
+    prompt: (slot) => (slot ? current(slot)?.label || vehiclePrompt(slot) : null),
     priceOf: () => 0,
     buy: () => 'Not available in multiplayer.',
   } as InteractionsView;
