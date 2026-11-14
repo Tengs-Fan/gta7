@@ -11,8 +11,9 @@
 // police, the hospital, the safehouse, the gun shops, Lou's, the Hotel Salgado, a spray shop), four ways from each
 // marker, as the round's model audit shot them. By day the run also looks up at the upper floors and roof lines: a glass
 // tower of each colour, an office, brick, apartment and house front from the far pavement, every special building from
-// across its street, the skyline both ways along a Midtown and a Southgate street, and the four tallest towers from a
-// street two blocks south.
+// across its street, the skyline both ways along a Midtown and a Southgate street, the four tallest towers from a
+// street two blocks south, each landmark tower from the east (and its crown through a long lens), the garages, and Downtown and Midtown from eight headings
+// (no frame may come out black); at night a car's headlights on a row of shops.
 
 /** District, style of the building to face, and a short name for the files. */
 const SPOTS = [
@@ -177,6 +178,54 @@ export default async function (t) {
       await t.game((g, a) => g.teleport(a.x, a.z), p);
       await shoot(`tall-${k}`, Math.PI, 0.32);
     }
+    // The landmark towers (render/city/landmarks.ts picks them by the same rule, so that each reads from the sea), each
+    // from the easternmost avenue at its latitude looking west: the skyline at the usual lens, then its crown through a
+    // 12-degree one.
+    const lms = await t.game((g) => {
+      const L = g.sim.world.layout;
+      const cz = (b) => (b.rect.minZ + b.rect.maxZ) / 2;
+      const hidden = (b) => L.buildings.some((o) => o !== b && o.rect.minX > b.rect.maxX && o.height >= b.height - 4 && Math.min(o.rect.maxZ, b.rect.maxZ) - Math.max(o.rect.minZ, b.rect.minZ) > 0.5 * (b.rect.maxZ - b.rect.minZ));
+      const out = [];
+      for (const b of L.buildings.filter((q) => (q.district === 'downtown' || q.district === 'midtown') && q.roof === 'flat' && q.tiers.length > 0).sort((p, q) => q.height - p.height || p.id - q.id)) {
+        if (out.length === 4) break;
+        if (out.some((o) => Math.abs(cz(o) - cz(b)) < 45) || hidden(b)) continue;
+        out.push(b);
+      }
+      const east = Math.max(...L.vLines.map((l) => l.pos));
+      return out.map((b) => ({ x: east, z: cz(b), dist: east - (b.rect.minX + b.rect.maxX) / 2, roof: b.height }));
+    });
+    for (const [k, lm] of lms.entries()) {
+      const kind = ['stepped', 'pyramid', 'crown', 'wedge'][k];
+      await t.game((g, a) => g.teleport(a.x, a.z), lm);
+      const aim = Math.atan2(lm.roof + 12 - 2, lm.dist);
+      await shoot(`lm-${kind}-far`, -Math.PI / 2, Math.min(0.6, aim * 0.6));
+      await t.game((g) => (g.game.renderer.cameraCtl.baseFov = 12));
+      await shoot(`lm-${kind}-crown`, -Math.PI / 2, aim);
+      await t.game((g) => (g.game.renderer.cameraCtl.baseFov = g.game.settings.fov));
+    }
+    // The garages (Lou's and the Spray Shacks), 12 m out from their doors.
+    for (const id of ['lou', 'spray_hill', 'spray_docks', 'spray_south']) {
+      const yaw = await t.game(
+        (g, a) => {
+          const G = g.sim.world.layout.garages.find((q) => q.poi === a.id);
+          if (!G) return null;
+          const r = G.rect;
+          const cx = (r.minX + r.maxX) / 2;
+          const cz = (r.minZ + r.maxZ) / 2;
+          const spot = { S: [cx, r.maxZ + 12, Math.PI], N: [cx, r.minZ - 12, 0], E: [r.maxX + 12, cz, -Math.PI / 2], W: [r.minX - 12, cz, Math.PI / 2] }[G.side];
+          g.teleport(spot[0], spot[1]);
+          return spot[2];
+        },
+        { id },
+      );
+      if (yaw !== null) await shoot(`garage-${id}`, yaw, 0.12);
+    }
+    // Downtown and Midtown from eight headings on High: a NaN in a shader or a normal of no length shades a pixel NaN,
+    // which the bloom spreads over a rectangle of the frame.
+    for (const [district, style, name] of [SPOTS[0], SPOTS[1]]) {
+      const yaw = await stand(district, style);
+      for (let k = 0; k < 8; k++) await shoot(`heading-${name}-${k}`, yaw + (k * Math.PI) / 4, 0.15);
+    }
   }
   if (process.env.STREETSCAPE_POIS === '1') {
     for (const id of POIS) {
@@ -197,6 +246,7 @@ export default async function (t) {
       await shoot(`${name}-night-facade`, yaw, 0.18);
       await shoot(`${name}-night-along`, yaw + Math.PI / 2, 0.06);
     }
+
     await t.game((g) => g.setTime(11));
     // Medium is the tier an integrated GPU runs: every street view again on it.
     await t.game((g) => g.game.applySettings({ ...g.game.settings, quality: 'medium' }, false));
@@ -209,6 +259,20 @@ export default async function (t) {
     await t.wait(1500);
     const yaw = await stand('midtown', 'stucco');
     await shoot('midtown-facade-low', yaw, 0.18);
+    // Last, as it leaves the player in a car: on High at night, a car's headlights on a row of shops and their doorways'
+    // floors, from the car's camera at rest.
+    await t.game((g) => {
+      g.game.applySettings({ ...g.game.settings, quality: 'high' }, false);
+      g.setTime(21);
+    });
+    await t.wait(1500);
+    const face = await stand('midtown', 'stucco');
+    const spot = await t.game((g) => ({ x: g.sim.player.pos.x, z: g.sim.player.pos.z }));
+    await t.game((g) => g.spawnVehicle('sedan', true));
+    // Nose to the shops from the road, 7 m back from the pavement spot, so the pool falls on the doorways.
+    await t.game((g, a) => g.place(a.x - Math.sin(a.yaw) * 7, a.z - Math.cos(a.yaw) * 7, a.yaw), { ...spot, yaw: face });
+    await t.wait(2500);
+    await t.shot('midtown-night-headlights');
   }
   t.note(rows.join('\n'));
 }

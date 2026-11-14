@@ -9,7 +9,7 @@ import { scaleRgb, type GeoBuilder, type RGB } from '../geo';
 import { clamp } from '../../core/math';
 import { FACADE_CELL } from '../textures';
 
-export type RooftopKind = 'hvac' | 'stair' | 'tank' | 'vent' | 'antenna' | 'garden' | 'plant';
+export type RooftopKind = 'hvac' | 'stair' | 'tank' | 'vent' | 'antenna' | 'garden' | 'plant' | 'monitor';
 
 export interface RooftopItem {
   kind: RooftopKind;
@@ -84,6 +84,8 @@ function sizeOf(kind: RooftopKind, rng: Rng): [number, number, number] {
       return [rng.range(2.4, 5), rng.range(1.0, 1.6), 1.1];
     case 'plant':
       return [rng.range(4, 8), rng.range(4, 8), rng.range(4, 5.5)];
+    case 'monitor':
+      return [rng.range(8, 16), rng.range(2.5, 5), rng.range(1.6, 2.2)];
   }
 }
 
@@ -121,6 +123,19 @@ export function rooftopItems(b: Building, landmark = false): RooftopItem[] {
       const z0 = minZ + (maxZ - minZ - d) * rng.next();
       const box = { minX: x0, maxX: x0 + w, minZ: z0, maxZ: z0 + d };
       if (!blocked.some(hit(box))) out.push({ kind: 'plant', ...box, y0: t.y1, y1: t.y1 + h, seed: rng.next() });
+    }
+  }
+  // A warehouse lights its floor through a roof monitor: a raised, glazed ridge along the roof's length, which breaks
+  // the flat lid of a block of sheds seen along a Docks street.
+  if (family(b) === 'industrial') {
+    const along = maxX - minX >= maxZ - minZ;
+    const L = (along ? maxX - minX : maxZ - minZ) * rng.range(0.6, 0.8);
+    const W = Math.min(8, (along ? maxZ - minZ : maxX - minX) * rng.range(0.3, 0.4));
+    if (W >= 2.5) {
+      const mx = (minX + maxX) / 2;
+      const mz = (minZ + maxZ) / 2;
+      const box = along ? { minX: mx - L / 2, maxX: mx + L / 2, minZ: mz - W / 2, maxZ: mz + W / 2 } : { minX: mx - W / 2, maxX: mx + W / 2, minZ: mz - L / 2, maxZ: mz + L / 2 };
+      if (!blocked.some(hit(box))) out.push({ kind: 'monitor', ...box, y0: t.y1, y1: t.y1 + rng.range(1.6, 2.2), seed: rng.next() });
     }
   }
   const weights = KIND_WEIGHTS[family(b)]!;
@@ -251,6 +266,24 @@ export function drawRooftopItem(g: GeoBuilder, it: RooftopItem): void {
           const by = l0 + ((l1 - l0) * (k + 0.5)) / blades;
           band(by - 0.08, by + 0.08, 2, [0.42, 0.43, 0.44]);
         }
+      }
+      break;
+    }
+    case 'monitor': {
+      // Cladding round a band of dark glazing on its long sides, under an overhanging lid.
+      const clad: RGB = [0.5 + s * 0.06, 0.54 + s * 0.06, 0.58 + s * 0.05];
+      boxC(g, it.minX, y, it.minZ, it.maxX, it.y1, it.maxZ, clad);
+      boxC(g, it.minX - 0.25, it.y1, it.minZ - 0.25, it.maxX + 0.25, it.y1 + 0.18, it.maxZ + 0.25, scaleRgb(clad, 0.8));
+      const along = w >= d;
+      const g0 = y + 0.45;
+      const g1 = it.y1 - 0.3;
+      const pane: RGB = [0.08, 0.11, 0.14];
+      if (along) {
+        g.quad(it.minX + 0.3, g0, it.maxZ + 0.02, it.maxX - 0.3, g0, it.maxZ + 0.02, it.maxX - 0.3, g1, it.maxZ + 0.02, it.minX + 0.3, g1, it.maxZ + 0.02, [0, 0, 1, 0, 1, 1, 0, 1], pane);
+        g.quad(it.maxX - 0.3, g0, it.minZ - 0.02, it.minX + 0.3, g0, it.minZ - 0.02, it.minX + 0.3, g1, it.minZ - 0.02, it.maxX - 0.3, g1, it.minZ - 0.02, [0, 0, 1, 0, 1, 1, 0, 1], pane);
+      } else {
+        g.quad(it.maxX + 0.02, g0, it.maxZ - 0.3, it.maxX + 0.02, g0, it.minZ + 0.3, it.maxX + 0.02, g1, it.minZ + 0.3, it.maxX + 0.02, g1, it.maxZ - 0.3, [0, 0, 1, 0, 1, 1, 0, 1], pane);
+        g.quad(it.minX - 0.02, g0, it.minZ + 0.3, it.minX - 0.02, g0, it.maxZ - 0.3, it.minX - 0.02, g1, it.maxZ - 0.3, it.minX - 0.02, g1, it.minZ + 0.3, [0, 0, 1, 0, 1, 1, 0, 1], pane);
       }
       break;
     }

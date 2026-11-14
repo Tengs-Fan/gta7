@@ -327,8 +327,10 @@ export class GameRenderer {
     this.country = new CountryView(world, this.city, this.props.windUniforms, this.software);
     this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group, this.country.group);
     // The headlights light the ground in its own shading: every road, pavement, lawn, beach and track, and the crop fields and their plants held under a limit (the software tier paints them).
+    // The shop, lobby and house fronts take them too, for their doorways' floors, which were dark rectangles in a pool on the pavement.
     if (!this.software) {
-      this.lightSprites.lightGround(new Set([...this.city.wet.materials, ...this.city.ground.materials]));
+      const fronts = this.city.materials.storefront;
+      this.lightSprites.lightGround(new Set([...this.city.wet.materials, ...this.city.ground.materials, ...(fronts ? [fronts] : [])]));
       this.lightSprites.lightGround([...this.country.fields.ground, ...this.country.fields.crops], true);
       this.lightSprites.lightGround(this.country.valley.lit);
     }

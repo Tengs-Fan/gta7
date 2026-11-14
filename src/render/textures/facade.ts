@@ -342,8 +342,9 @@ export const FACADE_WINDOW: Record<FacadeStyle, FacadeWindow> = {
  * What a style draws round its openings and under its roofs (the facade shader's uDeco and uTop). The layout gives
  * every tier a height that is no whole number of storeys, so the top row of a window grid runs into the cornice or the
  * eaves on most buildings (on seven brick blocks in ten its window was cut by the cornice): a window whose head comes
- * within `headroom` of its tier's roof is left out (the band above the top floor becomes an attic) or, on a house,
- * lowered and shortened to fit under the eaves (`facadeWindowFit`).
+ * within `headroom` of its tier's roof is lowered and shortened to fit under it (`facadeWindowFit`), or left out where
+ * that leaves it too short, and the band over the top floor becomes an attic. Leaving them all out blanked the only
+ * upper floor of the two-storey brick blocks (the gun shops).
  */
 export interface FacadeTop {
   /**
@@ -361,24 +362,24 @@ export interface FacadeTop {
   reach: number;
   /** sRGB colour of the stone heads, sills and courses (masonry). */
   stone: number;
-  /** Houses: lower the top row's windows under the eaves (keeping `sill` m over the floor) and keep any at least `minH` m tall. */
-  fit: boolean;
+  /**
+   * A window too near the roof is lowered (keeping `sill` m over its floor) and shortened, and kept if it stays `minH` m
+   * tall; 0 leaves every such window out (the curtain walls, whose top row becomes louvres, and the warehouses).
+   */
+  sill: number;
+  minH: number;
 }
 
 export const FACADE_TOP: Record<FacadeStyle, FacadeTop> = {
-  glassBlue: { deco: 4, headroom: 0.45, head: 0, reach: 0, stone: 0, fit: false },
-  glassTeal: { deco: 4, headroom: 0.45, head: 0, reach: 0, stone: 0, fit: false },
-  office: { deco: 3, headroom: 0.6, head: 0.28, reach: 0, stone: 0, fit: false },
-  brick: { deco: 1, headroom: 1.2, head: 0.3, reach: 0.12, stone: 0xc9bda6, fit: false },
-  stucco: { deco: 2, headroom: 0.9, head: 0.16, reach: 0.1, stone: 0, fit: false },
-  house: { deco: 0, headroom: 0.35, head: 0, reach: 0, stone: 0, fit: true },
-  warehouse: { deco: 0, headroom: 0.4, head: 0, reach: 0, stone: 0, fit: false },
-  hotel: { deco: 0, headroom: 0.55, head: 0, reach: 0, stone: 0, fit: false },
+  glassBlue: { deco: 4, headroom: 0.45, head: 0, reach: 0, stone: 0, sill: 0, minH: 0 },
+  glassTeal: { deco: 4, headroom: 0.45, head: 0, reach: 0, stone: 0, sill: 0, minH: 0 },
+  office: { deco: 3, headroom: 0.6, head: 0.28, reach: 0, stone: 0, sill: 0.45, minH: 1.1 },
+  brick: { deco: 1, headroom: 1.2, head: 0.3, reach: 0.12, stone: 0xc9bda6, sill: 0.35, minH: 1.2 },
+  stucco: { deco: 2, headroom: 0.9, head: 0.16, reach: 0.1, stone: 0, sill: 0.35, minH: 1.1 },
+  house: { deco: 0, headroom: 0.35, head: 0, reach: 0, stone: 0, sill: 0.3, minH: 0.75 },
+  warehouse: { deco: 0, headroom: 0.4, head: 0, reach: 0, stone: 0, sill: 0, minH: 0 },
+  hotel: { deco: 0, headroom: 0.55, head: 0, reach: 0, stone: 0, sill: 0.35, minH: 1.1 },
 };
-
-/** A house's window keeps this much (m) over its floor when lowered under the eaves, and is left out when shorter than HOUSE_FIT_MIN_H. */
-export const HOUSE_FIT_SILL = 0.3;
-export const HOUSE_FIT_MIN_H = 0.75;
 
 /**
  * Where the facade shader draws the window of the cell whose floor is at `cellY0` on a tier whose roof is at `roofY`
@@ -394,11 +395,11 @@ export function facadeWindowFit(style: FacadeStyle, cellY0: number, roofY: numbe
   let y1 = win.y1 * cell.h;
   const over = cellY0 + y1 - (roof - top.headroom);
   if (over <= 0) return { y0, y1 };
-  if (!top.fit) return null;
-  const shift = Math.min(over, Math.max(y0 - HOUSE_FIT_SILL, 0));
+  if (top.minH <= 0) return null;
+  const shift = Math.min(over, Math.max(y0 - top.sill, 0));
   y0 -= shift;
   y1 -= over;
-  return y1 - y0 >= HOUSE_FIT_MIN_H ? { y0, y1 } : null;
+  return y1 - y0 >= top.minH ? { y0, y1 } : null;
 }
 
 /** The facade's per-vertex seed carries its tier's roof height in its whole part, in units of 1 / FACADE_TOP_SCALE m. */

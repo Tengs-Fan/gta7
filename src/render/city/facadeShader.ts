@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { FacadeStyle } from '../../world/layout';
 import { assets } from '../assets';
-import { FACADE_CELL, FACADE_COLS, FACADE_LOOK, FACADE_ROWS, FACADE_TOP, FACADE_TOP_SCALE, FACADE_WINDOW, HOUSE_FIT_MIN_H, HOUSE_FIT_SILL, facadeMapIds, facadeTextures, facadeWallFallback } from '../textures';
+import { FACADE_CELL, FACADE_COLS, FACADE_LOOK, FACADE_ROWS, FACADE_TOP, FACADE_TOP_SCALE, FACADE_WINDOW, facadeMapIds, facadeTextures, facadeWallFallback } from '../textures';
 
 /** Per-view switches the tiers drive through uniforms, so no tier change recompiles a program. */
 export interface BuildingUniforms {
@@ -216,8 +216,8 @@ vec2 fCell;
   float big = smoothstep(0.3, 1.0, max(h.x, h.y));
   float avgPres = uWinShape.w > 1.5 ? 0.6667 : (uWinShape.w > 0.5 ? 0.5 : 1.0);
   // This cell's opening (m from the cell's corner), fitted under the tier's roof: the seed's whole part is the roof in
-  // decimetres, its fraction the building's night seed. A window whose head comes within uTop.x of the roof is left
-  // out, or on a house lowered (keeping uTop.z over its floor) and shortened, if it stays uTop.w tall.
+  // decimetres, its fraction the building's night seed. A window whose head comes within uTop.x of the roof is lowered
+  // (keeping uTop.z over its floor) and shortened if the style allows (uTop.y) and it stays uTop.w tall, else left out.
   vec2 m0 = r0 * uCellM;
   vec2 m1 = r1 * uCellM;
   float roofY = floor(vSeed) / ${TOP_SCALE};
@@ -232,8 +232,10 @@ vec2 fCell;
     m1.y -= over - shiftM;
     keep = step(uTop.w, m1.y - m0.y);
   }
-  // The top floor: the row under the one left out.
-  float topRow = keep * step(headLine, cellY0 + uCellM.y + r1.y * uCellM.y);
+  // The top floor: the row under the one left out (the next row up kept only if lowering it leaves it uTop.w tall).
+  float overN = over + uCellM.y;
+  float keepN = overN <= 0.0 ? 1.0 : (uTop.y > 0.5 ? step(uTop.w, (r1.y - r0.y) * uCellM.y - (overN - min(overN, max(r0.y * uCellM.y - uTop.z, 0.0)))) : 0.0);
+  float topRow = keep * (1.0 - keepN);
   // Where this fragment falls on the painted window (a lowered window shows the painted one moved down).
   vec2 wpm = pm + vec2(0.0, shiftM);
   float kind = uDeco.x;
@@ -522,7 +524,7 @@ export function createFacadeMaterial(style: FacadeStyle, seed: number, night: Fa
     uTime: night.time,
     uStyleOcc: { value: sn.occ },
     uFloorShare: { value: sn.floors },
-    uTop: { value: new THREE.Vector4(top.headroom, top.fit ? 1 : 0, HOUSE_FIT_SILL, HOUSE_FIT_MIN_H) },
+    uTop: { value: new THREE.Vector4(top.headroom, top.minH > 0 ? 1 : 0, top.sill, top.minH) },
     uDeco: { value: new THREE.Vector4(top.deco, top.head, top.reach, 0) },
     uStone: { value: linear(top.stone) },
   };
