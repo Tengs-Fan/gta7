@@ -13,7 +13,7 @@ import { landmarkTowers } from '../../src/render/city/landmarks';
 import { COPING_H, PARAPET_H, rooftopItems, storeys } from '../../src/render/city/rooftops';
 import { BALCONY_DEPTH, BALCONY_SLAB, ESCAPE_DEPTH, ESCAPE_FLOOR, LADDER_DROP, SHUTTER, balconies, facadeRelief, fireEscape } from '../../src/render/cityArchitecture';
 import { GeoBuilder } from '../../src/render/geo';
-import { BANK_STEP_TOP, CELL_DESIGN, CELLS, DOOR_OPENING, DOOR_U, FACADE_CELL, FACADE_COLS, FACADE_LOOK, FACADE_ROWS, FACADE_TOP, FACADE_TOP_SCALE, FACADE_WINDOW, HOUSE_FIT_MIN_H, SHOP_AWNING_TOP, facadeWindowAt, facadeWindowFit } from '../../src/render/textures';
+import { BANK_STEP_TOP, CELL_DESIGN, CELLS, DOOR_OPENING, DOOR_U, FACADE_CELL, FACADE_COLS, FACADE_LOOK, FACADE_ROWS, FACADE_TOP, FACADE_TOP_SCALE, FACADE_WINDOW, SHOP_AWNING_TOP, facadeWindowAt, facadeWindowFit } from '../../src/render/textures';
 import { CURB_H } from '../../src/world/constants';
 import type { FacadeStyle } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
@@ -124,8 +124,8 @@ describe('building detail', () => {
     expect(set).toBeGreaterThan(4000);
   });
 
-  it('gives every new face of the trim, decor, roofs and fronts a unit normal (a zero one lights as NaN and blanks the frame)', () => {
-    for (const name of ['architectural-trim', 'ground-decor', 'roofs', 'storefronts']) {
+  it('gives every face of the trim (with the landmarks\' crowns), decor, roofs, fronts and garages a unit normal (a zero one lights as NaN and blanks the frame)', () => {
+    for (const name of ['architectural-trim', 'ground-decor', 'roofs', 'storefronts', 'garages']) {
       for (const m of meshes(city.group, name)) {
         const n = m.geometry.getAttribute('normal');
         let bad = 0;
@@ -415,14 +415,14 @@ describe('building detail', () => {
             continue;
           }
           expect(y0 + fit.y1, `building ${b.id}`).toBeLessThanOrEqual(t.y1 - FACADE_TOP[b.style].headroom + 0.051);
-          expect(fit.y1 - fit.y0).toBeGreaterThanOrEqual(Math.min(HOUSE_FIT_MIN_H, (win.y1 - win.y0) * cell.h) - 1e-9);
-          if (b.style === 'house') expect(fit.y0).toBeGreaterThanOrEqual(0.3 - 1e-9);
+          expect(fit.y1 - fit.y0).toBeGreaterThanOrEqual(Math.min(FACADE_TOP[b.style].minH, (win.y1 - win.y0) * cell.h) - 1e-9);
+          expect(fit.y0).toBeGreaterThanOrEqual(Math.min(FACADE_TOP[b.style].sill, win.y0 * cell.h) - 1e-9);
         }
       }
     }
     console.log(`[buildings] window rows the cornice or eaves cut before ${cutBefore}, rows left out ${dropped}, houses' top windows fitted ${houseKept} of ${houseTop}`);
     expect(cutBefore).toBeGreaterThan(100);
-    // The rest showed a sliver of window under the eaves, less than HOUSE_FIT_MIN_H once lowered.
+    // The rest showed a sliver of window under the eaves, less than the house's minH once lowered.
     expect(houseKept / houseTop).toBeGreaterThan(0.4);
   });
 
