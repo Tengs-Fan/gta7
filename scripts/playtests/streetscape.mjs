@@ -179,7 +179,7 @@ export default async function (t) {
       await shoot(`tall-${k}`, Math.PI, 0.32);
     }
     // The landmark towers (render/city/landmarks.ts picks them by the same rule, so that each reads from the sea), each
-    // from the beach east of the city at its latitude looking west: the skyline at the usual lens, then its crown through an
+    // from the shallows east of the city at its latitude looking west: the skyline at the usual lens, then its crown through an
     // 18-degree one.
     const lms = await t.game((g) => {
       const L = g.sim.world.layout;
@@ -192,7 +192,7 @@ export default async function (t) {
         out.push(b);
       }
       const east = Math.max(...L.vLines.map((l) => l.pos));
-      // 90 m out past the easternmost avenue, on the beach, clear of the beachfront's hotels.
+      // 90 m out past the easternmost avenue, in the shallows, clear of the beachfront's hotels.
       return out.map((b) => ({ x: east + 90, z: cz(b), dist: east + 90 - (b.rect.minX + b.rect.maxX) / 2, roof: b.height }));
     });
     for (const [k, lm] of lms.entries()) {
