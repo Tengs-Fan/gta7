@@ -8,7 +8,8 @@ import { riseAt, riseBounds } from '../../world/terrain';
 import { GeoBuilder, type UvMode } from '../geo';
 import type { CityView } from './index';
 import { quadLine } from './shared';
-import { KERBSTONE_W, LAWN_OVERHANG, NO_RECT, rectRange, setGroundAttribute, type GroundDetail, type GroundRange } from './surfaces';
+import { LAWN_OVERHANG, NO_RECT, padKerb, rectRange, setGroundAttribute, type GroundDetail, type GroundRange } from './surfaces';
+import { KERBSTONE_W, vergesOf, type Rect4 } from './verges';
 
 const GROUND_TEX: Record<GroundKind, 'grass' | 'plaza' | 'asphalt' | 'dirt'> = {
   grass: 'grass',
@@ -20,59 +21,10 @@ const GROUND_TEX: Record<GroundKind, 'grass' | 'plaza' | 'asphalt' | 'dirt'> = {
 
 const DETAIL: Record<'grass' | 'plaza' | 'asphalt' | 'dirt', GroundDetail> = { grass: 'grass', plaza: 'paving', asphalt: 'lot', dirt: 'plain' };
 
-type Rect4 = [number, number, number, number];
 const rect4 = (r: Rect): Rect4 => [r.minX, r.minZ, r.maxX, r.maxZ];
 
 /** Lattice (m) of the ground drawn over a rise: the sim's cosine slopes stay within a centimetre of its triangles. */
 const RISE_STEP = 2;
-
-/**
- * In front of a house lot a grass verge runs between the kerbstones and the footpath, from VERGE_FROM to VERGE_TO (m)
- * out from the kerb: the lamps (0.9 m) and trees (1.1 m) stand in it, and people walk the footpath beyond (2.2 m).
- */
-export const VERGE_FROM = KERBSTONE_W;
-export const VERGE_TO = 1.8;
-/** Verges stop this far (m) short of a block's corners, so the crossings land on paving. */
-const VERGE_CORNER = CROSSWALK_W + 1;
-
-export interface Verge {
-  /** The grass drawn. */
-  rect: Rect;
-  /** The lawn rectangle its shader frays out from: only the footpath side lies inside the drawn grass, by LAWN_OVERHANG. */
-  edge: Rect4;
-}
-
-/** The verges in front of every house lot (yard), in layout order. */
-export function vergesOf(layout: CityLayout): Verge[] {
-  const out: Verge[] = [];
-  for (const g of layout.ground) {
-    if (g.kind !== 'yard') continue;
-    const b = layout.blocks.find((bl) => g.rect.minX >= bl.rect.minX - 0.01 && g.rect.maxX <= bl.rect.maxX + 0.01 && g.rect.minZ >= bl.rect.minZ - 0.01 && g.rect.maxZ <= bl.rect.maxZ + 0.01);
-    if (!b) continue;
-    const r = b.rect;
-    const sides = [
-      { on: Math.abs(g.rect.minZ - (r.minZ + SIDEWALK_W)) < 0.01, alongX: true, k0: r.minZ + VERGE_FROM, k1: r.minZ + VERGE_TO, out: 1 },
-      { on: Math.abs(g.rect.maxZ - (r.maxZ - SIDEWALK_W)) < 0.01, alongX: true, k0: r.maxZ - VERGE_TO, k1: r.maxZ - VERGE_FROM, out: -1 },
-      { on: Math.abs(g.rect.minX - (r.minX + SIDEWALK_W)) < 0.01, alongX: false, k0: r.minX + VERGE_FROM, k1: r.minX + VERGE_TO, out: 1 },
-      { on: Math.abs(g.rect.maxX - (r.maxX - SIDEWALK_W)) < 0.01, alongX: false, k0: r.maxX - VERGE_TO, k1: r.maxX - VERGE_FROM, out: -1 },
-    ];
-    for (const s of sides) {
-      if (!s.on) continue;
-      const lo = Math.max(s.alongX ? g.rect.minX : g.rect.minZ, (s.alongX ? r.minX : r.minZ) + VERGE_CORNER);
-      const hi = Math.min(s.alongX ? g.rect.maxX : g.rect.maxZ, (s.alongX ? r.maxX : r.maxZ) - VERGE_CORNER);
-      if (hi - lo < 1) continue;
-      // The footpath edge is k1 on a verge whose lot lies towards +; k0 otherwise.
-      const e0 = s.out > 0 ? s.k0 - 1 : s.k0 + LAWN_OVERHANG;
-      const e1 = s.out > 0 ? s.k1 - LAWN_OVERHANG : s.k1 + 1;
-      out.push(
-        s.alongX
-          ? { rect: mkRect(lo, s.k0, hi, s.k1), edge: [lo - 1, e0, hi + 1, e1] }
-          : { rect: mkRect(s.k0, lo, s.k1, hi), edge: [e0, lo - 1, e1, hi + 1] },
-      );
-    }
-  }
-  return out;
-}
 
 /** A tactile pad runs from just behind the kerbstones to this far (m) from the kerb, along the crossing short of its stripes' ends. */
 export const TACTILE_TO = 0.95;
@@ -93,7 +45,7 @@ export function tactilePads(layout: CityLayout, roads: RoadNetwork): TactilePad[
     const blk = layout.blocks.find((k) => rectContains(k.rect, x, z));
     if (blk) return Math.min(x - blk.rect.minX, blk.rect.maxX - x, z - blk.rect.minZ, blk.rect.maxZ - z) < SIDEWALK_W ? rect4(blk.rect) : null;
     const out = Math.max(b.cityMinX - x, x - b.cityMaxX, b.cityMinZ - z, z - b.cityMaxZ);
-    return out > 0 && out < SIDEWALK_W && !waterAt(layout, x, z) ? city : null;
+    return out > 0 && out < SIDEWALK_W && !waterAt(layout, x, z) && !roads.mouths.some((m) => rectContains(m, x, z)) ? city : null;
   };
   const out: TactilePad[] = [];
   for (const n of roads.gridNodes) {
@@ -119,6 +71,26 @@ export function tactilePads(layout: CityLayout, roads: RoadNetwork): TactilePad[
     }
   }
   return out;
+}
+
+/** The kerbstone strip along each side of a county road's mouth through the promenade: the band and its joint. */
+const MOUTH_BAND = KERBSTONE_W + 0.04;
+/** A quay's sides that meet no road are pushed this far (m) out of its kerb rectangle, so only its road sides are kerbs. */
+const QUAY_FAR = 1e4;
+
+/**
+ * The kerb rectangle of a quay strip: its own, with each side that meets no road pushed QUAY_FAR out, so the kerbstones
+ * and grime follow the coast road's kerb and not the water's edge or the seams where strips abut.
+ */
+export function quayKerb(r: Rect, roadRects: readonly Rect[]): Rect4 {
+  const touches = (along: 'x' | 'z', at: number, lo: number, hi: number) =>
+    roadRects.some((q) => (along === 'z' ? (Math.abs(q.maxX - at) < 0.01 || Math.abs(q.minX - at) < 0.01) && Math.min(q.maxZ, hi) - Math.max(q.minZ, lo) > 0.01 : (Math.abs(q.maxZ - at) < 0.01 || Math.abs(q.minZ - at) < 0.01) && Math.min(q.maxX, hi) - Math.max(q.minX, lo) > 0.01));
+  return [
+    touches('z', r.minX, r.minZ, r.maxZ) ? r.minX : r.minX - QUAY_FAR,
+    touches('x', r.minZ, r.minX, r.maxX) ? r.minZ : r.minZ - QUAY_FAR,
+    touches('z', r.maxX, r.minZ, r.maxZ) ? r.maxX : r.maxX + QUAY_FAR,
+    touches('x', r.maxZ, r.minX, r.maxX) ? r.maxZ : r.maxZ + QUAY_FAR,
+  ];
 }
 
 export function buildGround(view: CityView): void {
@@ -237,17 +209,17 @@ export function buildGround(view: CityView): void {
   for (const r of rectsMinus(promenade, [...water, ...mouths])) prom.flat(r.minX, r.minZ, r.maxX, r.maxZ, y, { kind: 'world', scale: 6 });
   // The quays between the coast roads and the water: what the sea's cells keep inside the ring road.
   const roads = view.world.roads;
-  const paved: Rect[] = [...roads.segments, ...roads.live.map((nd) => mkRect(nd.x - nd.halfX, nd.z - nd.halfZ, nd.x + nd.halfX, nd.z + nd.halfZ)), ...layout.blocks.map((bl) => bl.rect)];
+  const roadRects: Rect[] = [...roads.segments, ...roads.live.map((nd) => mkRect(nd.x - nd.halfX, nd.z - nd.halfZ, nd.x + nd.halfX, nd.z + nd.halfZ))];
+  const paved: Rect[] = [...roadRects, ...layout.blocks.map((bl) => bl.rect)];
   for (const w of layout.water) {
     const inside = w.area.map((r) => mkRect(Math.max(r.minX, b.cityMinX), Math.max(r.minZ, b.cityMinZ), Math.min(r.maxX, b.cityMaxX), Math.min(r.maxZ, b.cityMaxZ)));
-    // A quay's strips abut one another: their rectangles come with minZ > maxZ, the shader's flag for no kerbstones.
-    for (const r of rectsMinus(inside, [...w.rects, ...paved])) strip(r.minX, r.minZ, r.maxX, r.maxZ, [r.minX, r.maxZ, r.maxX, r.minZ]);
+    for (const r of rectsMinus(inside, [...w.rects, ...paved])) strip(r.minX, r.minZ, r.maxX, r.maxZ, quayKerb(r, roadRects));
   }
   // Tactile pads a centimetre over the paving, their kerb rectangle reversed (the shader's flag for buff domed slabs).
   for (const t of tactilePads(layout, roads)) {
     const start = walk.vertexCount;
     walk.flat(t.rect.minX, t.rect.minZ, t.rect.maxX, t.rect.maxZ, y + 0.01, walkUv);
-    walkRanges.push(rectRange(start, walk.vertexCount, [t.kerb[2], t.kerb[3], t.kerb[0], t.kerb[1]]));
+    walkRanges.push(rectRange(start, walk.vertexCount, padKerb(t.kerb)));
   }
   // Kerbs along every road edge with no block beside it: the ring road's outer edge, the coast roads, the bridges.
   const n = layout.n;
@@ -274,10 +246,16 @@ export function buildGround(view: CityView): void {
     if (nd.neighbors[3]! < 0 && open(cell(nd.i - 1, nd.j - 1), cell(nd.i - 1, nd.j))) curbs.wall(x0, z1, x0, z0, 0, y, curbUv);
     if (nd.neighbors[1]! < 0 && open(cell(nd.i, nd.j - 1), cell(nd.i, nd.j))) curbs.wall(x1, z0, x1, z1, 0, y, curbUv);
   }
-  // The promenade's kerbs either side of each mouth, facing into it.
+  // The promenade's kerbs either side of each mouth, facing into it, and their kerbstones: a strip of the sidewalk a
+  // centimetre over the promenade, its kerb the mouth's rectangle.
   for (const m of mouths) {
     curbs.wall(m.minX, m.minZ, m.maxX, m.minZ, 0, y, curbUv);
     curbs.wall(m.maxX, m.maxZ, m.minX, m.maxZ, 0, y, curbUv);
+    for (const [z0, z1] of [[m.minZ - MOUTH_BAND, m.minZ], [m.maxZ, m.maxZ + MOUTH_BAND]] as const) {
+      const start = walk.vertexCount;
+      walk.flat(m.minX, z0, m.maxX, z1, y + 0.01, walkUv);
+      walkRanges.push(rectRange(start, walk.vertexCount, rect4(m)));
+    }
   }
   wood.flat(b.cityMaxX + sw, b.cityMinZ - sw, b.beachStartX, b.cityMaxZ + sw, y, { kind: 'world', scale: 4 });
 

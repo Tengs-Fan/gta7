@@ -9,7 +9,7 @@ import { assets } from '../../src/render/assets';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
 import { CityView } from '../../src/render/city';
 import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/render/city/roads';
-import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
+import { anisotropyFor, ASPHALT_AO, decodeKerb, KERB_DECODE_GLSL, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
 import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_LACE_PX, WHITECAP_MOST, WHITECAP_SPREAD, WHITECAP_STEEP } from '../../src/render/sea';
@@ -195,22 +195,28 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
     const walk = mesh(city, 'sidewalks').geometry;
     const a = walk.getAttribute('aGround');
     const pos = walk.getAttribute('position');
-    for (let i = 0; i < a.count; i += 37) {
+    const b = W.layout.bounds;
+    const city4 = [b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ];
+    const f32 = Math.fround;
+    const same = (r: { minX: number; minZ: number; maxX: number; maxZ: number }, k: readonly number[]) => f32(r.minX) === k[0] && f32(r.minZ) === k[1] && f32(r.maxX) === k[2] && f32(r.maxZ) === k[3];
+    for (let i = 0; i < a.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      // A tactile pad carries its kerb rectangle reversed (minX > maxX), a quay's strip with minZ > maxZ.
-      const raw = [a.getX(i), a.getY(i), a.getZ(i), a.getW(i)];
-      const rect = raw[0]! > raw[2]! ? [raw[2], raw[3], raw[0], raw[1]] : raw[1]! > raw[3]! ? [raw[0], raw[3], raw[2], raw[1]] : raw;
-      const blk = W.layout.blocks.find((b) => b.rect.minX === rect[0] && b.rect.minZ === rect[1] && b.rect.maxX === rect[2] && b.rect.maxZ === rect[3]);
-      const b = W.layout.bounds;
-      const city4 = [b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ];
-      // A quay between a coast road and the water is its own kerb rectangle, inside the cells the sea took.
-      const quay = W.layout.water.some((w) => w.area.some((r) => rect[0]! >= r.minX && rect[2]! <= r.maxX && rect[1]! >= r.minZ && rect[3]! <= r.maxZ));
-      expect(blk !== undefined || quay || rect.every((v, k) => v === city4[k]), `${x},${z}`).toBe(true);
-      // Each vertex lies on the kerb rectangle's edge or within a sidewalk width of it.
+      // As the shader reads it (a tactile pad's comes reversed).
+      const rect = decodeKerb([a.getX(i), a.getY(i), a.getZ(i), a.getW(i)]).kerb;
+      const blk = W.layout.blocks.some((bl) => same(bl.rect, rect));
+      const mouth = W.roads.mouths.some((m) => same(m, rect));
+      // A quay between a coast road and the water, inside the cells the sea took: its kerb rectangle reaches far past
+      // the sides that meet no road (quayKerb), so only its road sides are near.
+      const ring = rect.every((v, k) => v === f32(city4[k]!));
+      const quay = !blk && !mouth && !ring && W.layout.water.some((w) => w.area.some((r) => x >= r.minX - 1e-3 && x <= r.maxX + 1e-3 && z >= r.minZ - 1e-3 && z <= r.maxZ + 1e-3));
+      expect(blk || mouth || quay || ring, `${x},${z}`).toBe(true);
+      // Each vertex lies on the kerb rectangle's edge or within a sidewalk width of it (a quay's may lie further from its road side).
       const f = Math.min(x - rect[0]!, rect[2]! - x, z - rect[1]!, rect[3]! - z);
-      expect(Math.abs(f)).toBeLessThanOrEqual(SIDEWALK_W + 1e-6);
+      if (!quay) expect(Math.abs(f), `${x},${z}`).toBeLessThanOrEqual(SIDEWALK_W + 1e-3);
+      else expect(f).toBeGreaterThanOrEqual(-1e-3);
     }
+    expect(compiled(matOf(city, 'sidewalks')).fragmentShader).toContain(KERB_DECODE_GLSL);
     expect(compiled(matOf(city, 'sidewalks')).fragmentShader).toContain('float grime = clamp( ( 1.0 - smoothstep( 0.1');
     for (const n of ['curbs', 'road-gutters']) expect(compiled(matOf(city, n)).fragmentShader, n).toContain('float low = 1.0 - smoothstep( 0.0, 0.15, vGroundPos.y );');
     const grass = compiled(matOf(city, 'ground-grass')).fragmentShader;
@@ -228,6 +234,21 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
       if (f < -1e-6) over++;
     }
     expect(over).toBeGreaterThan(50);
+  });
+
+  it("grit gathers by the gutter on the city's roads only: the county's share the shader but have no gutter", () => {
+    const W = world();
+    const k = city.ground.uniforms.uGroundKerbed.value;
+    const b = W.layout.bounds;
+    expect(k.toArray()).toEqual([b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ]);
+    const fs = compiled(matOf(city, 'roads')).fragmentShader;
+    expect(fs).toContain('uniform vec4 uGroundKerbed;');
+    expect(fs).toContain('float grit = kerbed * ');
+    for (const s of W.roads.segments) expect(s.minX >= k.x && s.maxX <= k.z && s.minZ >= k.y && s.maxZ <= k.w).toBe(true);
+    // The county's junctions (and so its roads between them) lie outside.
+    const county = W.roads.nodes.slice(W.roads.gridNodeCount);
+    expect(county.length).toBeGreaterThan(0);
+    for (const n of county) expect(n.x >= k.x && n.x <= k.z && n.z >= k.y && n.z <= k.w, `${n.x},${n.z}`).toBe(false);
   });
 
   it('sand: the wet band runs inland from the waterDepth = 0 contour, darker and glossier, with ripples and the surf lace', () => {
