@@ -160,6 +160,11 @@ export class Mirror implements ViewState {
   readonly missions = NO_MISSIONS;
   /** The local player's own side job, from the snapshots (status line and objective markers; no job object). */
   readonly activities: ActivitiesView;
+  /**
+   * The vehicle the local player's predicted F would take (a prediction's copy of it), set by the client that predicts him.
+   * The vehicle prompt follows it, so the prompt and the predicted key pick the same vehicle.
+   */
+  takeable: (() => Vehicle | null) | null = null;
   /** The race starts and the single-player places, each saying what it does here (see mpPlaces). */
   readonly interactions: InteractionsView;
   readonly combat: CombatView;
@@ -208,7 +213,10 @@ export class Mirror implements ViewState {
     this.world = opts.world;
     this.roads = opts.world.roads;
     this.combat = opts.combat ?? NO_COMBAT;
-    this.interactions = multiplayerInteractions(opts.world, this.vehicles);
+    this.interactions = multiplayerInteractions(opts.world, () => {
+      const v = this.takeable?.();
+      return v ? this.vehicle(v.id) : null;
+    });
     this.tickRate = opts.tickRate ?? 60;
     this.renderClock = new RenderClock(this.tickRate, opts.delayTicks ?? 7);
     for (const c of this.world.grid.colliders) if (c.breakable && c.propIndex >= 0) this.colliderOfProp.set(c.propIndex, c);

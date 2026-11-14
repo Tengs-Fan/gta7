@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { CameraController, raisedView } from '../../src/render/camera';
+import { CameraController, FOOT_BOOM, raisedView } from '../../src/render/camera';
 import { CrowdView, LENS_FADE_FULL } from '../../src/render/crowd';
 import type { PlayerInput } from '../../src/sim/input';
 import { Sim } from '../../src/sim/sim';
@@ -263,8 +263,10 @@ describe('his back to a wall, the camera rises over his shoulder and he stays dr
           const d = drawn(r.crowd, r.cam.camera);
           // Whole: at most 2% of what is in the frame dissolving (it was all of it, 0.36 m off).
           expect(d.dissolving, `${label}: ${JSON.stringify(d)}`).toBeLessThanOrEqual(0.02 * d.inFrame);
-          // And in the frame: all of him looking straight out, most of him with the view turned along the wall.
-          expect(d.inFrame / d.total, `${label}: ${JSON.stringify(d)}`).toBeGreaterThan(off === 0 ? 0.7 : 0.45);
+          // And in the frame: all of him looking straight out, much of him with the view turned along the wall. (Turned a
+          // radian, 0.36 m off, the frame's bottom edge runs across his legs from right over him: a centimetre's change in
+          // where the shorter boom meets the wall took the 46% in the frame to 42%.)
+          expect(d.inFrame / d.total, `${label}: ${JSON.stringify(d)}`).toBeGreaterThan(off === 0 ? 0.7 : 0.4);
           // On his side of the wall.
           const c = r.cam.camera.position;
           expect((c.x - f.x) * f.ox + (c.z - f.z) * f.oz, label).toBeGreaterThan(0);
@@ -274,6 +276,31 @@ describe('his back to a wall, the camera rises over his shoulder and he stays dr
       }
     }
     expect(cases).toBe(160);
+  });
+
+  it('a wall within the closer boom (1.5 to 3.4 m behind him, FOOT_BOOM 3.2) stops it on his side, never in the wall', () => {
+    const W = world();
+    const faces = openFaces(W);
+    let stopped = 0;
+    for (const f of faces) {
+      for (const gap of [1.5, 2, 2.6, 3, 3.4]) {
+        for (const off of [0, -0.4, 0.4, -0.9, 0.9]) {
+          const r = standAt(W, f.x + f.ox * gap, f.z + f.oz * gap, Math.atan2(f.ox, f.oz), off);
+          for (let k = 0; k < 60; k++) frame(r);
+          const label = `${f.side} face, ${gap} m, view ${off} rad`;
+          const c = r.cam.camera.position;
+          // In front of the wall by at least its skin, and so by the near plane's reach where the view runs along it.
+          const front = (c.x - f.x) * f.ox + (c.z - f.z) * f.oz;
+          expect(front, label).toBeGreaterThan(0.015);
+          if (front < 0.3) stopped++;
+          const d = drawn(r.crowd, r.cam.camera);
+          expect(d.dissolving, `${label}: ${JSON.stringify(d)}`).toBeLessThanOrEqual(0.02 * d.inFrame);
+          expectSoundView(r, label);
+        }
+      }
+    }
+    // (The wall did stop the boom in some of these: at 1.5 and 2 m straight out it is shorter than the boom.)
+    expect(stopped).toBeGreaterThan(0);
   });
 
   it('in narrow alleys, his back to either wall', () => {
@@ -627,7 +654,7 @@ describe('with room behind him the camera frames him as before', () => {
     const r = standAt(W, f.x + f.ox * 6, f.z + f.oz * 6, heading + Math.PI);
     for (let k = 0; k < 60; k++) frame(r);
     expect(viewPitch(r.cam)).toBeCloseTo(REST, 9);
-    expect(r.cam.camera.position.distanceTo(headCentre(r.crowd))).toBeGreaterThan(4);
+    expect(r.cam.camera.position.distanceTo(headCentre(r.crowd))).toBeGreaterThan(FOOT_BOOM);
     const d = drawn(r.crowd, r.cam.camera);
     expect(d.dissolving).toBe(0);
     expect(d.inFrame / d.total).toBeGreaterThan(0.8);

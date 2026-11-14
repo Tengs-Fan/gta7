@@ -151,7 +151,9 @@ describe('busy scene budget', () => {
     // camp, and every roadside prop and oddities' solid after them, moved to new indices and collider ids).
     // 7: round 8's pedDodge event joined the compact event layouts (someone jumping out of a player's way).
     // 8: round 9's vehicleEnter names the driver pulled out of a jacked car (his shout is in his own voice).
-    expect(PROTOCOL_VERSION).toBe(8);
+    // 9: none of the wire's bytes, but a runner's pose (sim/pose.ts gaitCycle): his hips ride 7 to 10 cm higher above 2.8
+    // m/s, and with them the muzzle a client predicts his own shots from.
+    expect(PROTOCOL_VERSION).toBe(9);
     room.close();
   }, 120_000);
   }

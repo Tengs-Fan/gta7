@@ -269,6 +269,8 @@ body {
 .status.timer {
   font-family: 'Anton', Impact, sans-serif;
   font-size: 22px;
+  /* One line: 'RUSH HOUR 3:45' broken in two reads as two things. */
+  white-space: nowrap;
   font-weight: 400;
   line-height: 1.1;
   color: var(--gold);
@@ -360,10 +362,6 @@ body {
 /* Tutorial hints (src/ui/hints.ts) wear the second accent; messages keep the first. */
 .help.hint {
   border-left-color: var(--accent2);
-}
-
-.help .lou {
-  color: var(--accent);
 }
 
 .prompt {
@@ -1883,6 +1881,13 @@ body {
   align-items: baseline;
   gap: 12px;
   text-shadow: 0 2px 5px #142024;
+  /* Up for a few seconds as he enters a district (hud.ts DISTRICT_SECONDS); the map names them all. */
+  opacity: 0;
+  transition: opacity 0.6s;
+}
+
+.district.show {
+  opacity: 1;
 }
 
 .district span {
@@ -1969,6 +1974,15 @@ body {
 
 .navigation.quiet .nav-arrow svg {
   filter: drop-shadow(0 0 1.5px #000);
+}
+
+/* A mission's or a job's next stop while the objective line names it: the way and the distance, no name. */
+.navigation.unnamed {
+  width: auto;
+}
+
+.navigation.unnamed .nav-copy b {
+  display: none;
 }
 
 .navigation.race {
@@ -2184,6 +2198,8 @@ body {
   .hud-tr { min-width: 148px; width: 148px; padding: 9px 11px; }
   .toast, .toast-prev { font-size: 15px; padding: 6px 10px; }
   .hud-tr .money { font-size: 24px; }
+  /* 'RUSH HOUR 3:45' on one line in the 126 px inside the narrow cluster. */
+  .hud-tr .status.timer { font-size: 18px; letter-spacing: 0; }
   .bars { width: 126px; }
   .hud-tr .stars svg { width: 21px; height: 21px; }
   .radar { left: 18px; width: 140px; height: 140px; }

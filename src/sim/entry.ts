@@ -1,6 +1,9 @@
-// Which vehicle F takes from where a character stands, and what the prompt says F will do there. Both the sim's player
-// controller and a multiplayer client's mirror ask it, over their own vehicles and the same static world, so the prompt
-// and the key cannot disagree about the vehicle.
+// Which vehicle F takes from where a character stands, and what the prompt says F will do there. The sim's player
+// controller, the sim's Interactions and a multiplayer client's prompt all ask it, so the wording and the picking rules
+// are one copy. In single player the prompt and the key are over the same vehicles and agree exactly. On a client the
+// key is predicted over its own copies of the vehicles around the player and the prompt names what that prediction
+// picks, so they agree as far as the prediction does; the server judges the press last, on its own state, and a car
+// at the edge of reach or of the 7 m/s limit can still be refused there.
 
 import { circleVsObb, makeContact, segmentHitsAabb } from '../core/collision';
 import type { StaticWorld } from '../world/staticWorld';

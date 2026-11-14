@@ -7,6 +7,7 @@ import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPas
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { FIELD_LIGHT_MAX, fieldLight, GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolHalfWidth, poolShape, POOL_FADE, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
+import { markerFade } from '../../src/render/markers';
 import { COUNTRY_FOG_MARGIN } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
 import { StreetLighting } from '../../src/render/streetLighting';
@@ -837,9 +838,11 @@ describe('Las Lomas County at night', () => {
     r.props.group.traverse((o) => {
       if (o instanceof THREE.Mesh && o.name !== 'lighthouseBeam') meshes.push(o);
     });
-    // A batch of the county's own props alone (from country.firstProp on); a batch that mixes them with the city's is the city's.
+    // A batch of the county's own props alone (from country.firstProp up to the city's signals on the drowned cells'
+    // corners, layout.firstQuaySignal on); a batch that mixes them with the city's is the city's.
     const first = W.layout.country.firstProp;
-    const county = (m: THREE.Mesh) => (m.userData.propIndices as number[] | undefined)?.every((i) => i >= first) ?? false;
+    const end = W.layout.firstQuaySignal;
+    const county = (m: THREE.Mesh) => (m.userData.propIndices as number[] | undefined)?.every((i) => i >= first && i < end) ?? false;
     const at = (x: number, z: number) => {
       sim.player.pos.x = x;
       sim.player.pos.z = z;
@@ -917,10 +920,13 @@ describe('Las Lomas County at night', () => {
     expect(near[0]!.position.x).toBeLessThan(W.bounds.landMinX);
     expect(near[0]!.visible).toBe(true);
     for (const g of markers().filter((q) => !near.includes(q))) expect(g.visible).toBe(false);
-    // In the city they are all drawn, as before the county.
+    // In the city they are all drawn, as before the county, but those the lens fade takes (nearer the lens than him along
+    // the view, or behind it: markerFade).
     at(0, 0);
     expect(signs.every((m) => m.visible)).toBe(true);
-    for (const g of markers()) expect(g.visible || Math.hypot(g.position.x - r.cameraCtl.camera.position.x, g.position.z - r.cameraCtl.camera.position.z) < 5).toBe(true);
+    const view = r.cameraCtl.markerView() ?? undefined;
+    for (const g of markers()) expect(g.visible || markerFade(r.cameraCtl.camera.position, g.position.x, g.position.z, view) === 0).toBe(true);
+    expect(markers().filter((g) => g.visible).length).toBeGreaterThan(0);
     r.dispose();
   });
 });

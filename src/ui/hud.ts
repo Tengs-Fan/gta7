@@ -61,6 +61,8 @@ const MAX_QUEUED_HINTS = 3;
 const HINT_GAP = 0.5;
 /** How long the next-step line stays up. */
 const NEXT_STEP_SECONDS = 8;
+/** How long the district's name stays up at the top left once the player enters it (or the game starts). */
+const DISTRICT_SECONDS = 5;
 /** Fade edges use simulation time, so a pause also freezes the actual opacity. */
 const FADE_EDGE_SECONDS = 0.5;
 /** GPS route colours: the player's own waypoint, a mission or job objective. */
@@ -69,11 +71,11 @@ const ROUTE_OBJECTIVE = '#ffd23d';
 
 // What the DOM shows initially; bind() returns to these for every new session.
 const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' });
-const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, delta: 0, hurt: 0, objective: 0, gate: 0, controls: 0 });
+const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, delta: 0, hurt: 0, objective: 0, gate: 0, controls: 0, district: 0 });
 /** How long the controls line stays up after getting in or out of a vehicle (or a new device or binding) before it fades. */
 const CONTROLS_SECONDS = 8;
 /** Elements shown with the 'show' class for a while. */
-const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'delta', 'big'];
+const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'delta', 'big', 'place'];
 /**
  * Pop-up messages ("Waypoint reached", "Autosaved"): at most MAX_TOASTS at once, stacked under the status cluster in the
  * same column (oldest on top, so the oldest leaves first and the rest move up), each up for TOAST_SECONDS and then
@@ -156,7 +158,10 @@ export class Hud {
   private routeTimer = 0;
   /** The toasts up (oldest first) and the seconds each has left; under 0 it is fading out (TOAST_FADE). */
   private toasts: Array<{ text: string; t: number }> = [];
-  /** The vehicle the player is in (id, -1: none) and where its headlight switch stood at the last frame: a toast when that moves, not on getting into another. */
+  /**
+   * The vehicle the player is in (id, -1: none) and where its headlight switch stood at the last frame: a toast when that
+   * moves, not on getting into another, whose name flashes instead.
+   */
   private switchCar = -1;
   private switchState: LampSwitch = 'auto';
   /** The title card's side padding as last written ('left right', '' for none; see fitTitle). */
@@ -185,6 +190,11 @@ export class Hud {
   private scannerTimer = 0;
   private shownEvade = '';
   waypoint: { x: number; z: number } | null = null;
+  /**
+   * A menu covers the game. Only multiplayer updates the HUD under one (its world goes on); the controls line's time
+   * holds there, as it does in single player, so keys rebound in the menu are still up to read on getting back.
+   */
+  menuOpen = false;
   /** The contact a phone call routed the GPS to (their offer comes first while they have one); null: the first offer. */
   routeContact: string | null = null;
   visible = true;
@@ -218,6 +228,8 @@ export class Hud {
   /** Side-job objectives keep their last announced step visible until the job ends. */
   private activityObjective = '';
   private controlMode = '';
+  /** The controls line as last written: its mode (controlMode) and whether he was swimming. */
+  private controlLine = '';
   private navigationText = '';
 
   constructor(parent: HTMLElement, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
@@ -225,7 +237,7 @@ export class Hud {
     this.root.className = 'hud';
     this.root.innerHTML = `
       <div class="vignette" data-el="vignette"></div>
-      <div class="district"><span>SAN AZURA</span><b data-el="district"></b></div>
+      <div class="district" data-el="place"><span>SAN AZURA</span><b data-el="district"></b></div>
       <div class="hud-right" data-el="column">
       <div class="hud-tr">
         <div class="hud-row"><div class="clock" data-el="clock">00:00</div><div class="weapon" data-el="weapon"><span data-el="wicon"></span><span class="ammo" data-el="ammo"></span></div></div>
@@ -389,9 +401,6 @@ export class Hud {
         this.moneyDelta += e.amount;
         this.timers.delta = 2.5;
       }),
-      ev.on('vehicleEnter', (e) => {
-        if (e.character === this.me(sim).character) this.flashZone(e.vehicle.spec.name, '');
-      }),
       ev.on('fade', (e) => {
         if (!this.mine(e)) return;
         this.fade = { startedAt: sim.time, duration: Math.max(FADE_EDGE_SECONDS * 2, e.duration) };
@@ -399,7 +408,11 @@ export class Hud {
         this.el.fade!.classList.add('on');
       }),
       ev.on('respawn', (e) => {
-        if (this.mine(e)) this.lastHealth = this.me(sim).character.health;
+        if (!this.mine(e)) return;
+        this.lastHealth = this.me(sim).character.health;
+        // On his feet again at the hospital or the station: the keys come up again.
+        this.controlMode = '';
+        this.controlLine = '';
       }),
       ev.on('missionEnded', (e) => this.mine(e) && clearObjective()),
       ev.on('activityEnded', (e) => this.mine(e) && clearObjective()),
@@ -519,8 +532,10 @@ export class Hud {
     this.routeColor = '';
     this.routeWaypoint = null;
     this.jobRunning = sim.activities.busy;
+    this.menuOpen = false;
     this.activityObjective = '';
     this.controlMode = '';
+    this.controlLine = '';
     this.navigationText = '';
     this.el.drive!.classList.add('hidden');
     this.el.navigation!.classList.add('hidden');
@@ -793,7 +808,8 @@ export class Hud {
     const below = [this.el.drive!, this.el.zone!, this.el.quickControls!];
     let limit = Infinity;
     for (const e of below) {
-      if (e.classList.contains('hidden') || (e === this.el.zone && !e.classList.contains('show'))) continue;
+      // Not shown: the zone or vehicle name between flashes, the controls line faded out.
+      if (e.classList.contains('hidden') || (e === this.el.zone && !e.classList.contains('show')) || (e === this.el.quickControls && e.classList.contains('faded'))) continue;
       const r = e.getBoundingClientRect();
       // Only what lies under the column, side by side with it.
       if (!(r.height > 0) || r.top <= col.top || r.left >= col.left + col.width || r.left + r.width <= col.left) continue;
@@ -892,11 +908,15 @@ export class Hud {
       }
     }
 
-    // Timed elements.
-    for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0) this.timers[k] -= dt;
+    // Timed elements. The controls line's time runs only while the player can read it: no menu over the game, and
+    // nothing else talking (a line of dialogue, the help box, the next-step line), as at the start of a game.
+    const nextLine = el.objective!.classList.contains('next') && this.timers.objective > 0;
+    const reading = !this.menuOpen && this.timers.subtitle <= 0 && !this.helpCur && !nextLine;
+    for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0 && (k !== 'controls' || reading)) this.timers[k] -= dt;
     this.updateHelp(dt);
     this.updateSubtitle(dt);
     if (this.timers.zone <= 0) el.zone!.classList.remove('show');
+    if (this.timers.district <= 0) el.place!.classList.remove('show');
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
     if (this.timers.delta <= 0) this.moneyDelta = 0;
     const racing = sim.activities.job?.kind === 'streetRun' && sim.activities.job.stage === 'racing';
@@ -996,13 +1016,14 @@ export class Hud {
     this.updatePolice(dt, sim);
     this.updateToasts(dt);
 
-    // Zone changes.
+    // The district's name comes up at the top left as he enters it, and on the first frame of a game.
     const pos = this.me(sim).pos();
     const zone = sim.world.zoneName(pos.x, pos.z);
     if (zone !== this.shown.zone) {
-      if (this.shown.zone) this.flashZone(zone, '');
       this.shown.zone = zone;
       el.district!.textContent = zone;
+      el.place!.classList.add('show');
+      this.timers.district = DISTRICT_SECONDS;
     }
 
     // Prompt + crosshair.
@@ -1049,11 +1070,15 @@ export class Hud {
     const name = gate ? turn === 'finish' ? 'Finish line' : turn === 'left' ? 'Turn left' : turn === 'right' ? 'Turn right' : 'Straight ahead' : this.waypoint ? 'Your waypoint' : objective?.label || (offer ? contactById(offer.giver).name : active?.def.title || 'Objective');
     const label = race ? turn === 'finish' ? 'FINAL GATE' : `GATE ${race.checkpoint + 1} / ${race.course.checkpoints.length}` : this.waypoint ? 'WAYPOINT' : active ? 'MISSION ROUTE' : sim.activities.busy ? 'ACTIVITY ROUTE' : 'NEXT CONTACT';
     // The contact who has work is a standing suggestion, not a task: the card says it quietly, and not at all while
-    // the next-step line says it across the screen.
+    // a new player's next-step line says it across the screen.
     const contact = label === 'NEXT CONTACT';
     const o = el.objective!;
     el.navigation!.classList.toggle('quiet', contact);
     if (contact && o.classList.contains('next') && o.classList.contains('show')) el.navigation!.classList.add('hidden');
+    // On a mission or a job, a line at the bottom that names the place already ("Drive it into Lou's garage") leaves the
+    // card only the way and the distance; one that does not ("Lose the tail", the Buyer) leaves the card the name.
+    const step = !race && !this.waypoint && (!!active || sim.activities.busy) && o.classList.contains('show') && !o.classList.contains('next');
+    el.navigation!.classList.toggle('unnamed', step && !!objective?.label && (o.textContent ?? '').toLowerCase().includes(objective.label.toLowerCase()));
     const detail = gate ? gate.label.split(' · ').slice(1).join(' · ') || race!.course.name : '';
     const text = `${label}:${name}:${detail}`;
     if (text !== this.navigationText) {
@@ -1080,6 +1105,8 @@ export class Hud {
    * it), saying whether the lamps are lit now: the lamps coming on by themselves at dusk move no switch.
    */
   private watchSwitch(sim: ViewState, v: Vehicle | null): void {
+    // In another vehicle (got in, seated on a street run's grid or a reseat): its name flashes over the drive panel.
+    if (v && v.id !== this.switchCar) this.flashZone(v.spec.name, '');
     if (v && v.id === this.switchCar && v.lights !== this.switchState) this.toast(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)) ? 'Headlights on' : 'Headlights off');
     this.switchCar = v ? v.id : -1;
     this.switchState = v ? v.lights : 'auto';
@@ -1103,20 +1130,29 @@ export class Hud {
       el.drive!.classList.toggle('damaged', condition < 0.3);
       el.conditionLabel!.textContent = condition < 0.3 ? 'CRITICAL DAMAGE' : 'CONDITION';
     }
-    // A boat has no handbrake. On AzuraLink his control is locked: F only skips the ride.
+    // A boat has no handbrake. On AzuraLink his control is locked: F only skips the ride. A swimmer cannot sprint or
+    // get into a car (a boat beside him has its own prompt).
     const boat = v?.spec.class === 'boat';
     const riding = !!monorailRide(sim, this.me(sim));
+    const swimming = this.me(sim).character.state === 'swimming';
     // The line is a reminder for the moment the controls change: it fades once read, except on a train ride, where F is the one thing to do.
     el.quickControls!.classList.toggle('faded', this.timers.controls <= 0 && !riding);
     const mode = `${this.device}:${inVehicle}:${boat}:${riding}:${this.keys.keymap.version}`;
-    if (mode === this.controlMode) return;
-    this.controlMode = mode;
-    this.timers.controls = CONTROLS_SECONDS;
-    el.quickControls!.classList.remove('faded');
+    const shownLine = `${mode}:${swimming}`;
+    if (shownLine === this.controlLine) return;
+    this.controlLine = shownLine;
+    // Going into the water or out of it changes what the line offers, not what there is to read again: it keeps its time.
+    if (mode !== this.controlMode) {
+      this.controlMode = mode;
+      this.timers.controls = CONTROLS_SECONDS;
+      el.quickControls!.classList.remove('faded');
+    }
     const line = riding
       ? '<span><kbd>F</kbd> Skip ride</span>'
       : inVehicle
       ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span>${boat ? '' : '<span><kbd>Space</kbd> Handbrake</span>'}<span><kbd>F</kbd> Exit</span>`
+      : swimming
+      ? ''
       : '<span><kbd>Shift</kbd> Sprint</span><span><kbd>F</kbd> Enter car</span>';
     el.quickControls!.innerHTML = formatKeys(`${line}<span><kbd>M</kbd> Map</span>`, this.device, { labels: this.keys, inVehicle });
   }
@@ -1179,11 +1215,13 @@ export class Hud {
   }
 
   /**
-   * Shows where the story goes next ('Next: Mama Lou has work - L on your radar') for a few
-   * seconds, once no title card is up, unless a mission or a side job is running by then or the
-   * player stands on that contact's marker.
+   * Tells a new player, who has passed no mission yet, where the story starts ('Mama Lou has work: follow the route to
+   * the L on your radar') for a few seconds, once no title card is up, unless a mission or a side job is running by
+   * then or the player stands on that contact's marker. A player who has passed one knows the way: the card over the
+   * radar names the contact on its own, and a contact with new work calls.
    */
   showNextStep(sim: ViewState): void {
+    if (this.me(sim).progress.missionsDone.length > 0) return;
     if (!sim.missions.active && !sim.activities.busy && sim.missions.offers().length > 0) this.nextPending = true;
   }
 
@@ -1213,11 +1251,12 @@ export class Hud {
     // until the immediate retry (or its lose-the-cops instruction) is no longer offered.
     if (!this.nextPending || retry || this.bigCur || this.bigQueue.length > 0) return;
     this.nextPending = false;
-    const d = busy ? undefined : sim.missions.offers()[0];
+    // The contact the card and the route lead to.
+    const d = busy ? undefined : this.routedOffer(sim);
     // Already on that marker (Wheels hands over at Lou's): the card says it.
     if (!d || this.onNextMarker(sim)) return;
     const c = contactById(d.giver);
-    o.textContent = `Next: ${c.name} has work - ${c.mapLabel} on your radar`;
+    o.textContent = `${c.name} has work: follow the route to the ${c.mapLabel} on your radar`;
     o.classList.add('show', 'next');
     this.timers.objective = NEXT_STEP_SECONDS;
   }
@@ -1227,10 +1266,10 @@ export class Hud {
     return !!(sim.missions.retryOffer() || sim.missions.retryAfterCops());
   }
 
-  /** The player stands on the marker of the next mission on offer, the one the next-step line names. */
+  /** The player stands on the marker of the mission the next-step line names (and the card and the route lead to). */
   private onNextMarker(sim: ViewState): boolean {
     const here = sim.interactions.current(this.me(sim));
-    return here?.kind === 'mission' && here.ref === sim.missions.offers()[0]?.id;
+    return here?.kind === 'mission' && here.ref === this.routedOffer(sim)?.id;
   }
 
   private statusText(sim: ViewState): string {

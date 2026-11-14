@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { Rng } from '../../src/core/rng';
 import type { V3 } from '../../src/core/math';
-import { CameraController } from '../../src/render/camera';
+import { CameraController, FOOT_BOOM } from '../../src/render/camera';
 import { shadesContact } from '../../src/render/contactShadows';
 import { MarkerView } from '../../src/render/markers';
 import {
@@ -68,8 +68,9 @@ const v = (x: number, y: number, z: number): V3 => ({ x, y, z });
 const pole = (x: number, z: number): [V3, V3] => [v(x, 0, z), v(x, 6.5, z)];
 
 describe('the occluder fade helper', () => {
-  // Camera 4.3 m behind and 0.8 m above a head 1.6 m up, looking along +z.
-  const cam = v(0, 2.4, -4.3);
+  // The foot camera FOOT_BOOM (3.2 m) behind and 0.4 m above a head 1.6 m up, looking along +z.
+  const B = FOOT_BOOM;
+  const cam = v(0, 2.0, -B);
   const head = v(0, 1.6, 0);
   const at = (x: number, z: number) => occluderOpacity(cam, head, ...pole(x, z));
 
@@ -83,26 +84,26 @@ describe('the occluder fade helper', () => {
   });
 
   it('dissolves an axis inside the capsule round the sight line, and one within 1 m of the lens', () => {
-    for (const z of [-3, -2, -1, -0.5]) {
+    for (const z of [-B + 0.2, -2, -1, -0.5]) {
       for (const x of [0, 0.1, -0.2, 0.34, -0.34]) expect(at(x, z), `${x}, ${z}`).toBe(0);
     }
     // Beside the lens, off the line: 0.9 m to the side of the camera.
-    expect(at(0.9, -4.3)).toBe(0);
-    expect(at(-0.6, -4.9)).toBe(0);
+    expect(at(0.9, -B)).toBe(0);
+    expect(at(-0.6, -B - 0.6)).toBe(0);
   });
 
   it('draws in full an axis 0.7 m or more off the line and more than 1.5 m from the lens', () => {
-    for (const z of [-2.5, -1.5, -0.5]) {
+    for (const z of [-B + 1.6, -1, -0.5]) {
       for (const x of [0.7, -0.7, 1, 3]) expect(at(x, z), `${x}, ${z}`).toBe(1);
     }
     // Beyond the subject, and behind the camera out of reach.
     expect(at(0, 0.8)).toBe(1);
-    expect(at(0, -6)).toBe(1);
+    expect(at(0, -B - 1.7)).toBe(1);
   });
 
   it('is smooth and monotonic in between: at most 0.05 per cm', () => {
     let worst = 0;
-    for (const z of [-3.5, -2.8, -2, -1, -0.3]) {
+    for (const z of [-B + 0.4, -2.4, -1.8, -1, -0.3]) {
       let prev = at(0, z);
       for (let x = 0.01; x <= 2.5; x += 0.01) {
         const o = at(x, z);
@@ -112,9 +113,9 @@ describe('the occluder fade helper', () => {
       }
     }
     // Toward the lens along the camera's side.
-    let prev = at(2, -4.3);
+    let prev = at(2, -B);
     for (let x = 1.99; x >= 0; x -= 0.01) {
-      const o = at(x, -4.3);
+      const o = at(x, -B);
       expect(o).toBeLessThanOrEqual(prev + 1e-12);
       worst = Math.max(worst, Math.abs(o - prev));
       prev = o;
@@ -470,7 +471,7 @@ describe('the floating diamond of the marker he stands in fades while he aims th
     let t = t0;
     for (let i = 0; i < frames; i++) {
       t += 1 / 60;
-      view.syncMarkers([m], t, { x: player.x - 0.62, y: 2.0, z: player.z - 2.4 }, player, aiming);
+      view.syncMarkers([m], t, { x: player.x - 0.62, y: 2.0, z: player.z - 2.4 }, player, aiming, Infinity, { dx: 0, dz: 1, boom: FOOT_BOOM });
     }
     const g = view.group.children[0]!;
     const icon = g.getObjectByName('icon') as THREE.Mesh;
@@ -535,7 +536,7 @@ describe('the floating diamond of the marker he stands in fades while he aims th
     let t = 0;
     for (let i = 0; i < 30; i++) {
       t += 1 / 60;
-      view.syncMarkers([m, other], t, { x: -0.62, y: 2.0, z: -2.4 }, { x: 0, z: 0 }, true);
+      view.syncMarkers([m, other], t, { x: -0.62, y: 2.0, z: -2.4 }, { x: 0, z: 0 }, true, Infinity, { dx: 0, dz: 1, boom: FOOT_BOOM });
     }
     const [a, b] = view.group.children.map((g) => (g.getObjectByName('icon') as THREE.Mesh).material as THREE.MeshStandardMaterial);
     expect(a!.opacity).toBe(0);

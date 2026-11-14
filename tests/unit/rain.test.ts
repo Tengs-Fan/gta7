@@ -399,14 +399,19 @@ describe('wet-road streaks from street lamps and car lights', () => {
     const s = frame();
     expect(s.streaks).toBeGreaterThan(0);
     expect(s.streaks).toBeLessThanOrEqual(STREAK_CAPACITY);
-    // Brighter with more water.
-    const c = new THREE.Color();
-    r.lightSprites.streaks.getColorAt(0, c);
+    // Brighter with more water. (The brightest streak: the one nearest the camera, which comes first, can be faded out
+    // altogether right by the lens.)
+    const brightest = (): number => {
+      const c = new THREE.Color();
+      let most = 0;
+      for (let i = 0; i < r.lightSprites.streaks.count; i++) most = Math.max(most, r.lightSprites.streaks.getColorAt(i, c).r);
+      return most;
+    };
+    const wet = brightest();
+    expect(wet).toBeGreaterThan(0);
     sim.weather.setFields({ wet: 0.45 });
     frame();
-    const d = new THREE.Color();
-    r.lightSprites.streaks.getColorAt(0, d);
-    expect(d.r).toBeLessThan(c.r);
+    expect(brightest()).toBeLessThan(wet);
     // By day the lamps are off.
     sim.clock.set(12);
     sim.weather.setFields({ wet: 0.9 });

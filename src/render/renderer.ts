@@ -1241,7 +1241,7 @@ export class GameRenderer {
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
       // A cow's marker only takes the E beside her: it has no beam.
       const busy = !!sim.missions.active || this.me(sim).wanted.level > 0;
-      this.markers.syncMarkers(sim.interactions.markers.filter((m) => m.kind !== 'cow' && !(busy && m.kind === 'mission')), this.time, cam.position, this.me(sim).pos(), aiming, cityReach);
+      this.markers.syncMarkers(sim.interactions.markers.filter((m) => m.kind !== 'cow' && !(busy && m.kind === 'mission')), this.time, cam.position, this.me(sim).pos(), aiming, cityReach, this.cameraCtl.markerView() ?? undefined);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       // One out on the sea (a regatta gate) stands on its surface, not the seabed.
       this.markers.syncObjectives(objectives, (x, z) => Math.max(WATER_Y + seaHeightAt(this.env.sea, x, z), sim.world.groundHeight(x, z)), this.time);

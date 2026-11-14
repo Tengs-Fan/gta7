@@ -116,6 +116,7 @@ export class NetClient {
     this.opts = { connectTimeout: 5, silenceTimeout: 2.5, predict: true, version: PROTOCOL_VERSION, ...opts };
     this.mirror = new Mirror({ world: opts.world, combat: opts.combat });
     this.predictor = new Predictor(opts.predictionWorld);
+    this.mirror.takeable = () => this.predictor.enterable();
     this.startedAt = opts.now();
     this.connect();
   }

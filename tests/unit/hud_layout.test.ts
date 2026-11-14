@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sim } from '../../src/sim/sim';
 import { Hud, trimRoute } from '../../src/ui/hud';
 import { MapImage } from '../../src/ui/mapRender';
-import { input, legacyLane, placeInCar, step, teleport, world } from './helpers';
+import { monorailRide } from '../../src/sim/viewState';
+import { trainPeriod } from '../../src/world/monorail';
+import { input, legacyLane, makeSim, placeInCar, step, teleport, world } from './helpers';
 import { makeClient, run as runNet, testManager, VirtualClock } from './net_client_helpers';
 
 type Box = { left: number; top: number; width: number; height: number };
@@ -276,6 +278,55 @@ describe('toast stack', () => {
     (hud as unknown as { fitToasts(): void }).fitToasts();
     expect(shown()).toEqual(['C']);
     expect(el.column!.getBoundingClientRect().top + el.column!.getBoundingClientRect().height).toBeLessThanOrEqual(300 - 8);
+  });
+});
+
+describe('the controls line and what stands round it', () => {
+  it('faded out, it takes no room from the toasts; up, the oldest go early to keep clear of it', () => {
+    const { hud, el, run, shown } = makeHud();
+    const sim = quickSim();
+    hud.bind(sim);
+    run(sim, 8.2);
+    expect(el.quickControls!.classList.contains('faded')).toBe(true);
+    el.column!.box = () => ({ left: 1064, top: 22, width: 190, height: 200 + 40 * shown().length });
+    el.quickControls!.box = { left: 1040, top: 300, width: 220, height: 40 };
+    hud.toast('A');
+    hud.toast('B');
+    hud.toast('C');
+    run(sim, 0.1);
+    expect(shown()).toEqual(['A', 'B', 'C']);
+    el.quickControls!.classList.remove('faded');
+    (hud as unknown as { fitToasts(): void }).fitToasts();
+    expect(shown()).toEqual(['C']);
+  });
+
+  it('on a train ride "Skip ride" stays up for the whole ride', () => {
+    const { hud, el } = makeHud();
+    // The fake parses markup it is given without keeping it: keep the line's.
+    let line = '';
+    Object.defineProperty(el.quickControls!, 'innerHTML', { set: (v: string) => void (line = v), get: () => line });
+    const sim = makeSim({ police: false });
+    const m = sim.world.layout.monorail;
+    const foot = m.stations[0]!.foot;
+    teleport(sim, foot.x, foot.z);
+    step(sim, 0.1);
+    hud.bind(sim);
+    step(sim, 1 / 60, input({ interact: true }));
+    for (let i = 0; i < trainPeriod(m) * 60 && !monorailRide(sim, sim.players[0]!); i++) step(sim, 1 / 60);
+    expect(monorailRide(sim, sim.players[0]!)).not.toBeNull();
+    for (let i = 0; i < 12 * 60; i++) {
+      step(sim, 1 / 60);
+      hud.update(1 / 60, sim, 0, false, null, sim.time);
+    }
+    expect(monorailRide(sim, sim.players[0]!)).not.toBeNull();
+    expect(line).toContain('Skip ride');
+    expect(el.quickControls!.classList.contains('faded')).toBe(false);
+  });
+
+  it("a mission's clock stays on one line, also in the narrow cluster", () => {
+    const css = readFileSync(new URL('../../src/ui/style.css', import.meta.url), 'utf8');
+    expect(css).toMatch(/\n\.status\.timer \{[^}]*white-space: nowrap;/);
+    expect(css).toMatch(/@media \(max-width: 767\.98px\) \{[^@]*\.hud-tr \.status\.timer \{ font-size: 18px; letter-spacing: 0; \}/);
   });
 });
 

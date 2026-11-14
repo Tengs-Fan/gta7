@@ -494,7 +494,7 @@ describe('single-player places in multiplayer', () => {
     expect(msgs).toEqual([MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_PROPERTY]);
     expect(sim.activities.jobOf(slot)).toBeNull();
 
-    const view = multiplayerInteractions(world(), []);
+    const view = multiplayerInteractions(world(), () => null);
     const prompt = (x: number, z: number, inCar = false) => {
       const c = { ...slot.character, pos: { x, y: 0, z }, state: inCar ? 'inVehicle' : 'normal', vehicle: inCar ? { pos: { x, y: 0, z } } : null };
       return view.prompt({ character: c, down: false, pos: () => c.pos } as never);

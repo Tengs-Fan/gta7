@@ -2,12 +2,13 @@
 
 import * as THREE from 'three';
 import { CROSSWALK_W, CURB_H, LANE_W, SIDEWALK_W } from '../../world/constants';
-import { hashInts, rectContains, type CityLayout } from '../../world/layout';
+import { hashInts, mkRect, rectContains, rectsOverlap, type CityLayout } from '../../world/layout';
 import type { RoadNetwork } from '../../world/roads';
 import { GeoBuilder, type RGB } from '../geo';
 import { manhole, stormDrain } from '../cityArchitecture';
 import { tyreMarkTexture } from '../textures';
-import { vergesOf } from './ground';
+import { tactilePads } from './ground';
+import { KERBSTONE_W, vergesOf } from './verges';
 import type { CityView } from './index';
 import { quadLine } from './shared';
 import { setGroundAttribute, type GroundRange } from './surfaces';
@@ -122,18 +123,23 @@ export const TREE_GRATE_HALF = 0.6;
 const TREE_GRATE_OPEN = 0.24;
 
 /**
- * The sidewalk trees that stand in a grate: broadleaf trees and palms within a sidewalk's width of a block's kerb, except
- * those in a grass verge (ground.ts vergesOf).
+ * The sidewalk trees that stand in a grate: broadleaf trees and palms whose grate lies on a block's sidewalk behind the
+ * kerbstones (KERBSTONE_W to SIDEWALK_W from the kerb), except those in a grass verge (verges.ts) and those whose grate
+ * would overlap a tactile pad (a superblock's mid-side T-junction can bring a crossing to a street tree).
  */
-export function gratedTrees(layout: CityLayout): Array<{ x: number; z: number }> {
+export function gratedTrees(layout: CityLayout, roads: RoadNetwork): Array<{ x: number; z: number }> {
   const out: Array<{ x: number; z: number }> = [];
   const verges = vergesOf(layout);
+  const pads = tactilePads(layout, roads);
   for (const p of layout.props) {
     if (p.kind !== 'tree' && p.kind !== 'palm') continue;
     const b = layout.blocks.find((k) => p.x >= k.rect.minX && p.x <= k.rect.maxX && p.z >= k.rect.minZ && p.z <= k.rect.maxZ);
     if (!b || verges.some((v) => rectContains(v.rect, p.x, p.z))) continue;
     const d = Math.min(p.x - b.rect.minX, b.rect.maxX - p.x, p.z - b.rect.minZ, b.rect.maxZ - p.z);
-    if (d >= TREE_GRATE_HALF && d <= SIDEWALK_W - TREE_GRATE_HALF) out.push({ x: p.x, z: p.z });
+    if (d - TREE_GRATE_HALF < KERBSTONE_W || d + TREE_GRATE_HALF > SIDEWALK_W) continue;
+    const grate = mkRect(p.x - TREE_GRATE_HALF, p.z - TREE_GRATE_HALF, p.x + TREE_GRATE_HALF, p.z + TREE_GRATE_HALF);
+    if (pads.some((t) => rectsOverlap(t.rect, grate))) continue;
+    out.push({ x: p.x, z: p.z });
   }
   return out;
 }
@@ -328,9 +334,11 @@ export function buildRoads(view: CityView): void {
     }
     marks.push(...tyreMarksOf(roads, ni));
   });
-  for (const t of gratedTrees(view.world.layout)) treeGrate(ironwork, t.x, t.z, CURB_H);
+  for (const t of gratedTrees(view.world.layout, roads)) treeGrate(ironwork, t.x, t.z, CURB_H);
   surfaces.tyreMarks.push(...marks);
   const wet = view.wet;
+  const cb = view.world.layout.bounds;
+  surfaces.uniforms.uGroundKerbed.value.set(cb.cityMinX, cb.cityMinZ, cb.cityMaxX, cb.cityMaxZ);
   const roadMat = surfaces.patch(wet.patch(surfaces.material('road')), 'road');
   view.add(setGroundAttribute(asphalt.build(), asphaltRanges), roadMat, { name: 'roads' });
   view.add(setGroundAttribute(gutters.build(), []), surfaces.patch(wet.patch(surfaces.material('curb')), 'curb'), { name: 'road-gutters' });

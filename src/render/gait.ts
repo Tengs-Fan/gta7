@@ -216,6 +216,31 @@ export function solveLeg(hx: number, hy: number, scale: number, leg: LegPose): L
 }
 
 /**
+ * How far a swinging foot may be bent up towards the shin from square to it (rad, 20 degrees), about what a running
+ * ankle reaches. A foot carried level through the swing was bent up 60 to 70 degrees as the heel kicked up behind a
+ * jogger or a sprinter, the shin near level, the sole showing to the front.
+ */
+const SWING_DORSI = 0.35;
+const TOE_REACH = Math.hypot(SKELETON.toe, SKELETON.ankleY);
+const TOE_ANGLE = Math.atan2(SKELETON.ankleY, SKELETON.toe);
+
+/**
+ * Turns a swinging foot's toe down as far as the ankle needs (SWING_DORSI), in the middle of the swing: it leaves the
+ * ground and lands at the pitch the stance gives it. Never through the ground: a low ankle keeps the toe above it.
+ */
+function swingAnkle(leg: LegPose, t: number, scale: number): void {
+  const f = leg.foot;
+  // The shin's lean (+ the knee ahead of the ankle): a foot square to it is pitched toe down by as much.
+  const shin = Math.atan2(leg.knee.z - leg.ankle.z, leg.knee.y - leg.ankle.y);
+  const most = SWING_DORSI - shin;
+  if (f.pitch <= most) return;
+  let pitch = lerp(f.pitch, most, smoothstep(0, 0.3, t) * smoothstep(1, 0.7, t));
+  const y = leg.ankle.y / (TOE_REACH * scale);
+  if (y < 1) pitch = Math.max(pitch, TOE_ANGLE - Math.asin(y));
+  f.pitch = Math.min(f.pitch, pitch);
+}
+
+/**
  * Gait pose at `phase` (radians, one cycle per stride; 0 = left foot touch-down) for moving at `speed`
  * in direction `strafe` relative to the hips (0 forward, +PI/2 to the character's left, PI backwards),
  * for a character of height `scale` and build `build`. `cycle` may pass the gait cycle already set up
@@ -235,10 +260,12 @@ export function gait(phase: number, speed: number, strafe: number, out: GaitOut,
     const side = i === 0 ? 1 : -1;
     const ui = i === 0 ? u : (u + 0.5) % 1;
     leg.planted = ui < g.duty;
+    const t = (ui - g.duty) / (1 - g.duty);
     if (leg.planted) stanceFoot(g, ui / g.duty, scale, leg.foot);
-    else swingFoot(g, (ui - g.duty) / (1 - g.duty), scale, leg.foot);
+    else swingFoot(g, t, scale, leg.foot);
     leg.foot.x += side * hx * style.width;
     solveLeg(side * hx, out.hipY, scale, leg);
+    if (!leg.planted) swingAnkle(leg, t, scale);
   }
   // Arms swing against the legs, the right arm forward with the left leg, about a point relative to the chest (+ forward,
   // rad): a walker's a little forward of hanging, so with his lean they swing 20 degrees either side of plumb; a jogger's

@@ -118,12 +118,24 @@ function poolTexture(): THREE.DataTexture {
 }
 
 /**
- * An interaction marker fades out as the camera comes near it (unless the player stands in it): drawn in
- * full from MARKER_FADE_FAR (m), gone within MARKER_FADE_NEAR. Nearer, its beam and icon only fill the edge
- * of the frame, as the safehouse save marker beside the New Game spawn did in the game's first frame.
+ * An interaction marker nearer the lens than the player fades out (unless he stands in it): there its beam (a column 2.2 m
+ * across) and its diamond fill the frame or are cut by its edge, as the safehouse save marker beside the New Game spawn
+ * did in the game's first frame. It is measured against the camera's boom (`MarkerFrame.boom`, how far back from him the
+ * settled camera stands, whatever the zoom, the Field of view setting or the water make that): drawn in full while its
+ * axis is within MARKER_FADE_FAR of as deep along the view as he is, gone once it is MARKER_FADE_NEAR nearer the lens than
+ * that. Against bare distance from the lens (3.2 and 4.2 m, set for a 4.3 m boom) the 3.2 m boom left a marker a step
+ * from him half faded, and one beside him at his own distance from the lens drawn in full, cut by the frame's edge.
  */
-export const MARKER_FADE_NEAR = 3.2;
-export const MARKER_FADE_FAR = 4.2;
+export const MARKER_FADE_NEAR = 1.1;
+export const MARKER_FADE_FAR = 0.1;
+/** With no view given (a test, the title) the depth is the distance from the lens, against a boom of this length (m). */
+export const MARKER_BOOM = 4.3;
+/** What syncMarkers needs of the view beyond the camera's position: its heading over the ground (a unit vector) and its boom (m). */
+export interface MarkerFrame {
+  dx: number;
+  dz: number;
+  boom: number;
+}
 /**
  * The marker the player stands in is drawn in full whatever the camera does, and stepping off it he takes it along for a
  * little: from 0.3 m inside its radius to MARKER_LEAVE m outside it, it fades by his distance. Walking through one with
@@ -135,8 +147,11 @@ export const MARKER_LEAVE = 1;
  * Past its edge, the marker he is stepping off is not kept right in front of the lens: there it is drawn only as far as
  * the camera is from its axis, none of it within MARKER_LENS_NEAR (m), all of it from MARKER_LENS_FAR, coming in over his
  * last 0.3 m inside the marker. Aiming (a 2.4 m boom) with his back to one he just stepped off puts the camera within a
- * metre of its axis, its diamond filling a corner of the frame; walking through one, the camera is 1.8 m or more from
- * its axis until he is out of the band.
+ * metre of its axis, its diamond filling a corner of the frame. Walking straight out of one with the camera a 3.2 m boom
+ * behind him, the camera reaches its beam (1.1 m round the axis) as he is 2.1 m out: between his last 0.3 m in it and
+ * then, 0.8 m of his walk, the lens's share comes down linearly in the distance and the lesser of it and his own fade is
+ * drawn. Multiplied, with smoothsteps, they took 0.066 of the beam's opacity in one frame at a sprint, where 0.05 shows
+ * no pop.
  */
 export const MARKER_LENS_NEAR = 1.2;
 export const MARKER_LENS_FAR = 2;
@@ -156,9 +171,15 @@ function axisDist(cam: { x: number; y: number; z: number }, x: number, z: number
   return Math.hypot(cam.x - x, Math.max(0, 0.15 - cam.y, cam.y - 2.3), cam.z - z);
 }
 
-/** How much of an interaction marker at (x, z) is drawn for a camera at `cam`, by its distance from the marker's axis (0.15-2.3 m up). */
-export function markerFade(cam: { x: number; y: number; z: number }, x: number, z: number): number {
-  return smooth(MARKER_FADE_NEAR, MARKER_FADE_FAR, axisDist(cam, x, z));
+/**
+ * How much of an interaction marker at (x, z) is drawn for a camera at `cam` looking along `view` (see MARKER_FADE_NEAR):
+ * by how deep its axis lies along the view, or with no view by its distance from the lens; a camera above its top or
+ * below its foot counts that height too (high over it, it is far from it).
+ */
+export function markerFade(cam: { x: number; y: number; z: number }, x: number, z: number, view?: MarkerFrame): number {
+  const boom = view?.boom ?? MARKER_BOOM;
+  const deep = view ? Math.max((x - cam.x) * view.dx + (z - cam.z) * view.dz, cam.y - 2.3, 0.15 - cam.y) : axisDist(cam, x, z);
+  return smooth(boom - MARKER_FADE_NEAR, boom - MARKER_FADE_FAR, deep);
 }
 
 function beamMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
@@ -235,11 +256,11 @@ export class MarkerView {
   }
 
   /**
-   * Mirrors the interaction markers. Given the camera's position, each fades out near it (see markerFade),
+   * Mirrors the interaction markers. Given the camera's position (and its `view`), each fades out near it (see markerFade),
    * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE, MARKER_LENS_NEAR), and one
    * farther than `reach` m from it, fully fogged, is not drawn.
    */
-  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }, aiming = false, reach = Infinity): void {
+  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }, aiming = false, reach = Infinity, view?: MarkerFrame): void {
     const seen = new Set<string>();
     const dt = Math.min(0.1, Math.max(0, time - this.markerTime));
     this.markerTime = time;
@@ -272,9 +293,10 @@ export class MarkerView {
         // In the marker or stepping off it (none of this without a player)...
         const away = player === undefined ? Infinity : Math.hypot(player.x - m.x, player.z - m.z);
         const kept = 1 - smooth(m.radius - 0.3, m.radius + MARKER_LEAVE, away);
-        // ...but not right in front of the lens once he is past its edge.
-        const lens = 1 - smooth(m.radius - 0.3, m.radius, away) * (1 - smooth(MARKER_LENS_NEAR, MARKER_LENS_FAR, d));
-        fade = Math.max(smooth(MARKER_FADE_NEAR, MARKER_FADE_FAR, d), kept * lens);
+        // ...but not right in front of the lens once he is past its edge: the lesser of the two, and the lens's share linear
+        // in the distance (see MARKER_LENS_NEAR).
+        const lens = Math.max(1 - smooth(m.radius - 0.3, m.radius, away), THREE.MathUtils.clamp((d - MARKER_LENS_NEAR) / (MARKER_LENS_FAR - MARKER_LENS_NEAR), 0, 1));
+        fade = Math.max(markerFade(cam, m.x, m.z, view), Math.min(kept, lens));
         if (Math.hypot(cam.x - m.x, cam.z - m.z) > reach) fade = 0;
       }
       g.visible = fade > 0;
