@@ -11,12 +11,12 @@ import {
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from '../geo';
 import { balconies, facadeRelief, fireEscape, houseShutters, trimColors } from '../cityArchitecture';
 import { drawLandmark, landmarkTowers } from './landmarks';
-import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
+import { COPING_H, PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
 import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
 import { DECOR_PROGRAM, NIGHT_HASH, createFacadeMaterial, facadeTexturesOf, withBuildingFog } from './facadeShader';
 import {
   CELLS, CELL_DESIGN, DOOR_OPENING, DOOR_U, FACADE_LOOK, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
-  signTexture, storefrontAtlas, storefrontUv, swatchUv, type DoorOpening,
+  BANK_STEP_TOP, facadeSeed, signTexture, storefrontAtlas, storefrontUv, swatchUv, type DoorOpening,
 } from '../textures';
 import type { CityView } from './index';
 
@@ -264,13 +264,19 @@ export function buildBuildings(view: CityView): void {
     // The county's other buildings are drawn by its own code (Dry Creek's stores: town.ts; the valley's winery and ranch house: valley.ts).
     if (b.district === 'country' && !farmhouses.has(b.id)) continue;
     const gb = builders.get(b.style)!;
-    // Per-building seed (k / 1000) for the night windows, so neighbours of one style never match.
-    gb.seed = (hashInts(b.id, 0x5eed) % 1000) / 1000;
+    // Per-building seed (k / 1000) for the night windows, so neighbours of one style never match; each tier's walls carry
+    // it under their roof's height (facadeSeed).
+    const night = (hashInts(b.id, 0x5eed) % 1000) / 1000;
     const cell = FACADE_CELL[b.style];
     const tints = STYLE_TINTS[b.style];
     const tint = hexToRgb(tints[Math.floor(b.tint * tints.length) % tints.length]!);
     const shade = 0.88 + rng.next() * 0.14;
     const color = scaleRgb(tint, shade);
+    // A downtown glass tower's podium (the lowest of its three tiers, 10-16 m) is in stone with a pier between every
+    // bay, so the shaft above reads as a tower standing on a base.
+    const podium = (b.style === 'glassBlue' || b.style === 'glassTeal') && b.tiers.length >= 3;
+    const podiumTints = STYLE_TINTS[PODIUM_STYLE];
+    const podiumColor = scaleRgb(hexToRgb(podiumTints[Math.floor(b.tint * podiumTints.length) % podiumTints.length]!), shade);
     const offU = Math.floor(rng.next() * FACADE_COLS) / FACADE_COLS;
     const offV = Math.floor(rng.next() * FACADE_ROWS) / FACADE_ROWS;
     // The layout decided which sides get a ground floor (Building.groundSides).
@@ -279,17 +285,22 @@ export function buildBuildings(view: CityView): void {
     // With a ground floor the window grid starts on top of it, on every wall so the rows meet at the corners.
     const baseY = CURB_H + (street.size > 0 ? b.groundH : 0);
     // Hotels run a balcony along every floor of their street walls; a little under half the apartment blocks have one at
-    // every other window.
-    const balconyEvery = street.size === 0 ? 0 : b.style === 'hotel' ? 1 : b.style === 'stucco' && hashInts(b.id, 0xba1c) / 4294967296 < 0.45 ? 2 : 0;
-    // Two brick blocks in three have a fire escape down a street wall.
-    const escape = street.size > 0 && b.style === 'brick' && !b.special && hashInts(b.id, 0xe5c) / 4294967296 < 0.65;
+    // every other window. Of the special buildings only the Hotel Salgado has them (the hospital, stucco, had them by its
+    // hash).
+    const balconyEvery = balconyStep(b);
+    const escape = hasFireEscape(b);
     for (const t of b.tiers) {
-      const uv = { kind: 'facade' as const, w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY };
-      if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, relief, b, block, t, street, uv, color);
-      else gb.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color, top: false });
-      facadeRelief(relief, b, t, baseY, color);
-      // Not on the wall carrying a sign, which stands over the first storey above the ground floor.
-      const plainSides = b.groundSides.filter((s) => s !== b.sign?.side);
+      const stone = podium && t === b.tiers[0];
+      const style = stone ? PODIUM_STYLE : b.style;
+      const tg = builders.get(style)!;
+      const tc = stone ? podiumColor : color;
+      const tcell = FACADE_CELL[style];
+      tg.seed = facadeSeed(t.y1, stone ? everyBay(night) : night);
+      const uv = { kind: 'facade' as const, w: tcell.w * FACADE_COLS, h: tcell.h * FACADE_ROWS, offU, offV, baseY };
+      if (t === b.tiers[0] && block && street.size > 0) groundTier(view, tg, front, decor, relief, b, block, t, street, uv, tc, style);
+      else tg.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color: tc, top: false });
+      facadeRelief(relief, b, t, baseY, tc, style);
+      const plainSides = plainStreetSides(b);
       if (balconyEvery > 0 && !landmarks.has(b.id)) balconies(decor, b, t, baseY, plainSides, wallTone(b, color), balconyEvery);
       if (escape && t === b.tiers[0]) fireEscape(decor, b, t, baseY, plainSides);
       if (b.style === 'house' && b.district !== 'country') houseShutters(relief, t, baseY, b.groundSides, offU * FACADE_COLS, offV * FACADE_ROWS);
@@ -313,15 +324,20 @@ export function buildBuildings(view: CityView): void {
           const y = t.y1 + lip;
           const o = 0.06;
           const i = th + 0.03;
-          relief.box(t.minX - o, y, t.minZ - o, t.maxX + o, y + 0.07, t.minZ + i, { uv: TRIM_UV, color: cp });
-          relief.box(t.minX - o, y, t.maxZ - i, t.maxX + o, y + 0.07, t.maxZ + o, { uv: TRIM_UV, color: cp });
-          relief.box(t.minX - o, y, t.minZ + i, t.minX + i, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp });
-          relief.box(t.maxX - i, y, t.minZ + i, t.maxX + o, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.minZ - o, t.maxX + o, y + COPING_H, t.minZ + i, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.maxZ - i, t.maxX + o, y + COPING_H, t.maxZ + o, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.minZ + i, t.minX + i, y + COPING_H, t.maxZ - i, { uv: TRIM_UV, color: cp });
+          relief.box(t.maxX - i, y, t.minZ + i, t.maxX + o, y + COPING_H, t.maxZ - i, { uv: TRIM_UV, color: cp });
+        }
+        // Three brick and apartment blocks in five raise the middle of their street parapet in two steps, a name panel
+        // that breaks the flat roofline seen along the street.
+        if (t === b.tiers[b.tiers.length - 1] && t.y1 <= COPING_MAX_Y && (b.style === 'brick' || b.style === 'stucco') && b.groundSides.length > 0 && hashInts(b.id, 0x9a4a) / 4294967296 < 0.6) {
+          raisedParapet(roofs, relief, t, b.sign?.side ?? b.groundSides[0]!, th, lc, trimColors(b, color).cap, hashInts(b.id, 0x9a4b) / 4294967296);
         }
       }
     }
     const lm = landmarks.get(b.id);
-    if (lm) drawLandmark(gb, relief, b, lm, { kind: 'facade', w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY }, color);
+    if (lm) drawLandmark(gb, relief, b, lm, { kind: 'facade', w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY }, color, night);
     else for (const it of rooftopItems(b)) drawRooftopItem(relief, it);
     if (b.sign) addSign(view, b, b.sign.text, b.sign.color, b.sign.side);
   }
@@ -363,7 +379,7 @@ export function buildBuildings(view: CityView): void {
  * ground floor and the band below becomes shop, lobby, house or loading-bay frontage; the other
  * walls stay full height.
  */
-function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: GeoBuilder, relief: GeoBuilder, b: Building, block: Block, t: Tier, street: Set<Side>, uv: UvMode, color: RGB): void {
+function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: GeoBuilder, relief: GeoBuilder, b: Building, block: Block, t: Tier, street: Set<Side>, uv: UvMode, color: RGB, style: FacadeStyle): void {
   const w = t.maxX - t.minX;
   const d = t.maxZ - t.minZ;
   const lot = block.lot;
@@ -379,7 +395,7 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
   const poi = def ? view.world.layout.pois.find((p) => p.id === def.id) : undefined;
   const top = t.y0 + b.groundH;
   const piers = b.ground !== 'house';
-  const { trim } = trimColors(b, color);
+  const { trim } = trimColors(b, color, style);
   for (const wl of walls) {
     if (!street.has(wl.side)) {
       gb.wall(wl.x0, wl.z0, wl.x1, wl.z1, t.y0, t.y1, uv, color, wl.u);
@@ -406,8 +422,59 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
   }
 }
 
+/** Every how many window columns a building has a balcony on its street walls' storeys (0: none). */
+export function balconyStep(b: Building): number {
+  if (b.groundSides.length === 0 || (b.special && b.special !== 'contactVera')) return 0;
+  if (b.style === 'hotel') return 1;
+  return b.style === 'stucco' && hashInts(b.id, 0xba1c) / 4294967296 < 0.45 ? 2 : 0;
+}
+
+/** Whether a brick block has a fire escape down a street wall: two in three, no special building. */
+export function hasFireEscape(b: Building): boolean {
+  return b.groundSides.length > 0 && b.style === 'brick' && !b.special && hashInts(b.id, 0xe5c) / 4294967296 < 0.65;
+}
+
+/** The street walls a balcony or fire escape may take: not the one carrying a sign, which stands over the first storey. */
+export function plainStreetSides(b: Building): Side[] {
+  return b.groundSides.filter((s) => s !== b.sign?.side);
+}
+
+/** The facade of a glass tower's podium. */
+const PODIUM_STYLE: FacadeStyle = 'office';
+
+/**
+ * A night seed (whole thousandths) near `night` that the facade shader reads as an office with a pier between every
+ * bay (it takes the thousandths modulo 3: 0 a ribbon, 1 every other bay, 2 every bay).
+ */
+export function everyBay(night: number): number {
+  const k = Math.round(night * 1000);
+  const e = k - (k % 3) + 2;
+  return (e > 999 ? e - 3 : e) / 1000;
+}
+
 /** Roofs (m) up to which parapets carry a coping. */
 const COPING_MAX_Y = 45;
+
+/**
+ * A raised middle to the parapet over wall `side` of a flat roof: a panel 0.9 m over the coping, between shoulders half
+ * as high, 30-45% of the wall long (`r` picks where in that), each stepped part capped in the trim's stone.
+ */
+function raisedParapet(roofs: GeoBuilder, relief: GeoBuilder, t: Tier, side: Side, th: number, wall: RGB, cap: RGB, r: number): void {
+  const ns = side === 'N' || side === 'S';
+  const len = ns ? t.maxX - t.minX : t.maxZ - t.minZ;
+  const mid = len * (0.3 + 0.15 * r);
+  if (mid < 3) return;
+  const y = t.y1 + PARAPET_H + COPING_H;
+  const c = ns ? (t.minX + t.maxX) / 2 : (t.minZ + t.maxZ) / 2;
+  const [n0, n1] = side === 'S' ? [t.maxZ - th, t.maxZ] : side === 'N' ? [t.minZ, t.minZ + th] : side === 'E' ? [t.maxX - th, t.maxX] : [t.minX, t.minX + th];
+  const pu = { kind: 'world' as const, scale: 4 };
+  // The middle stands on the shoulders' coping, which runs on under it as a course.
+  for (const [half, base, rise] of [[mid / 2 + 0.8, 0, 0.45], [mid / 2, 0.52, 0.9]] as const) {
+    const [x0, x1, z0, z1] = ns ? [c - half, c + half, n0, n1] : [n0, n1, c - half, c + half];
+    roofs.box(x0, y + base, z0, x1, y + rise, z1, { uv: pu, color: wall, top: false });
+    relief.box(x0 - 0.04, y + rise, z0 - 0.04, x1 + 0.04, y + rise + COPING_H, z1 + 0.04, { uv: TRIM_UV, color: cap, bottom: true });
+  }
+}
 
 /** Width (m) of the piers between the bays of a ground floor, and how far they stand out from the wall. */
 export const PIER_W = 0.32;
@@ -558,7 +625,7 @@ function frontQuad(g: GeoBuilder, ax: number, az: number, bx: number, bz: number
   const sy = band / design.h;
   const s0 = mirror ? seg - opening.x1 * sx : opening.x0 * sx;
   const s1 = mirror ? seg - opening.x0 * sx : opening.x1 * sx;
-  const h0 = opening.y0 * sy;
+  const h0 = opening.floor ?? opening.y0 * sy;
   const h1 = opening.y1 * sy;
   const d = opening.depth;
   const P = (s: number, h: number, o: number): [number, number, number] => [ax + ux * s - nx * o, y0 + h, az + uz * s - nz * o];
@@ -693,7 +760,7 @@ function canopy(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, u
   boxAround(g, mx + nx * (depth - 0.03), mz + nz * (depth - 0.03), Math.abs(ux) * width + Math.abs(nx) * 0.06, Math.abs(uz) * width + Math.abs(nz) * 0.06, y + 0.24, y + 0.3, [0.75, 0.76, 0.78]);
 }
 
-/** Three broad stone steps up to the bank's doors. */
+/** Three broad stone steps up to the bank's doors, the top one level with its doorway's floor (BANK_STEP_TOP). */
 function steps(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux: number, uz: number, y0: number): void {
   const nx = -uz;
   const nz = ux;
@@ -704,7 +771,7 @@ function steps(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux
   for (let k = 0; k < 3; k++) {
     const depth = 1.05 - k * 0.35;
     const width = len * 0.9 - k * 0.3;
-    boxAround(g, mx + nx * (depth / 2), mz + nz * (depth / 2), Math.abs(ux) * width + Math.abs(nx) * depth, Math.abs(uz) * width + Math.abs(nz) * depth, y0 - 0.02, y0 + 0.12 * (k + 1), scaleRgb(stone, 1 - k * 0.04));
+    boxAround(g, mx + nx * (depth / 2), mz + nz * (depth / 2), Math.abs(ux) * width + Math.abs(nx) * depth, Math.abs(uz) * width + Math.abs(nz) * depth, y0 - 0.02, y0 + (BANK_STEP_TOP / 3) * (k + 1), scaleRgb(stone, 1 - k * 0.04));
   }
 }
 

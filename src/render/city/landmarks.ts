@@ -3,6 +3,7 @@
 
 import { rectD, rectW, type Building, type CityLayout } from '../../world/layout';
 import { scaleRgb, type GeoBuilder, type RGB, type UvMode } from '../geo';
+import { facadeSeed } from '../textures';
 import { prism } from './rooftops';
 
 export type LandmarkKind = 'stepped' | 'pyramid' | 'crown' | 'wedge';
@@ -101,9 +102,10 @@ function describe(b: Building, kind: LandmarkKind): Landmark {
 
 /**
  * Draws a landmark's crown: the stepped crown's tiers in the tower's own facade (`facade`, with its facade UVs so
- * the window grid carries on), everything else in the trim batch.
+ * the window grid carries on, each step's walls seeded with its roof and the building's `night` seed), everything else
+ * in the trim batch.
  */
-export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, lm: Landmark, uv: UvMode, color: RGB): void {
+export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, lm: Landmark, uv: UvMode, color: RGB, night: number): void {
   const t = b.tiers[b.tiers.length - 1]!;
   const cx = (t.minX + t.maxX) / 2;
   const cz = (t.minZ + t.maxZ) / 2;
@@ -120,6 +122,7 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
       STEPS.forEach((s, i) => {
         const hw = (w * s) / 2;
         const hd = (d * s) / 2;
+        facade.seed = facadeSeed(y0 + STEP_H[i]!, night);
         facade.box(cx - hw, y0, cz - hd, cx + hw, y0 + STEP_H[i]!, cz + hd, { uv, color, top: false });
         trim.box(cx - hw - 0.2, y0 + STEP_H[i]! - 0.3, cz - hd - 0.2, cx + hw + 0.2, y0 + STEP_H[i]!, cz + hd + 0.2, { uv: W, color: cap });
         y0 += STEP_H[i]!;
