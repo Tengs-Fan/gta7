@@ -107,8 +107,8 @@ describe('the landscape keeps off everything that assumes flat ground', () => {
   });
 
   it('stands every county prop on the ground', () => {
-    for (const p of L.props.slice(country.firstProp)) expect(p.y, `${p.kind} at ${p.x}, ${p.z}`).toBeCloseTo(W.baseGround(p.x, p.z), 9);
-    const lifted = L.props.slice(country.firstProp).filter((p) => p.y > 1);
+    for (const p of L.props.slice(country.firstProp, L.firstQuaySignal)) expect(p.y, `${p.kind} at ${p.x}, ${p.z}`).toBeCloseTo(W.baseGround(p.x, p.z), 9);
+    const lifted = L.props.slice(country.firstProp, L.firstQuaySignal).filter((p) => p.y > 1);
     expect(lifted.length).toBeGreaterThan(20);
     for (const p of lifted) expect(p.y).toBe(countryGround(country, p.x, p.z));
   });

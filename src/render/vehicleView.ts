@@ -14,7 +14,7 @@ import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
-import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
+import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, sculptBody, tailLamp, taperCabin, tireGeometry } from './vehicleDetails';
 import { carModel, type CarModel, type ModelLamp } from './vehicleModels';
 import type { Suspension } from './suspension';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
@@ -710,6 +710,18 @@ function addRoof(b: GeoBuilder, prof: Profile, kind: VehicleKind, c: CabinLayout
   }
 }
 
+/** How much darker than the paint the van's roof ribs are drawn, so their relief reads from above. */
+const RIB_SHADE = 0.84;
+
+/** Stiffening ribs across the van's roof, which the chase camera looks down on (merged into the body, so they dent with it). */
+function addVanRibs(b: GeoBuilder, prof: Profile, L: number, hw: number): void {
+  const roofFront = prof.body[4]![0] - 0.25;
+  for (let z = -L / 2 + 0.3; z <= roofFront; z += 0.42) {
+    const top = topAt(prof.body, z) + BEVEL;
+    b.box(-(hw - 0.14), top - 0.01, z - 0.035, hw - 0.14, top + 0.025, z + 0.035, RIB_SHADE);
+  }
+}
+
 interface KindAssets {
   body: THREE.BufferGeometry;
   cabin: THREE.BufferGeometry;
@@ -813,6 +825,7 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     bb.box(-0.84, deck + 0.13, zc - 0.17, 0.84, deck + 0.16, zc + 0.15, 1, -0.06);
     for (const side of [-1, 1]) bb.box(side * 0.84 - 0.02, deck + 0.06, zc - 0.2, side * 0.84 + 0.02, deck + 0.2, zc + 0.17, 1);
   }
+  if (kind === 'van') addVanRibs(bb, prof, s.length, hw);
   if (prof.bodyW !== undefined) {
     // Mudguards over the big rear wheels, out from the body to the spec width: a plate over the tyre's top and one
     // down either end of it.
@@ -1356,9 +1369,9 @@ export class VehicleView {
   private readonly livery: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
   private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
-  /** Lenses: a pale, satin head lamp (a mirror finish flared in the sun like a lit lamp), a deep red tail lamp. */
+  /** Lenses: a pale, satin head lamp (a mirror finish flared in the sun like a lit lamp), a clear red tail lamp (a deeper red read as a dark maroon block by day). */
   private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xa9b1b8, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.5, metalness: 0.2 });
-  private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x6a0606, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
+  private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x9a0c0c, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0xa8acae, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.14, metalness: 0.45 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
   private sirenBlue: THREE.MeshStandardMaterial | null = null;
@@ -1499,8 +1512,9 @@ export class VehicleView {
         const bodyHalf = (a.prof.bodyW ?? s.width) / 2;
         h = lens(a.lamp, this.headMat, false);
         onEnd(h, side * (bodyHalf - 0.32), ly, false);
-        t = lens(a.lamp, this.tailMat, true);
-        onEnd(t, side * (bodyHalf - 0.3), ly + 0.05, true);
+        const tl = tailLamp(kind, bodyHalf, ly);
+        t = lens([tl.w, tl.h, a.lamp[2]], this.tailMat, true);
+        onEnd(t, side * tl.x, tl.y, true);
       }
       this.group.add(h, t);
       this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });

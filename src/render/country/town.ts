@@ -6,7 +6,8 @@
 // for the neon, a draw of its own.
 
 import * as THREE from 'three';
-import type { Store, StoreKind } from '../../world/country/places';
+import { Rng } from '../../core/rng';
+import type { Store, StoreKind, TownAnchors } from '../../world/country/places';
 import { hashInts, rectContains, type FacadeStyle } from '../../world/layout';
 import { boxC, face, pitched, tri, type V } from '../city/attractions';
 import { prism } from '../city/rooftops';
@@ -15,6 +16,7 @@ import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { FACADE_CELL, FACADE_COLS, FACADE_ROWS } from '../textures/facade';
 import { canvas, toTexture } from '../textures/misc';
 import type { CountryView } from './index';
+import { beam, TIN_TILE, tinBand } from './farms';
 import { DIRT_Y, type PlacePieces, type PlacesKit } from './kit';
 
 /** The shop windows' band, from the boardwalk up; the porch roofs over the boardwalks, from the fronts out. */
@@ -248,6 +250,109 @@ function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: M
   kit.board(p, sign(kit, [[s.name, 92]], L.sign[0], L.sign[1]), sw, sh, cx, (ph.high + s.top) / 2 + 0.15, fz + out * 0.05, rot);
 }
 
+/** Slipformed concrete: the lifts' faint seams across it, darker streaks run down from the top, a little grime toward the foot (v[0]). */
+function concreteBand(kit: PlacesKit): [number, number] {
+  return kit.atlas.band(256, (ctx) => {
+    const rng = new Rng(4420);
+    ctx.fillStyle = '#d2cdc2';
+    ctx.fillRect(0, 0, 1024, 256);
+    for (let k = 0; k < 160; k++) {
+      const l = rng.int(150, 215);
+      ctx.fillStyle = `rgba(${l},${l - 4},${l - 12},0.35)`;
+      ctx.fillRect(rng.range(0, 1024), 0, rng.range(2, 10), rng.range(30, 256));
+    }
+    ctx.fillStyle = 'rgba(90,84,74,0.1)';
+    for (let y = 64; y < 256; y += 64) ctx.fillRect(0, y, 1024, 2);
+    const grime = ctx.createLinearGradient(0, 0, 0, 256);
+    grime.addColorStop(0, 'rgba(60,54,44,0.03)');
+    grime.addColorStop(0.5, 'rgba(60,54,44,0)');
+    grime.addColorStop(1, 'rgba(60,54,44,0.07)');
+    ctx.fillStyle = grime;
+    ctx.fillRect(0, 0, 1024, 256);
+  });
+}
+
+/** The concrete band's tile round a silo (m): its width spans CONCRETE_TILE m of wall, its height a sixth of the silo. */
+const CONCRETE_TILE = 8;
+
+/**
+ * The grain elevator: concrete silos in lifts of the concrete band under a rim and a low cone, on a darker footing, a
+ * caged ladder up the west one; the head house across their tops and the leg tower at their east end in ribbed tin with
+ * a strip of windows, roofed in tin; the spout from the leg down to the head house.
+ */
+function elevator(kit: PlacesKit, p: PlacePieces, e: TownAnchors['elevator']): void {
+  const concrete = concreteBand(kit);
+  const tin = tinBand(kit.atlas);
+  const n = 24;
+  const lifts = 6;
+  const round = (2 * Math.PI * e.r) / CONCRETE_TILE;
+  for (const s of e.silos) {
+    for (let j = 0; j < lifts; j++) {
+      const y0 = (e.height * j) / lifts;
+      const y1 = (e.height * (j + 1)) / lifts;
+      for (let k = 0; k < n; k++) {
+        const a0 = (k / n) * Math.PI * 2;
+        const a1 = ((k + 1) / n) * Math.PI * 2;
+        const P = (a: number, y: number): V => [s.x + Math.cos(a) * e.r, y, s.z + Math.sin(a) * e.r];
+        const am = (a0 + a1) / 2;
+        face(p.painted, P(a1, y0), P(a0, y0), P(a0, y1), P(a1, y1), [Math.cos(am), 0, Math.sin(am)], [1, 1, 1], [((k + 1) / n) * round, concrete[0], (k / n) * round, concrete[0], (k / n) * round, concrete[1], ((k + 1) / n) * round, concrete[1]]);
+      }
+    }
+    prism(p.plain, s.x, s.z, e.r + 0.08, e.r + 0.08, 0, 0.9, n, scaleRgb(CONCRETE, 0.78), false);
+    prism(p.plain, s.x, s.z, e.r + 0.1, e.r + 0.1, e.height - 0.1, e.height + 0.35, n, scaleRgb(CONCRETE, 0.95), false);
+    prism(p.plain, s.x, s.z, e.r + 0.1, e.r * 0.25, e.height + 0.35, e.height + 1.1, n, scaleRgb(CONCRETE, 0.86));
+  }
+  // The caged ladder up the west silo's south side: two stiles, rungs every 0.4 m, hoops from 3 m up.
+  const w = e.silos[0]!;
+  const lz = w.z + e.r + 0.25;
+  const iron: RGB = [0.32, 0.33, 0.35];
+  for (const dx of [-0.25, 0.25]) boxC(p.plain, w.x + dx - 0.03, 0.9, lz - 0.03, w.x + dx + 0.03, e.height + 0.9, lz + 0.03, iron);
+  for (let y = 1.2; y < e.height + 0.6; y += 0.4) boxC(p.plain, w.x - 0.25, y, lz - 0.02, w.x + 0.25, y + 0.035, lz + 0.02, iron);
+  for (let y = 3; y < e.height + 0.6; y += 1.5) {
+    boxC(p.plain, w.x - 0.4, y, lz + 0.62, w.x + 0.4, y + 0.06, lz + 0.68, iron);
+    for (const dx of [-0.4, 0.4]) boxC(p.plain, w.x + dx - 0.03, y, lz - 0.05, w.x + dx + 0.03, y + 0.06, lz + 0.68, iron);
+  }
+  for (const dx of [-0.4, 0.4]) boxC(p.plain, w.x + dx - 0.025, 3, lz + 0.62, w.x + dx + 0.025, e.height + 0.6, lz + 0.66, iron);
+  // The head house and the leg tower: tin walls round a box, windows along the head house, tin roofs.
+  const grey: RGB = [0.74, 0.76, 0.78];
+  const walls = (r: { minX: number; minZ: number; maxX: number; maxZ: number }, y0: number, y1: number) => {
+    const rise = tin[1] - tin[0];
+    const v: [number, number] = [tin[0] + rise * 0.15, tin[1]];
+    paintWall(p, [r.minX, y0, r.maxZ], [r.maxX, y0, r.maxZ], y1, [0, 0, 1], grey, v);
+    paintWall(p, [r.maxX, y0, r.minZ], [r.minX, y0, r.minZ], y1, [0, 0, -1], grey, v);
+    paintWall(p, [r.maxX, y0, r.maxZ], [r.maxX, y0, r.minZ], y1, [1, 0, 0], scaleRgb(grey, 0.95), v);
+    paintWall(p, [r.minX, y0, r.minZ], [r.minX, y0, r.maxZ], y1, [-1, 0, 0], scaleRgb(grey, 0.95), v);
+  };
+  walls(e.head, e.height, e.headTop);
+  walls(e.leg, 0, e.top - 1.5);
+  const roofs = (r: { minX: number; minZ: number; maxX: number; maxZ: number }, y: number, rise: number) => {
+    const cz = (r.minZ + r.maxZ) / 2;
+    const run = (r.maxX - r.minX + 0.5) / TIN_TILE;
+    for (const s of [-1, 1]) {
+      const ez = s < 0 ? r.minZ - 0.25 : r.maxZ + 0.25;
+      face(p.painted, [r.minX - 0.25, y - 0.05, ez], [r.maxX + 0.25, y - 0.05, ez], [r.maxX + 0.25, y + rise, cz], [r.minX - 0.25, y + rise, cz], [0, 1, s], TIN, [0, tin[0], run, tin[0], run, tin[1], 0, tin[1]]);
+      tri(p.plain, [r.minX, y, s < 0 ? r.minZ : r.maxZ], [r.minX, y, cz], [r.minX, y + rise - 0.05, cz], [-1, 0, 0], grey);
+      tri(p.plain, [r.maxX, y, s < 0 ? r.minZ : r.maxZ], [r.maxX, y, cz], [r.maxX, y + rise - 0.05, cz], [1, 0, 0], grey);
+    }
+  };
+  roofs(e.head, e.headTop, 1.6);
+  roofs(e.leg, e.top - 1.5, 1.5);
+  const glass: RGB = [0.16, 0.2, 0.24];
+  for (let x = e.head.minX + 1.2; x < e.head.maxX - 1; x += 2.2) {
+    for (const [z, s] of [[e.head.maxZ + 0.03, 1], [e.head.minZ - 0.03, -1]] as const) face(p.plain, [x, e.headTop - 2.1, z], [x + 1.1, e.headTop - 2.1, z], [x + 1.1, e.headTop - 1.3, z], [x, e.headTop - 1.3, z], [0, 0, s], glass);
+  }
+  for (let y = 6; y < e.top - 3; y += 6) face(p.plain, [e.leg.minX + 1.2, y, e.leg.maxZ + 0.03], [e.leg.maxX - 1.2, y, e.leg.maxZ + 0.03], [e.leg.maxX - 1.2, y + 1, e.leg.maxZ + 0.03], [e.leg.minX + 1.2, y + 1, e.leg.maxZ + 0.03], [0, 0, 1], glass);
+  // The spout from the leg down to the head house, and a catwalk rail along the head house's south edge.
+  boxC(p.plain, e.head.maxX, e.headTop - 1.2, -318.2, e.leg.minX, e.headTop - 0.8, -317.8, [0.5, 0.5, 0.52]);
+  beam(p.plain, [e.leg.minX - 0.1, e.top - 4, -318], [e.head.maxX - 2, e.headTop + 0.6, -318], 0.35, [0.55, 0.56, 0.58]);
+}
+
+/** A wall from a to b (its foot, left to right seen from outside) up to `y1`, in band `v` along its length. */
+function paintWall(p: PlacePieces, a: V, b: V, y1: number, toward: V, tint: RGB, v: readonly [number, number]): void {
+  const run = Math.hypot(b[0] - a[0], b[2] - a[2]) / TIN_TILE;
+  face(p.painted, a, b, [b[0], y1, b[2]], [a[0], y1, a[2]], toward, tint, [0, v[0], run, v[0], run, v[1], 0, v[1]]);
+}
+
 export function buildTown(view: CountryView, kit: PlacesKit): (night: number, time: number) => void {
   const L = view.world.layout;
   const town = L.country.places.town;
@@ -297,17 +402,8 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   }
 
   // The grain elevator: concrete silos, the corrugated head house over them and the leg tower at their end.
+  elevator(kit, p, town.elevator);
   const e = town.elevator;
-  for (const s of e.silos) {
-    prism(p.plain, s.x, s.z, e.r, e.r, 0, e.height, 20, CONCRETE, false);
-    prism(p.plain, s.x, s.z, e.r, e.r * 0.25, e.height, e.height + 0.8, 20, scaleRgb(CONCRETE, 0.9));
-  }
-  boxC(p.plain, e.head.minX, e.height, e.head.minZ, e.head.maxX, e.headTop, e.head.maxZ, [0.62, 0.64, 0.66]);
-  pitched(p.plain, e.head, e.headTop, e.headTop + 1.6, true, 0.25, TIN, [0.6, 0.62, 0.64]);
-  boxC(p.plain, e.leg.minX, 0, e.leg.minZ, e.leg.maxX, e.top - 1.5, e.leg.maxZ, [0.6, 0.62, 0.64]);
-  pitched(p.plain, e.leg, e.top - 1.5, e.top, true, 0.2, TIN, [0.6, 0.62, 0.64]);
-  // A spout from the leg down to the silos, and the co-op's name on the head house over the town.
-  boxC(p.plain, e.head.maxX, e.headTop - 1.2, -318.2, e.leg.minX, e.headTop - 0.8, -317.8, [0.5, 0.5, 0.52]);
   kit.board(p, sign(kit, [['DRY CREEK CO-OP', 96]], '#f6f1e4', '#7a2e1c'), 12, 1.6, (e.head.minX + e.head.maxX) / 2, e.height + 3.2, e.head.maxZ + 0.04, 0);
 
   // The water tower: the tank on four legs with a ring of rails, a cone on top, its words to the main street.

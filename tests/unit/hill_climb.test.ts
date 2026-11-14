@@ -112,7 +112,7 @@ describe('Coyote Ridge Hill Climb', () => {
     mp.sim.activities.toggleJob();
     expect(mp.sim.activities.job).toBeNull();
     expect(said).toContain(MP_NO_HILL_CLIMB);
-    const view = multiplayerInteractions(world());
+    const view = multiplayerInteractions(world(), []);
     const c = { ...mp.sim.player, pos: { x: HILL_CLIMB_START.x, y: 0, z: HILL_CLIMB_START.z }, state: 'normal', vehicle: null };
     expect(view.prompt({ character: c, down: false, pos: () => c.pos } as never)).toBe(MP_NO_HILL_CLIMB);
   });

@@ -42,14 +42,16 @@ const sphere = new THREE.Sphere();
 /**
  * Whether a draw of the frame's opaque list goes into the depth and normal pass: not glass, smoke, lamp pools, halos,
  * points or lines, nothing that opted out (`contactShadow: false` on the object or its material: a pole dissolving
- * in front of the camera, the crowd), and nothing wholly further than `range` from `eye`.
+ * in front of the camera, the crowd), and nothing wholly further than `range` from `eye` (an instanced batch by the sphere
+ * round all its instances).
  */
 export function shadesContact(item: Item, eye: THREE.Vector3, range: number): boolean {
   const o = item.object as THREE.Mesh;
   if (!o.isMesh || (o as unknown as { isLine2?: boolean }).isLine2 || o.userData.contactShadow === false || noDepth(item.material)) return false;
-  const g = item.geometry;
-  if (!o.frustumCulled || !g.boundingSphere) return true;
-  sphere.copy(g.boundingSphere).applyMatrix4(o.matrixWorld);
+  // A batch's own sphere covers all its instances; its shared geometry's covers one of them at the origin.
+  const bounds = (o as THREE.InstancedMesh).isInstancedMesh ? (o as THREE.InstancedMesh).boundingSphere : item.geometry.boundingSphere;
+  if (!o.frustumCulled || !bounds) return true;
+  sphere.copy(bounds).applyMatrix4(o.matrixWorld);
   return sphere.center.distanceTo(eye) - sphere.radius <= range;
 }
 

@@ -98,6 +98,7 @@ export class CountryView {
     this.life = new CountryLife(this);
     this.valley = new ValleyView(this, wind);
     this.ranch = new RanchView(this);
+    this.valley.lit.push(this.farms.material);
     const kit = new PlacesKit();
     this.animated.push(buildTown(this, kit));
     const driveIn = buildDriveIn(this, kit);

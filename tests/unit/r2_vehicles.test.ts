@@ -821,8 +821,9 @@ describe('vehicle views', () => {
     const mat = (): THREE.MeshStandardMaterial => tail.material as THREE.MeshStandardMaterial;
     view.sync(v, DT, 0, 1);
     expect(mat().emissive.getHex()).toBe(0xff0000);
-    // Revised (mission 3 cars): a deep red lens over a reflector, and not lit at all by day when off (VAL-CAR-005).
-    expect(mat().color.getHex()).toBe(0x6a0606);
+    // Revised (mission 3 cars): a red lens over a reflector, and not lit at all by day when off (VAL-CAR-005).
+    // Revised (round 9 cars): a clearer red, which reads as a lens by day (the deep red read as a dark maroon block).
+    expect(mat().color.getHex()).toBe(0x9a0c0c);
     expect(mat().emissiveIntensity).toBeCloseTo(1.0, 6);
     v.braking = true;
     view.sync(v, DT, 0, 1);

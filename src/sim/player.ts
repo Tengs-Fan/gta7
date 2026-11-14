@@ -1,9 +1,10 @@
 // Turns PlayerInput into player character / vehicle behaviour.
 
-import { circleVsObb, makeContact, segmentHitsAabb } from '../core/collision';
+import { circleVsObb, makeContact } from '../core/collision';
 import { clamp, moveAngleTowards, moveTowards, smoothstep, wrapAngle } from '../core/math';
 import { throwDamage } from './bikes';
-import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
+import { SWIM_SPEED } from './characterPhysics';
+import { BOARD_REACH, BOARD_RISE, entryRoute, entryRouteClear, entryWorld, findEnterable, type EntryPoint } from './entry';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
 import { lampDarkness, lampsLit, switchFor } from './lamps';
@@ -24,8 +25,6 @@ const CONVERGE_FROM = 3;
 const CONVERGE_FULL = 1;
 const CONVERGE_RATE = 9.5;
 
-interface EntryPoint { x: number; z: number }
-interface EntryRoute { side: 1 | -1; points: EntryPoint[]; length: number }
 
 export class PlayerController {
   private exitPending = false;
@@ -213,44 +212,14 @@ export class PlayerController {
     if (id) inv.current = id;
   }
 
-  /**
-   * Nearest vehicle whose body is in reach and has a walkable approach to a door; or a boat whose hull is within
-   * BOARD_REACH of him (from the quay, a pier or the water: he steps or climbs straight in). Only boats when `swimming`.
-   */
+  /** The vehicle F would take for `p` (see findEnterable in entry.ts), among this sim's vehicles. */
   findEnterable(p: Character, swimming = false): Vehicle | null {
-    let best: Vehicle | null = null;
-    let bd = Infinity;
-    for (const v of this.sim.vehicles) {
-      if (v.spec.class === 'boat') {
-        if (v.removed || !v.drivable || v.speed > 3 || (v.driver && v.driver.isPlayer)) continue;
-        const d = Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
-        if (d > 12 || Math.abs(v.pos.y - p.pos.y) > BOARD_RISE) continue;
-        vehicleObb(v, obb);
-        if (!circleVsObb(p.pos.x, p.pos.z, BOARD_REACH, obb, contact)) continue;
-        if (d < bd) {
-          bd = d;
-          best = v;
-        }
-        continue;
-      }
-      if (swimming) continue;
-      if (v.removed || !v.drivable || v.airborne || v.speed > 7) continue;
-      const d = Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
-      if (d > 12 || Math.abs(v.pos.y - p.pos.y) > 2.5) continue;
-      vehicleObb(v, obb);
-      if (!circleVsObb(p.pos.x, p.pos.z, 2.0, obb, contact)) continue;
-      if (v.driver && v.driver.isPlayer) continue;
-      if (d < bd && this.entryRoute(p, v)) {
-        bd = d;
-        best = v;
-      }
-    }
-    return best;
+    return findEnterable(this.sim, p, swimming);
   }
 
   private beginEnter(p: Character, v: Vehicle): void {
     const boat = v.spec.class === 'boat';
-    const route = boat ? { points: [], side: 1 as const, length: 0 } : this.entryRoute(p, v);
+    const route = boat ? { points: [], side: 1 as const, length: 0 } : entryRoute(this.sim.world, p, v);
     if (!route) return;
     this.entryPoints = route.points;
     this.entrySide = route.side;
@@ -276,74 +245,6 @@ export class PlayerController {
     return { x: v.pos.x + sx * (v.halfW + 0.55) * side + fx * 0.35, z: v.pos.z + sz * (v.halfW + 0.55) * side + fz * 0.35 };
   }
 
-  private entryWorld(v: Vehicle, point: EntryPoint): EntryPoint {
-    const s = Math.sin(v.heading);
-    const c = Math.cos(v.heading);
-    return { x: v.pos.x + c * point.x + s * point.z, z: v.pos.z - s * point.x + c * point.z };
-  }
-
-  /** A short swept walk, including body width: a sight ray alone misses thin posts and wall corners. */
-  private entrySegmentClear(p: Character, v: Vehicle, a: EntryPoint, b: EntryPoint): boolean {
-    const s = Math.sin(v.heading);
-    const c = Math.cos(v.heading);
-    const ax = a.x - v.pos.x;
-    const az = a.z - v.pos.z;
-    const bx = b.x - v.pos.x;
-    const bz = b.z - v.pos.z;
-    // The tiny tolerance lets a character already touching the body's physics
-    // margin move away; it never permits a path through the vehicle itself.
-    const bodyMargin = p.radius - 0.05;
-    if (segmentHitsAabb(ax * c - az * s, ax * s + az * c, bx * c - bz * s, bx * s + bz * c,
-      { minX: -v.halfW - bodyMargin, maxX: v.halfW + bodyMargin, minZ: -v.halfL - bodyMargin, maxZ: v.halfL + bodyMargin })) return false;
-    const world = this.sim.world;
-    const distance = Math.hypot(b.x - a.x, b.z - a.z);
-    const samples = Math.max(1, Math.ceil(distance / 0.2));
-    let ground = world.groundHeight(a.x, a.z);
-    for (let i = 1; i <= samples; i++) {
-      const x = a.x + (b.x - a.x) * i / samples;
-      const z = a.z + (b.z - a.z) * i / samples;
-      const nextGround = world.groundHeight(x, z);
-      if (!world.isFree(x, z, p.radius, true) || world.waterDepth(x, z) > 1 || Math.abs(nextGround - ground) > MAX_STEP) return false;
-      ground = nextGround;
-    }
-    return true;
-  }
-
-  private entryRouteClear(p: Character, v: Vehicle, points: readonly EntryPoint[]): boolean {
-    let previous: EntryPoint = p.pos;
-    for (const point of points) {
-      const next = this.entryWorld(v, point);
-      if (!this.entrySegmentClear(p, v, previous, next)) return false;
-      previous = next;
-    }
-    return true;
-  }
-
-  /** Both doors, directly or around either end. No general city pathfinding for a nearby car. */
-  private entryRoute(p: Character, v: Vehicle): EntryRoute | null {
-    let best: EntryRoute | null = null;
-    for (const side of [1, -1] as const) {
-      const door = { x: (v.halfW + 0.55) * side, z: 0.35 };
-      const paths = [[door]];
-      for (const end of [1, -1]) {
-        const corner = { x: (v.halfW + 0.7) * side, z: (v.halfL + 0.7) * end };
-        paths.push([corner, door], [{ x: -corner.x, z: corner.z }, corner, door]);
-      }
-      for (const points of paths) {
-        let previous: EntryPoint = p.pos;
-        let length = 0;
-        for (const point of points) {
-          const next = this.entryWorld(v, point);
-          length += Math.hypot(next.x - previous.x, next.z - previous.z);
-          previous = next;
-        }
-        if (length > 24 || (best && length >= best.length) || !this.entryRouteClear(p, v, points)) continue;
-        best = { side, points, length };
-      }
-    }
-    return best;
-  }
-
   private entering(dt: number): void {
     const sim = this.sim;
     const p = this.p.character;
@@ -362,8 +263,8 @@ export class PlayerController {
       this.abortEnter();
       return;
     }
-    if (!this.entryPoints.length || !this.entryRouteClear(p, v, this.entryPoints)) {
-      const route = this.entryRoute(p, v);
+    if (!this.entryPoints.length || !entryRouteClear(this.sim.world, p, v, this.entryPoints)) {
+      const route = entryRoute(this.sim.world, p, v);
       if (!route) {
         this.abortEnter();
         return;
@@ -373,7 +274,7 @@ export class PlayerController {
     }
     let distanceLeft = 7 * dt;
     while (this.entryPoints.length && distanceLeft > 0) {
-      const next = this.entryWorld(v, this.entryPoints[0]!);
+      const next = entryWorld(v, this.entryPoints[0]!);
       const dx = next.x - p.pos.x;
       const dz = next.z - p.pos.z;
       const distance = Math.hypot(dx, dz);
@@ -756,9 +657,7 @@ export class PlayerController {
   }
 }
 
-/** Boats: how far from the hull he can board one or step off it (m), how high a deck he can climb to, and the time it takes. */
-const BOARD_REACH = 3.2;
-const BOARD_RISE = 3;
+/** Boats: the time it takes to board or leave one (s). */
 const BOARD_TIME = 0.5;
 
 /** Keyboard steering: wind-in rate (full lock per second) at walking pace, and the rate back to the centre. */

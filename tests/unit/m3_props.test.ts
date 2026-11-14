@@ -525,10 +525,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // the lake's review (the fire break west of the tower's pad takes its pines out, the pad's boulders stand, and the hills' old
   // scrub is set aside from the pad, the track and the pines' skirts, which moves its foliage envelopes); all re-recorded once
   // on the merged head, where the passes run places, lakeland, valley's farms, oddities, so the lakeland's props come before
-  // the farms' and the roadside oddities' (mailboxes and signs) last, and the colliders follow in the same order.
+  // the farms' and the roadside oddities' (mailboxes and signs) last, and the colliders follow in the same order; and when
+  // the 18 signals that drowning the four bays had taken off their corners stood again, appended after every other prop and
+  // their colliders after every other collider (layout.ts drown).
   const D98 = {
-    props: '85a2b30dd75027abd2fc3a6bbf4f6cf38ce369c5593a861de65b112a9cb974a6',
-    colliders: 'f7e94100091c209f2bd5b08412f9fc587470bd3e6dc90f6d92ae2da3ed4e1c93',
+    props: '09d4ff1377bcf7f06bdb96d0bedea6b43b81b910c4340e8c24754a2dda7fdc2e',
+    colliders: 'd909d41cda6d6f8845de370776eef67be964083ab7f69b01b9ac02d74d8c3f6b',
     envelopes: 'a13bd45640a2bdfe39ee42eba25dfe6c86b08c57f3283b7b3cbf0507c7776f47',
   };
 
@@ -537,6 +539,21 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
     const colliders = W.grid.colliders.map((c) => [c.circle, r6(c.minX), r6(c.minZ), r6(c.maxX), r6(c.maxZ), r6(c.r), r6(c.y0), r6(c.y1), c.tag, c.breakable, c.propIndex]);
     const env = W.layout.props.filter((p) => p.kind === 'tree' || p.kind === 'bush').map((p) => foliageSpheres(p).map((s) => [r6(s.x), r6(s.y), r6(s.z), r6(s.r)]));
     expect({ props: sha(props), colliders: sha(colliders), envelopes: sha(env) }).toEqual(D98);
+  });
+
+  it('every prop and collider older than the drowned corners\' signals hashes as it did before they stood again', () => {
+    // The hashes above as they stood at 28dfbee, before layout.ts drown handed the 18 back: everything but those 18 and
+    // their colliders, the last of each.
+    const first = W.layout.firstQuaySignal;
+    expect(W.layout.props.length - first).toBe(18);
+    const props = W.layout.props.slice(0, first).map((p) => [p.kind, r6(p.x), r6(p.y), r6(p.z), r6(p.rot), r6(p.scale)]);
+    const older = W.grid.colliders.filter((c) => c.propIndex < first);
+    expect(W.grid.colliders.slice(older.length).every((c) => c.propIndex >= first)).toBe(true);
+    const colliders = older.map((c) => [c.circle, r6(c.minX), r6(c.minZ), r6(c.maxX), r6(c.maxZ), r6(c.r), r6(c.y0), r6(c.y1), c.tag, c.breakable, c.propIndex]);
+    expect({ props: sha(props), colliders: sha(colliders) }).toEqual({
+      props: '85a2b30dd75027abd2fc3a6bbf4f6cf38ce369c5593a861de65b112a9cb974a6',
+      colliders: 'f7e94100091c209f2bd5b08412f9fc587470bd3e6dc90f6d92ae2da3ed4e1c93',
+    });
   });
 
   it('every leaf-card vertex, pushed as far as a storm can, stays inside an envelope, for every tree and bush', () => {

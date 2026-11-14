@@ -18,7 +18,7 @@ import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { FACADE_CELL, FACADE_COLS, FACADE_ROWS } from '../textures/facade';
 import { canvas, glowTexture, toTexture } from '../textures/misc';
 import type { WindUniforms } from '../props';
-import { barn, beam, mailbox, sign, WOOD } from './farms';
+import { barn, beam, DOOR_U, farmBands, mailbox, sign, WOOD, type FarmBands } from './farms';
 import type { CountryView } from './index';
 import { Vines } from './vines';
 
@@ -224,7 +224,7 @@ function bulbString(p: Pieces, lit: [number, number], a: V, b: V, sag: number, n
 
 export class ValleyView {
   private readonly vines: Vines;
-  /** Materials the headlights light (renderer.ts): the farms' atlas, whose decks, posts and boards stand within the pool's reach of a car. */
+  /** Materials the headlights light (renderer.ts): the valley's farms' atlas and the county's farmsteads' (CountryView), whose decks, porches, posts and boards stand within the pool's reach of a car. */
   readonly lit: THREE.MeshStandardMaterial[] = [];
   private readonly halos: THREE.Points;
   private readonly haloMat: THREE.PointsMaterial;
@@ -233,7 +233,7 @@ export class ValleyView {
     const layout = view.world.layout;
     const v = layout.country.valley;
     this.vines = new Vines(view, v.vineyard, wind);
-    const atlas = new Atlas(1024);
+    const atlas = new Atlas(2048);
     const blank = atlas.band(8, (ctx) => {
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, 1024, 8);
@@ -244,6 +244,7 @@ export class ValleyView {
       ctx.fillRect(0, 0, 1024, 16);
     }, true);
     const { window: windowBand, door: doorBand } = openings(atlas);
+    const bands = farmBands(atlas);
     // Each place a piece of its own (the winery's stone, the ruin's stone, the vineyard's and the ranch's wood, tile and
     // boards), so a mesh's bounds hug what it draws and the cull hides it from far away.
     const wineryStone = new GeoBuilder(true);
@@ -253,15 +254,18 @@ export class ValleyView {
     const bulbs: V[] = [];
     this.winery(v, wineryStone, vineyard, windowBand, doorBand, lit, atlas, bulbs);
     this.ruin(v, ruinStone);
-    this.ranch(v, view, ranch, atlas);
+    this.ranch(v, view, ranch, atlas, bands);
     // The stone, one coursed texture in vertex colours.
     const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTexture(), vertexColors: true, roughness: 0.92 });
     stoneMat.name = 'valley-stone';
     view.add(wineryStone.build(), stoneMat, { shadow: true, split: false, name: 'winery-stone' });
     view.add(ruinStone.build(), stoneMat, { shadow: true, split: false, name: 'ruin-stone' });
     // Everything else on the atlas: wood, tile, painted boards and the lit bands.
+    // Repeating along u, so the barn's tin runs on along its roof; every band spans the atlas's width.
+    const map = toTexture(atlas.canvas, true, false);
+    map.wrapS = THREE.RepeatWrapping;
     const mat = new THREE.MeshStandardMaterial({
-      map: toTexture(atlas.canvas, true, false),
+      map,
       emissiveMap: toTexture(atlas.glowCanvas, true, false),
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 0.4,
@@ -341,6 +345,7 @@ export class ValleyView {
     boxC(p.plain, front - 0.12, lowY - 0.22, porch.minZ, front + 0.12, lowY, porch.maxZ, WOOD);
     for (const z of [porch.minZ + 0.3, 123.5, 127, 130.5, porch.maxZ - 0.3]) boxC(p.plain, hall.maxX, top - 0.3, z - 0.07, front + 0.4, top - 0.12, z + 0.07, WOOD);
     face(p.plain, [hall.maxX, top - 0.1, porch.minZ - 0.3], [front + 0.5, lowY - 0.05, porch.minZ - 0.3], [front + 0.5, lowY - 0.05, porch.maxZ + 0.3], [hall.maxX, top - 0.1, porch.maxZ + 0.3], [0.5, 1, 0], TILE);
+    face(p.plain, [hall.maxX, top - 0.16, porch.minZ - 0.3], [front + 0.5, lowY - 0.11, porch.minZ - 0.3], [front + 0.5, lowY - 0.11, porch.maxZ + 0.3], [hall.maxX, top - 0.16, porch.maxZ + 0.3], [-0.5, -1, 0], scaleRgb(WOOD, 1.2));
     // Tables, a barrel each with two stools, under the roof.
     for (const z of [121.4, 132.6]) {
       prism(p.plain, front - 2.6, z, 0.46, 0.46, deck, deck + 0.95, 10, OAK, true);
@@ -413,7 +418,7 @@ export class ValleyView {
   }
 
   /** The ranch's house, barn roof, gate, bales and the paddocks' shelters. */
-  private ranch(v: ValleyFarms, view: CountryView, p: Pieces, atlas: Atlas): void {
+  private ranch(v: ValleyFarms, view: CountryView, p: Pieces, atlas: Atlas, bands: FarmBands): void {
     const layout = view.world.layout;
     const r = v.ranch;
     const rng = new Rng(4412);
@@ -437,9 +442,20 @@ export class ValleyView {
     boxC(p.plain, hr.minX, 0, hr.maxZ, hr.maxX, 0.3, porch, scaleRgb(WOOD, 1.1));
     for (let x = hr.minX + 0.4; x < hr.maxX; x += 3.55) boxC(p.plain, x - 0.1, 0.3, porch - 0.3 - 0.1, x + 0.1, wallH - 0.2, porch - 0.3 + 0.1, [0.95, 0.93, 0.88]);
     face(p.plain, [hr.minX - 0.3, wallH - 0.2, hr.maxZ], [hr.maxX + 0.3, wallH - 0.2, hr.maxZ], [hr.maxX + 0.3, wallH - 0.7, porch + 0.2], [hr.minX - 0.3, wallH - 0.7, porch + 0.2], [0, 1, 1], [0.17, 0.2, 0.2]);
+    // Under the porch roof its boards, a fascia along its front; a stone plinth round the house, two steps up to the deck
+    // and the front door in its casing behind it.
+    face(p.plain, [hr.minX - 0.3, wallH - 0.24, hr.maxZ], [hr.maxX + 0.3, wallH - 0.24, hr.maxZ], [hr.maxX + 0.3, wallH - 0.74, porch + 0.2], [hr.minX - 0.3, wallH - 0.74, porch + 0.2], [0, -1, 0], [0.88, 0.85, 0.78]);
+    boxC(p.plain, hr.minX - 0.3, wallH - 0.95, porch + 0.12, hr.maxX + 0.3, wallH - 0.68, porch + 0.24, [0.95, 0.93, 0.88]);
+    boxC(p.plain, hr.minX - 0.06, 0, hr.minZ - 0.06, hr.maxX + 0.06, 0.42, hr.maxZ + 0.02, scaleRgb(STONE, 0.6));
+    const doorX = (hr.minX + hr.maxX) / 2;
+    for (const [s, top] of [[1, 0.2], [2, 0.1]] as const) boxC(p.plain, doorX - 0.9, 0, porch, doorX + 0.9, top, porch + 0.3 * s, scaleRgb(WOOD, 1.1 - s * 0.06));
+    const dz = hr.maxZ + 0.04;
+    face(p.painted, [doorX - 0.55, 0.3, dz], [doorX + 0.55, 0.3, dz], [doorX + 0.55, 2.6, dz], [doorX - 0.55, 2.6, dz], [0, 0, 1], [1, 1, 1], [DOOR_U, bands.door[0], 2 * DOOR_U, bands.door[0], 2 * DOOR_U, bands.door[1], DOOR_U, bands.door[1]]);
+    for (const s of [-1, 1]) boxC(p.plain, doorX + s * 0.65 - 0.1, 0.3, hr.maxZ, doorX + s * 0.65 + 0.1, 2.8, hr.maxZ + 0.09, [0.95, 0.93, 0.88]);
+    boxC(p.plain, doorX - 0.8, 2.7, hr.maxZ, doorX + 0.8, 2.9, hr.maxZ + 0.09, [0.95, 0.93, 0.88]);
     // The barn's gambrel roof (its walls are a garage the city draws) in blue-grey tin.
     const gar = layout.garages.find((q) => q.poi === 'ranch_barn')!;
-    barn(p.plain, r, gar.height, gar.color, 0x383d42);
+    barn(p.plain, p.painted, bands, r, gar.height, gar.color, 0x383d42, true);
     // The gate: two timber posts over the drive's mouth under a lintel, the brand's board on it facing the road and the ranch.
     const board = gateBoard(atlas);
     const gx = r.gate.x;
@@ -469,10 +485,11 @@ export class ValleyView {
   }
 }
 
-/** A run-in shelter on the south side of a paddock: a back wall and two sides of weathered boards under a tin roof sloping to the back. */
+/** A run-in shelter on the south side of a paddock: a back wall and two sides of weathered boards under a tin roof sloping to the back, its rafters' boards under it. */
 function shelter(g: GeoBuilder, s: Shelter): void {
   const { minX: x0, minZ: z0, maxX: x1, maxZ: z1 } = s.roof;
   const board: RGB = [0.45, 0.33, 0.22];
   for (const w of s.walls) boxC(g, w.rect.minX, 0, w.rect.minZ, w.rect.maxX, w.h, w.rect.maxZ, board);
   face(g, [x0 - 0.3, 2.7, z0 - 0.4], [x1 + 0.3, 2.7, z0 - 0.4], [x1 + 0.3, 2.15, z1 + 0.2], [x0 - 0.3, 2.15, z1 + 0.2], [0, 1, 0.2], [0.55, 0.57, 0.58]);
+  face(g, [x0 - 0.3, 2.66, z0 - 0.4], [x1 + 0.3, 2.66, z0 - 0.4], [x1 + 0.3, 2.11, z1 + 0.2], [x0 - 0.3, 2.11, z1 + 0.2], [0, -1, 0], [0.4, 0.3, 0.21]);
 }

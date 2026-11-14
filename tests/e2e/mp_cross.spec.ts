@@ -281,6 +281,25 @@ test.describe('multiplayer cross-area flows', () => {
     await B.ctx.close();
   });
 
+  test('beside a parked car the client is told what F does, and F takes that car', async ({ browser }) => {
+    const A = await joinRoom(browser, 'Ann', 'x-prompt');
+    // A car parked at the kerb near where he joined, as the mirror holds it: the server stands him at its driver's door.
+    const car = await A.page.evaluate(() => {
+      const v = (window as Api).__gta7.game.view.vehicles.find((x: { owner: string; driver: unknown; removed: boolean; spec: { class: string } }) => x.owner === 'parked' && !x.driver && !x.removed && x.spec.class === 'car');
+      return v ? { id: v.id, name: v.spec.name as string, x: v.pos.x + Math.cos(v.heading) * 2.3, z: v.pos.z - Math.sin(v.heading) * 2.3 } : null;
+    });
+    expect(car, 'a parked car in the mirror').not.toBeNull();
+    await debug(A, { godMode: true, neverWanted: true, teleport: [car!.x, car!.z] });
+    const prompt = A.page.locator('.prompt');
+    await expect(prompt).toHaveText(`Press F to get in the ${car!.name}`, { timeout: 8000 });
+    await expect(prompt.locator('kbd')).toHaveText('F');
+    // F takes the car the prompt named.
+    await A.page.keyboard.press('f');
+    await A.page.waitForFunction((id) => (window as Api).__gta7.net.local().vehicle?.id === id, car!.id, { timeout: 8000 });
+    expect(appErrors(A.errors)).toEqual([]);
+    await A.ctx.close();
+  });
+
   test('a player who closes his page leaves within 2 s; the room carries on, and a new player joins and sees the one still there', async ({ browser }) => {
     const A = await joinRoom(browser, 'Ann', 'x-leave');
     const B = await joinRoom(browser, 'Bea', 'x-leave');

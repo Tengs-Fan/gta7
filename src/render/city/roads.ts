@@ -1,12 +1,13 @@
 // Roads: asphalt, gutters, ironwork, lane markings, crosswalks, and tyre marks at the junctions.
 
 import * as THREE from 'three';
-import { CROSSWALK_W, LANE_W } from '../../world/constants';
-import { hashInts } from '../../world/layout';
+import { CROSSWALK_W, CURB_H, LANE_W, SIDEWALK_W } from '../../world/constants';
+import { hashInts, rectContains, type CityLayout } from '../../world/layout';
 import type { RoadNetwork } from '../../world/roads';
-import { GeoBuilder } from '../geo';
+import { GeoBuilder, type RGB } from '../geo';
 import { manhole, stormDrain } from '../cityArchitecture';
 import { tyreMarkTexture } from '../textures';
+import { vergesOf } from './ground';
 import type { CityView } from './index';
 import { quadLine } from './shared';
 import { setGroundAttribute, type GroundRange } from './surfaces';
@@ -114,6 +115,48 @@ export function tyreMarksOf(roads: RoadNetwork, nodeId: number): TyreMark[] {
     }
   }
   return out;
+}
+
+/** Half side (m) of a street tree's cast-iron grate, and the half side of its opening round the trunk. */
+export const TREE_GRATE_HALF = 0.6;
+const TREE_GRATE_OPEN = 0.24;
+
+/**
+ * The sidewalk trees that stand in a grate: broadleaf trees and palms within a sidewalk's width of a block's kerb, except
+ * those in a grass verge (ground.ts vergesOf).
+ */
+export function gratedTrees(layout: CityLayout): Array<{ x: number; z: number }> {
+  const out: Array<{ x: number; z: number }> = [];
+  const verges = vergesOf(layout);
+  for (const p of layout.props) {
+    if (p.kind !== 'tree' && p.kind !== 'palm') continue;
+    const b = layout.blocks.find((k) => p.x >= k.rect.minX && p.x <= k.rect.maxX && p.z >= k.rect.minZ && p.z <= k.rect.maxZ);
+    if (!b || verges.some((v) => rectContains(v.rect, p.x, p.z))) continue;
+    const d = Math.min(p.x - b.rect.minX, b.rect.maxX - p.x, p.z - b.rect.minZ, b.rect.maxZ - p.z);
+    if (d >= TREE_GRATE_HALF && d <= SIDEWALK_W - TREE_GRATE_HALF) out.push({ x: p.x, z: p.z });
+  }
+  return out;
+}
+
+const UNIT = { kind: 'unit' } as const;
+
+/** Four flat rectangles framing the square of half side `inner` out to `outer`, centred on (x, z). */
+function squareRing(g: GeoBuilder, x: number, z: number, inner: number, outer: number, y: number, color: RGB): void {
+  g.flat(x - outer, z - outer, x + outer, z - inner, y, UNIT, color);
+  g.flat(x - outer, z + inner, x + outer, z + outer, y, UNIT, color);
+  g.flat(x - outer, z - inner, x - inner, z + inner, y, UNIT, color);
+  g.flat(x + inner, z - inner, x + outer, z + inner, y, UNIT, color);
+}
+
+/**
+ * A street tree's grate, flush on the paving at height y: dark soil round the trunk, a cast-iron plate with two rings of
+ * slots, and a paler worn frame (17 quads).
+ */
+export function treeGrate(g: GeoBuilder, x: number, z: number, y: number): void {
+  g.flat(x - TREE_GRATE_OPEN, z - TREE_GRATE_OPEN, x + TREE_GRATE_OPEN, z + TREE_GRATE_OPEN, y + 0.009, UNIT, [0.06, 0.045, 0.032]);
+  squareRing(g, x, z, TREE_GRATE_OPEN, TREE_GRATE_HALF - 0.04, y + 0.01, [0.05, 0.05, 0.052]);
+  for (const r of [0.34, 0.46]) squareRing(g, x, z, r - 0.014, r + 0.014, y + 0.012, [0.012, 0.011, 0.01]);
+  squareRing(g, x, z, TREE_GRATE_HALF - 0.04, TREE_GRATE_HALF, y + 0.012, [0.12, 0.118, 0.112]);
 }
 
 /** A strip of quads along a polyline (y up), fading in and out at its ends through vertex alpha. */
@@ -285,6 +328,7 @@ export function buildRoads(view: CityView): void {
     }
     marks.push(...tyreMarksOf(roads, ni));
   });
+  for (const t of gratedTrees(view.world.layout)) treeGrate(ironwork, t.x, t.z, CURB_H);
   surfaces.tyreMarks.push(...marks);
   const wet = view.wet;
   const roadMat = surfaces.patch(wet.patch(surfaces.material('road')), 'road');

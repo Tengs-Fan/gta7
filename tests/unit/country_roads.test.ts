@@ -335,7 +335,7 @@ describe('Las Lomas County: the Magnolia Causeway, the Southgate Bridge and thei
   });
 
   it('stands signal heads for the gateways\' eastbound approaches and every approach of the county\'s junctions', () => {
-    const heads = L.props.slice(L.country.firstProp).filter((p) => p.kind === 'signal');
+    const heads = L.props.slice(L.country.firstProp, L.firstQuaySignal).filter((p) => p.kind === 'signal');
     const at = (node: number, dir: number) => heads.filter((p) => p.node === node && p.dir === dir).length;
     expect(at(roads.node(0, 2).id, 1)).toBe(1);
     expect(at(roads.node(0, 8).id, 1)).toBe(1);
@@ -345,7 +345,7 @@ describe('Las Lomas County: the Magnolia Causeway, the Southgate Bridge and thei
     // Dry Creek's four; the Hollister T and the Creek T have stop signs instead (stop_sign.test.ts).
     expect(heads.length).toBe(2 + 4);
     // Lamps along both of the causeway's verges.
-    const lamps = L.props.slice(L.country.firstProp).filter((p) => p.kind === 'lamp' && rectContains(CAUSEWAY, p.x, p.z));
+    const lamps = L.props.slice(L.country.firstProp, L.firstQuaySignal).filter((p) => p.kind === 'lamp' && rectContains(CAUSEWAY, p.x, p.z));
     expect(lamps.length).toBe(12);
     expect(lamps.every((p) => p.y === 0 && !W.isOnRoad(p.x, p.z))).toBe(true);
   });
@@ -353,7 +353,7 @@ describe('Las Lomas County: the Magnolia Causeway, the Southgate Bridge and thei
   it('builds the county\'s colliders after every older one: the bridge\'s parapets and its props', () => {
     const first = L.country.firstProp;
     // Those with one: the landscape's scrub has none (country_hills.test.ts).
-    const ids = L.props.slice(first).map((_p, k) => W.propColliders[first + k]!).filter((id) => id >= 0);
+    const ids = L.props.slice(first, L.firstQuaySignal).map((_p, k) => W.propColliders[first + k]!).filter((id) => id >= 0);
     expect(Math.min(...ids)).toBeGreaterThan(4574);
     const parapets = W.grid.colliders.filter((c) => c.tag === 'wall' && rectContains(BRIDGE, c.cx, c.cz));
     expect(parapets.length).toBe(2);

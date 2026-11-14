@@ -15,7 +15,7 @@ import {
 } from '../sim/pose';
 import { isGun, type VehicleKind, type WeaponId } from '../sim/specs';
 import { BARE_ARM, BARE_LEG, characterGeometries, DRAWN_SHOULDER, WOMAN, type CharacterPartName } from './characterGeometry';
-import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
+import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type GaitStyle, type LegPose } from './gait';
 import { onDrawn, riderMount } from './riders';
 import { seaHeightAt, type SeaWaveUniforms } from './sea';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
@@ -33,6 +33,28 @@ const IDLE_SWAY = 0.025;
 const IDLE_GLANCE = 0.3;
 /** How fast that comes and goes as he stops and sets off (1/s). */
 const IDLE_EASE = 5;
+/**
+ * The highest a foot is lifted stepping into or out of his stance (m, height 1), and the rate the gait comes or goes
+ * (1/s) below which the step is over.
+ */
+const STEP_LIFT = 0.08;
+const STEP_SETTLED = 0.05;
+/** How fast the stance and the lean into turns come back after he puts a gun away (1/s). */
+const LOOSE_EASE = 10;
+/**
+ * Turning, he leads with his head and chest and leans into the turn: per rad/s of the turn, the head's and the chest's
+ * lead (rad) and the lean (rad, per m/s of his speed), and the most of each. A heading slews at 9 to 16 rad/s, so a
+ * walker rounding a corner looks 0.36 rad into it before his hips come round, and a sprinter cutting one leans 8
+ * degrees.
+ */
+const TURN_HEAD = 0.04;
+const TURN_HEAD_MAX = 0.45;
+const TURN_CHEST = 0.02;
+const TURN_CHEST_MAX = 0.2;
+const TURN_BANK = 0.004;
+const TURN_BANK_MAX = 0.14;
+/** How fast the drawn turn follows the heading's rate (1/s): smooth over a frame's jitter, quick enough to lead. */
+const TURN_EASE = 14;
 const FLINCH_LEAN = 0.34;
 const FLINCH_TWIST = 0.24;
 const FLINCH_DROP = 0.06;
@@ -190,6 +212,18 @@ interface Anim {
   ease: number;
   /** Frame the character was last drawn. */
   frame: number;
+  /** His heading as last drawn, and the rate it turns at (rad/s, smoothed). */
+  yaw: number;
+  turn: number;
+  /** How fast `walk` is changing (1/s): setting off or stopping, not a steady crawl. */
+  shift: number;
+  /** The foot stepping into or out of his stance (0 left, 1 right), -1 between steps. */
+  stepper: number;
+  /**
+   * 0 .. 1: how far what the renderer adds to his trunk (the stance, the lean into a turn, his carriage) is drawn. Off at
+   * once when he takes a gun in hand (it is held where the simulation has his chest), back over a few frames after.
+   */
+  loose: number;
 }
 
 type P3 = { readonly x: number; readonly y: number; readonly z: number };
@@ -296,6 +330,61 @@ function woman(c: Character, local: boolean): boolean {
   return !local && isWoman(c);
 }
 
+/**
+ * How someone stands and walks, by his id (GaitStyle, and his stance): which leg he rests his weight on (1 left, -1
+ * right), how far apart his feet stand (m, beyond his hips) and how far he puts the free one forward (m), how far his
+ * toes turn out standing (rad), his elbows' bend hanging (rad), and how far he leans (rad, unarmed). A woman steps
+ * nearer the line under her hips; nobody's feet come so near it that the shoes would touch passing (0.08 m either side).
+ */
+interface Style extends GaitStyle {
+  support: number;
+  apart: number;
+  free: number;
+  toe: number;
+  hang: number;
+  slouch: number;
+}
+
+function styleOf(c: Character, local: boolean, out: Style): Style {
+  const id = c.id;
+  const s = c.appearance.height;
+  const she = woman(c, local);
+  out.swing = (she ? 0.85 : 0.9) + 0.35 * seeded(id, 43);
+  out.elbow = 0.25 * (seeded(id, 44) - 0.4);
+  const hx = hipSpread(c.appearance.build);
+  out.width = Math.max(STEP_CLEAR / hx, (she ? 0.7 : 0.8) + 0.15 * seeded(id, 47));
+  out.support = seeded(id, 40) < 0.5 ? 1 : -1;
+  out.apart = (she ? 0.005 : 0.015) + 0.025 * seeded(id, 47);
+  // The free foot forward, but no further than keeps its toe inside his collision circle (Character.radius, 0.35 m)
+  // for the broadest of builds: the shoe is SHOE_HALF wide either side whatever his height, and its toe reaches
+  // SKELETON.toe x height ahead of the ankle.
+  const side = hx + out.apart + SHOE_HALF;
+  const room = Math.sqrt(Math.max(0, FOOT_REACH * FOOT_REACH - side * side)) - SKELETON.toe * s;
+  out.free = Math.min((0.035 + 0.045 * seeded(id, 41)) * s, room);
+  out.toe = (she ? 0.06 : 0.1) + 0.12 * seeded(id, 42);
+  out.hang = 0.15 + 0.3 * seeded(id, 44);
+  out.slouch = 0.07 * (seeded(id, 45) - 0.5);
+  return out;
+}
+
+/**
+ * Standing on one leg: the other hip joint sits this far lower (m, height 1), so that knee bends 15 to 20 degrees with
+ * its foot set forward, while the leg he stands on stays straight under him (standing, a hip joint is within a
+ * millimetre of the leg's reach: a foot set forward without it would leave the ground). The joint sinks into the hips
+ * as drawn; only someone at rest with nothing in his hands also moves them, this far over the leg he stands on and
+ * half the drop down.
+ */
+const STAND_SHIFT = 0.045;
+const STAND_DROP = 0.02;
+/**
+ * The shoe's half-width (m, characterGeometry's sole: it does not scale with height); a walking foot's centre keeps
+ * STEP_CLEAR from the line under his hips so two shoes never touch passing; a standing foot's toe stays within
+ * FOOT_REACH of his centre (inside the 0.35 m collision circle, with room for the toe's turn out).
+ */
+const SHOE_HALF = 0.075;
+const STEP_CLEAR = SHOE_HALF + 0.005;
+const FOOT_REACH = 0.34;
+
 function shortSleeved(c: Character, local: boolean): boolean {
   if (local || c.role === 'player' || c.role === 'swat') return false;
   return seeded(c.id, 31) < (c.role === 'cop' ? 0.4 : 0.55);
@@ -329,6 +418,7 @@ export class CrowdView {
   private player: Character | null = null;
   private readonly trunk: Trunk = makeTrunk();
   private readonly gaitOut = makeGaitOut();
+  private readonly style: Style = { swing: 1, elbow: 0, width: 1, support: 1, apart: 0, free: 0, toe: 0, hang: 0, slouch: 0 };
   private readonly wp: WeaponPose = makeWeaponPose();
   /** The sea whose drawn waves swimmers ride (bindSea). */
   private sea: SeaWaveUniforms | null = null;
@@ -597,7 +687,7 @@ export class CrowdView {
   private poseOnFoot(c: Character, dt: number): void {
     let anim = this.lie.get(c.id);
     if (!anim) {
-      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, ease: 0, frame: 0 };
+      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, ease: 0, frame: 0, yaw: c.heading, turn: 0, shift: 0, stepper: -1, loose: 1 };
       this.lie.set(c.id, anim);
     }
     anim.frame = this.frame;
@@ -795,6 +885,11 @@ export class CrowdView {
   // Poses
 
   private pose(c: Character, anim: Anim, dt: number): void {
+    // The rate his heading turns at, kept in every pose (a heading set while lying, swimming or paused is no turn).
+    const upright = c.state !== 'swimming' && anim.lie <= 0.001 && c.state !== 'dead' && c.state !== 'knocked';
+    if (dt > 0 && upright) anim.turn = damp(anim.turn, clamp(wrapAngle(c.heading - anim.yaw) / dt, -20, 20), TURN_EASE, dt);
+    else if (!upright) anim.turn = 0;
+    anim.yaw = c.heading;
     const lying = c.state === 'dead' || c.state === 'knocked';
     anim.lie += clamp((lying ? 1 : 0) - anim.lie, -dt * 3, dt * (c.onGround ? 5 : 2.2));
     if (c.state === 'swimming') {
@@ -815,12 +910,15 @@ export class CrowdView {
     const t = trunkPose(c, this.trunk);
     const entering = c.state === 'entering';
     const grounded = c.onGround || entering;
+    const was = anim.walk;
     anim.walk = damp(anim.walk, entering ? 1 : t.move, 10, dt);
+    if (dt > 0) anim.shift = Math.abs(anim.walk - was) / dt;
     anim.air = damp(anim.air, grounded ? 0 : 1, 14, dt);
     // Standing still, the gait has no weight and is not worked out; otherwise it uses the trunk's gait
     // cycle when it has one (the same speed and direction).
     const idle = anim.walk < 1e-4 && !entering;
-    const g = idle ? this.gaitOut : gait(c.animPhase, entering ? 1.8 : Math.max(0, c.speed), Math.atan2(t.mx, t.mz), this.gaitOut, s, bw, t.move > 0 && !entering ? t.cycle : null);
+    const st = styleOf(c, c === this.player, this.style);
+    const g = idle ? this.gaitOut : gait(c.animPhase, entering ? 1.8 : Math.max(0, c.speed), Math.atan2(t.mx, t.mz), this.gaitOut, s, bw, t.move > 0 && !entering ? t.cycle : null, st);
     const walk = idle ? 0 : anim.walk * (1 - anim.air);
     // Drawn hip height: the trunk's gait curve, eased in and out of standing and landings. The simulation
     // uses the curve unsmoothed: once a character walks or stands steadily the two agree to the millimetre
@@ -893,15 +991,32 @@ export class CrowdView {
       glance = anim.ease * IDLE_GLANCE * Math.sin(ph * 0.23) * Math.min(1, Math.abs(Math.sin(ph * 0.11)) * 1.6);
     }
 
+    // Turning (anim.turn, see pose), the head goes first, then the chest, and someone moving leans into the turn; the
+    // hips follow the heading. Nothing added here moves the trunk of someone with a gun in hand: it is where the
+    // simulation has it from the frame he draws (an aim pressed mid-turn drops the lean at once; it is back over a
+    // fifth of a second when he puts the gun away).
+    anim.loose = armed ? 0 : damp(anim.loose, 1, LOOSE_EASE, dt);
+    const aim = aimed(c);
+    const loose = anim.loose;
+    chestYaw += loose * clamp(TURN_CHEST * anim.turn, -TURN_CHEST_MAX, TURN_CHEST_MAX);
+    const bank = loose * clamp(-TURN_BANK * anim.turn * c.speed * walk, -TURN_BANK_MAX, TURN_BANK_MAX);
+    // His own carriage: some walk tall, some a little stooped (not crouching: the simulation ducks him that far).
+    if (!crouch) lean += loose * st.slouch;
+    // At rest on one leg (anim.ease, as the glance): the hips over it and down a little.
+    const rest = loose * anim.ease * (1 - walk);
+    const shift = st.support * STAND_SHIFT * s * rest;
+    const sag = STAND_DROP * s * (1 - walk);
+
     const hipYaw = t.hipYaw;
     const hc = Math.cos(hipYaw);
     const hs = Math.sin(hipYaw);
-    const P = S.pelvis.set(c.pos.x, c.pos.y + t.y - drop, c.pos.z);
-    S.e.set(lean, chestYaw, 0, 'YXZ');
+    const P = S.pelvis.set(c.pos.x + hc * shift, c.pos.y + t.y - drop - (sag / 2) * rest, c.pos.z - hs * shift);
+    S.e.set(lean, chestYaw, bank, 'YXZ');
     S.body.makeRotationFromEuler(S.e);
-    const headPitch = crouch ? 0.35 : aimed(c) ? -c.aimPitch * 0.6 - lean * 0.5 : -lean * 0.6;
-    // Looking down the barrel of a shouldered gun, over the turned chest.
-    this.torso(c, P, headPitch, aimed(c) ? wrapAngle(t.armYaw - chestYaw) : glance);
+    const headPitch = crouch ? 0.35 : aim ? -c.aimPitch * 0.6 - lean * 0.5 : -lean * 0.6;
+    // Looking down the barrel of a shouldered gun, over the turned chest; otherwise into the turn.
+    const lead = clamp(TURN_HEAD * anim.turn, -TURN_HEAD_MAX, TURN_HEAD_MAX);
+    this.torso(c, P, headPitch, aim ? wrapAngle(t.armYaw - chestYaw) : glance + lead);
     this.shoulders(c, P);
 
     // Legs: planted gait feet, blended with standing feet, the crouch and the airborne tuck.
@@ -909,18 +1024,46 @@ export class CrowdView {
     const hx = hipSpread(bw);
     const hipY = t.y - drop;
     const blend = walk < 0.999 || anim.air > 0.001 || drop > 0 || step > 0;
+    // Toes turned out standing, less so walking.
+    const toe = lerp(st.toe, 0.06, walk);
+    // Standing: feet a little apart, the free one forward (x to the left, z ahead of the point under each hip).
+    const standLx = crouch ? hx + 0.08 : hx + st.apart;
+    const standLz = crouch ? 0.05 * s : st.support < 0 ? st.free : 0;
+    const standRz = crouch ? 0.05 * s : st.support > 0 ? st.free : 0;
+    // Setting off or stopping, one foot steps between the stride and its standing place, lifted on an arc as high as a
+    // fifth of the way it goes (at most STEP_LIFT), while the other stays on the ground: the foot in the air when he
+    // starts, or with both down the one with further to go, chosen once for the step. (By the rate the gait comes and
+    // goes: a steady crawl, part walking and part standing, keeps its feet down.)
+    const fl = g.legs[0]!.foot;
+    const fr = g.legs[1]!.foot;
+    const wayL = blend ? Math.hypot(fl.x - standLx, fl.z - standLz) : 0;
+    const wayR = blend ? Math.hypot(fr.x + standLx, fr.z - standRz) : 0;
+    const arc = clamp(anim.shift / 10, 0, 1) * 4 * walk * (1 - walk);
+    if (!blend || anim.shift < STEP_SETTLED) anim.stepper = -1;
+    else if (anim.stepper < 0) {
+      const pl = g.legs[0]!.planted;
+      const pr = g.legs[1]!.planted;
+      anim.stepper = pl !== pr ? (pl ? 1 : 0) : wayL >= wayR ? 0 : 1;
+    }
     for (let i = 0; i < 2; i++) {
       const side = i === 0 ? 1 : -1;
       const leg = g.legs[i]!;
-      if (blend) this.blendLeg(leg, side, hx, s, walk, anim.air, crouch, step, hipY);
+      const slack = side !== st.support;
+      const hipX = side * hx + shift;
+      const legY = hipY - (slack ? sag : 0);
+      if (blend) {
+        const way = i === 0 ? wayL : wayR;
+        const lift = i === anim.stepper ? Math.min(STEP_LIFT * s, 0.2 * way) * arc : 0;
+        this.blendLeg(leg, side, hipX, legY, s, walk, anim.air, step, side * standLx, i === 0 ? standLz : standRz, lift);
+      }
       // Hip frame (yaw only, origin on the ground under the hips) to world.
-      const hip = (i === 0 ? S.hipL : S.hipR).set(c.pos.x + hc * side * hx, P.y, c.pos.z - hs * side * hx);
+      const hip = (i === 0 ? S.hipL : S.hipR).set(c.pos.x + hc * hipX, c.pos.y + legY, c.pos.z - hs * hipX);
       const k = leg.knee;
       const f = leg.ankle;
       S.knee.set(c.pos.x + hc * k.x + hs * k.z, c.pos.y + k.y, c.pos.z - hs * k.x + hc * k.z);
       S.ankle.set(c.pos.x + hc * f.x + hs * f.z, c.pos.y + f.y, c.pos.z - hs * f.x + hc * f.z);
       this.leg(hip, S.knee, S.ankle, hipLeft, c);
-      this.shoe(S.ankle, hipYaw, leg.foot.pitch, s);
+      this.shoe(S.ankle, hipYaw + side * toe * (slack ? 0.6 : 1), leg.foot.pitch, s);
     }
 
     // Arms.
@@ -1009,15 +1152,16 @@ export class CrowdView {
       this.armTo(S.shR, S.targetR, pole, left, c);
       rightDone = true;
     }
-    // Free arms swing with the gait, and go out for balance in the air.
+    // Free arms swing with the gait, and go out for balance in the air. Standing they hang plumb (against his lean)
+    // with the elbows a little bent, the hands a touch forward of the thighs.
     const air = anim.air;
     for (let i = 0; i < 2; i++) {
       if (i === 0 ? leftDone : rightDone) continue;
       const sw = g.arms[i]!;
-      const pitch = lerp(lerp(-0.02, sw.pitch, walk), -0.8, air);
-      const abduct = lerp(lerp(0.09, sw.abduct, walk), 0.55, air);
-      const elbow = lerp(lerp(0.18, sw.elbow, walk), 0.8, air);
-      this.armFK(i === 0 ? S.shL : S.shR, i === 0 ? 1 : -1, pitch, abduct, elbow, 0, c);
+      const pitch = lerp(lerp(-0.03 - lean, sw.pitch, walk), -0.8, air);
+      const abduct = lerp(lerp(0.1, sw.abduct, walk), 0.55, air);
+      const elbow = lerp(lerp(st.hang, sw.elbow, walk), 0.8, air);
+      this.armFK(i === 0 ? S.shL : S.shR, i === 0 ? 1 : -1, pitch, abduct, elbow, lerp(0, sw.out, walk), c);
       if (i === 1) {
         S.heldHand.copy(S.hand);
         S.heldElbow.copy(S.elbow);
@@ -1047,16 +1191,20 @@ export class CrowdView {
     this.put(part, S.inst, HELD_COLOR[id] ?? 0x888888);
   }
 
-  /** Blends a gait leg towards the standing pose, the crouch and the airborne tuck, and re-solves it. */
-  private blendLeg(leg: LegPose, side: number, hx: number, s: number, walk: number, air: number, crouch: boolean, step: number, hipY: number): void {
+  /**
+   * Blends a gait leg towards a standing foot at (sx, sz) (hip frame), the airborne tuck and the hook's step, and
+   * re-solves it from its hip joint at (hipX, hipY).
+   */
+  private blendLeg(leg: LegPose, side: number, hipX: number, hipY: number, s: number, walk: number, air: number, step: number, sx: number, sz: number, lift: number): void {
     const f = leg.foot;
-    f.x = lerp(side * (hx + (crouch ? 0.08 : 0.015)), f.x, walk);
+    f.x = lerp(sx, f.x, walk);
     f.y = lerp(SKELETON.ankleY * s, f.y, walk);
-    f.z = lerp(crouch ? 0.05 * s : 0, f.z, walk) + (side > 0 ? step : 0);
+    f.z = lerp(sz, f.z, walk) + (side > 0 ? step : 0);
     f.pitch = lerp(0, f.pitch, walk);
+    f.y += lift;
     if (air > 0) {
       // Knees drawn up under the body.
-      f.x = lerp(f.x, side * hx, air);
+      f.x = lerp(f.x, hipX, air);
       f.y = lerp(f.y, hipY - 0.5 * s, air);
       f.z = lerp(f.z, -0.08 * s, air);
       f.pitch = lerp(f.pitch, -0.45, air);
@@ -1064,7 +1212,7 @@ export class CrowdView {
     // Easing a foot rolled up on its toes or heel towards a flat one can tip that edge under the ground: lift it back.
     const low = soleLow(f.y, f.pitch, s);
     if (low < 0) f.y -= low;
-    solveLeg(side * hx, hipY, s, leg);
+    solveLeg(hipX, hipY, s, leg);
   }
 
   /** Knocked down, dead, or getting back up: on the back, limbs posed by angle. */

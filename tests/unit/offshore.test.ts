@@ -81,7 +81,8 @@ describe('Turbine Row', () => {
     // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets and its arch's
     // portal posts, its props but the scrub, then its rises' cores and Lookout Point's parapet, tower posts and cab, then
     // its buildings (the farms' farmhouses, then Dry Creek's stores), the farms' barns' walls and roofs and hedgerows, the
-    // places' solids, Lake Lomas's and Pinewood's, the valley's farms' hedgerows and solids, and last the oddities').
+    // places' solids, Lake Lomas's and Pinewood's, the valley's farms' hedgerows and solids, and the oddities'), and last the
+    // signals on the drowned cells' corners (layout.firstQuaySignal on).
     const rest = W.grid.colliders.slice(first);
     const tags: Record<string, string[]> = {
       signal: ['signal'], lamp: ['lamp'], stopSign: ['lamp'], turbine: ['pillar'], tree: ['tree'],
@@ -89,7 +90,7 @@ describe('Turbine Row', () => {
       propane: ['container'], cow: ['livestock'], scarecrow: ['bin'], pumpkin: ['bin'],
       pump: ['bin'], billboard: ['pillar', 'pillar'], bench: ['bench'], speaker: ['lamp'], pine: ['tree'], roadside: ['lamp'],
     };
-    const county = L.props.slice(L.country.firstProp).filter((p) => p.kind !== 'bush').flatMap((p) => tags[p.kind]!);
+    const county = L.props.slice(L.country.firstProp, L.firstQuaySignal).filter((p) => p.kind !== 'bush').flatMap((p) => tags[p.kind]!);
     expect(rest.map((c) => c.tag)).toEqual([
       ...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp',
       ...terrainCores(L.rises).map(() => 'terrain'),
@@ -109,6 +110,7 @@ describe('Turbine Row', () => {
       ...L.country.valley.hedges.map(() => 'hedge'),
       ...L.country.valley.solids.map((s) => s.tag),
       ...L.country.oddities.solids.map((s) => s.tag),
+      ...L.props.slice(L.firstQuaySignal).map(() => 'signal'),
     ]);
     for (const [i, t] of turbines.entries()) {
       const c = rest[i]!;

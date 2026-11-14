@@ -100,9 +100,14 @@ vi.mock('three', async (importOriginal) => {
 /** The plan's street-facing distance: a first-tier wall this close to its lot edge faces the street. */
 const STREET_FACING_DIST = 10;
 
-/** SHA-256 of the generated layout without the fields this round added to Building. */
-function layoutHash(): string {
-  const L = generateCity();
+/**
+ * SHA-256 of the generated layout without the fields this round added to Building; `older`, also without the drowned
+ * corners' signals (the props from firstQuaySignal on) and that field, as the layout stood before they stood again.
+ */
+function layoutHash(older = false): string {
+  const full = generateCity();
+  const { firstQuaySignal, ...before } = full;
+  const L = older ? { ...before, props: full.props.slice(0, firstQuaySignal) } : full;
   const buildings = L.buildings.map((b) => {
     const r: Record<string, unknown> = { ...b };
     delete r.special;
@@ -286,8 +291,12 @@ describe('round 2 city: layout', () => {
     // and Lake Lomas and Pinewood (the dock's two piers on the lake, four cabins, some 2,700 pines and a few hundred oaks and bushes in the
     // wood and the valley's north, and the lake's review: a fire break of pines west of the lookout tower's pad, its boulders, the hills' old
     // scrub set aside); all re-recorded once on the merged head, where the passes run places, lakeland, valley's farms, oddities, so
-    // the lakeland's props, buildings and decks come before the farms' and the roadside oddities' last.
-    expect(layoutHash()).toBe('8ac5ef2ec419abcbe0b330d2a4f0e2823c1304735ca335b806e5ac1e5bd8aca0');
+    // the lakeland's props, buildings and decks come before the farms' and the roadside oddities' last; and when the 18
+    // signals that drowning the four bays had taken off their corners stood again, appended after every other prop (and
+    // `firstQuaySignal` with them).
+    expect(layoutHash()).toBe('f766a47f06025425cb258777fee32a051b74efe888080c83daabfaa366407c43');
+    // And everything older than those 18 as at 28dfbee, before they stood again.
+    expect(layoutHash(true)).toBe('8ac5ef2ec419abcbe0b330d2a4f0e2823c1304735ca335b806e5ac1e5bd8aca0');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
@@ -382,13 +391,16 @@ describe('round 2 city: ground-floor geometry', () => {
       const label = `building ${w.b.id} (${w.b.ground}) ${w.side}`;
       const quads = onWall(fr, w);
       expect(quads.length, label).toBeGreaterThan(0);
-      // The quads tile the wall from end to end and from the curb to the top of the band.
-      const covered = new Set<string>();
-      for (const q of quads) covered.add(`${q.lo.toFixed(3)}:${q.hi.toFixed(3)}`);
-      const length = [...covered].reduce((sum, k) => {
-        const [lo, hi] = k.split(':').map(Number) as [number, number];
-        return sum + (hi - lo);
-      }, 0);
+      // The quads tile the wall from end to end and from the curb to the top of the band: the union of their spans along
+      // it (a doorway splits its quad into the wall round it, so spans overlap) is the wall's length.
+      const spans = quads.map((q) => [q.lo, q.hi] as const).sort((a, b) => a[0] - b[0]);
+      let length = 0;
+      let end = -Infinity;
+      for (const [lo, hi] of spans) {
+        if (hi <= end) continue;
+        length += hi - Math.max(lo, end);
+        end = hi;
+      }
       expect(length, label).toBeCloseTo(w.hi - w.lo, 2);
       expect(Math.min(...quads.map((q) => q.minY)), label).toBeCloseTo(CURB_H, 3);
       expect(Math.max(...quads.map((q) => q.maxY)), label).toBeCloseTo(top, 3);

@@ -4920,6 +4920,89 @@ describe('San Azura driving HUD', () => {
     expect(el.quickControls!.innerHTML).not.toContain('Handbrake');
   });
 
+  it('the controls line fades once read and comes back when the controls change', () => {
+    const { hud, el, sim, update } = rig();
+    const faded = () => el.quickControls!.classList.contains('faded');
+    update();
+    expect(faded()).toBe(false);
+    update(7);
+    expect(faded()).toBe(false);
+    update(1.1);
+    expect(faded()).toBe(true);
+    // Into a car: the driving keys, up again for their own time.
+    const rp = roadPoint(sim);
+    placeInCar(sim, sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading));
+    update();
+    expect(faded()).toBe(false);
+    expect(el.quickControls!.innerHTML).toContain('Handbrake');
+    update(8.1);
+    expect(faded()).toBe(true);
+    // A pad picked up: its buttons are new to read.
+    hud.device = 'pad';
+    update();
+    expect(faded()).toBe(false);
+  });
+
+  it('the drive panel leaves the car name to the flash on getting in', () => {
+    const { el, sim, update } = rig();
+    const rp = roadPoint(sim);
+    const car = sim.spawnVehicle('sports', rp.x, rp.z, rp.heading);
+    placeInCar(sim, car);
+    sim.events.emit('vehicleEnter', { character: sim.player, vehicle: car, jacked: false, victim: null });
+    update();
+    expect(el.drive!.classList.contains('hidden')).toBe(false);
+    expect(el.drive!.textContent).not.toContain(car.spec.name);
+    expect(el.zone!.classList.contains('show')).toBe(true);
+    expect(el.zone!.textContent).toBe(car.spec.name);
+  });
+
+  it('the stars show from the first one; none wanted, no empty row', () => {
+    const { el, sim, update } = rig();
+    update();
+    expect(el.stars!.classList.contains('hidden')).toBe(true);
+    sim.wanted.setLevel(2);
+    update();
+    expect(el.stars!.classList.contains('hidden')).toBe(false);
+    sim.wanted.clear();
+    update();
+    expect(el.stars!.classList.contains('hidden')).toBe(true);
+  });
+
+  it("a mission's clock reads large in the cluster, a job's line does not", () => {
+    const { el, sim, update } = rig();
+    expect(sim.missions.start('wheels')).toBe(true);
+    sim.missions.active!.setTimer('DELIVERY', 60, 'Too slow.');
+    update();
+    expect(el.status!.textContent).toBe('DELIVERY 1:00');
+    expect(el.status!.classList.contains('timer')).toBe(true);
+    sim.missions.active!.clearTimer();
+    sim.missions.active!.counter = '2/3 cars';
+    update();
+    expect(el.status!.textContent).toBe('2/3 cars');
+    expect(el.status!.classList.contains('timer')).toBe(false);
+  });
+
+  it('the next contact is a quiet card, and none while the next-step line names her', () => {
+    const { hud, el, sim, update } = rig();
+    update();
+    expect(el.navLabel!.textContent).toBe('NEXT CONTACT');
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    expect(el.navigation!.classList.contains('quiet')).toBe(true);
+    hud.showNextStep(sim);
+    update();
+    expect(el.objective!.textContent).toBe('Next: Mama Lou has work - L on your radar');
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+    update(8.1);
+    update();
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    // A waypoint is the player's own errand: a full card.
+    const p = sim.playerPos();
+    hud.waypoint = { x: p.x, z: p.z + 300 };
+    update();
+    expect(el.navigation!.classList.contains('quiet')).toBe(false);
+  });
+
   it('countdown events replace queued titles immediately and GO expires without replaying old titles', () => {
     const { el, sim, update } = rig();
     sim.events.emit('big', { text: 'OLD TITLE', sub: '', style: 'title', duration: 4 });

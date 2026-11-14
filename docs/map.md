@@ -80,6 +80,8 @@ Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, 
 - **Coral Bay** (one cell) cuts into the south shore west of the beach.
 
 These bodies are drowned rather than left out: their blocks are generated as land, and once the street furniture stands, `drown()` removes the blocks and everything on them, closes the roads that bordered only them, keeps a signal only where three roads still meet on a live approach, and lets the water in.
+A signal stands on the corner at its approach's right, inside the block there, so the bays' blocks took 18 with them, though their corners stay dry (the quay keeps a sidewalk's width round every junction) and their approaches still run on a cycle.
+Those 18 stand again on their corners, appended after every other prop and their colliders after every other collider, so no older index or id moves.
 The shared generator therefore makes exactly the draws it made while they were land, so every other lamp, tree, hydrant and bench, building and parked car stays where it was; only what stood in the bays moved.
 Building ids keep their gaps, so facades and rooftops elsewhere keep their looks.
 The ring road is not closed with them: it crosses each bay's mouth on a bridge (a carriageway deck at road height, a footway deck either side and a parapet along each, like the canal's), so the coast road runs on.
@@ -217,7 +219,8 @@ Four of the plots are farms (`src/world/country/farms.ts`), appended by `buildFa
 - **Pippin Hollow**, by the highway's west leg: about five hundred apple trees in rows, ladders against a few, and a packing barn.
 - **Halfmoon Acres**, by the highway's south leg: wheat behind a post-and-rail fence with an 8 m gate on the highway side, sunflowers either side of an aisle, furrows, and bale stacks in the yard.
 
-Each farmyard has a barn, which is a garage (its walls and roof slab, which hides the bay from the helicopter, with a gambrel roof drawn over it), a farmhouse, which is a building like a city house, a sign and a mailbox by its dirt drive, and two bays appended to the parking.
+Each farmyard has a barn, which is a garage (its walls and roof slab, which hides the bay from the helicopter, with a gambrel roof drawn over it, a hay hood over its loft door and, at the dairy and Pippin Hollow, a cupola with a weathervane), a farmhouse, which is a building like a city house, a sign and a mailbox by its dirt drive, and two bays appended to the parking.
+The farmhouse's porch, its steps, door and chimney are drawn only (`render/country/farms.ts`): the porch runs along the wall facing into the yard toward the drive (north at three farms, south at Halfmoon Acres), clear of the barn, the props, the parking bays and the dairy dog's run.
 Hedgerows run along the plots' edges beside Hollister Lane and Creek Road and round the orchard, with gaps at the gates; the corn, the wheat and the sunflowers stand open to the highway.
 A hedgerow is a collider of its own tag (`hedge`): solid for sight and shots, so traffic can stream in behind one, but not for the camera, which looks through it rather than snapping in.
 Where one stands between the camera and the player (or his car), it opens round the line between them, and it dissolves right at the lens as foliage does (`src/render/country/farms.ts`).
@@ -490,7 +493,7 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - The ranch's horses and sheep are for looking at: they have no colliders, so a car passes through one that has strayed to a fence (they are fenced in), a bullet does too, and nothing records a sheep run down.
   Sheep are frightened by the sim's cars and players only, not by a pedestrian or an animal, and a flock far from the camera (420 m) is frozen, so it picks up where it was.
 - The vineyard's rows are drawn only (no collider): a car or a person walks through the vines, which sway on the wind but not aside for them, and the vines are not cover.
-- The winery's porch and the ranch house's are decoration (a person or a car goes through their posts and decks); the winery, the ranch house, the barn, the windpump, the barrels, the bales, the paddocks' shelters' walls, the ruin's walls and the fences are solid.
+- The winery's porch, the ranch house's and the county farmhouses' are decoration (a person or a car goes through their posts, decks and steps); the winery, the ranch house, the barn, the windpump, the barrels, the bales, the paddocks' shelters' walls, the ruin's walls and the fences are solid.
 - The Moonbeam Drive-In's bays fill only out of view, so a lot you are watching at 19:00 fills late.
 - Gravel Gulch's berms and flags are drawn only: a rider passes through them, and a tabletop's sides drop sheer.
 - The drive-in's films have no sound: their lines are on the screen only.

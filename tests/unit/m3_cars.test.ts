@@ -389,6 +389,34 @@ describe('VAL-CAR-007 batched parts and draw structure', () => {
 });
 
 describe('VAL-CAR-003 rebuilt bodies', () => {
+  it('the box vans\' backs are a pair of doors between tall lamp clusters, and the bus\'s lamps stand tall beside its engine grille', () => {
+    for (const kind of ['van', 'swat', 'ambulance', 'bus'] as const) {
+      const s = VEHICLE_SPECS[kind];
+      const v = view(kind);
+      const tails = v.group.children.filter((o) => o.name === 'lamp' && o.position.z < 0 && Math.abs(o.position.x) > 0.3);
+      expect(tails.length, kind).toBe(2);
+      for (const t of tails) expect(t.scale.y, `${kind} tail lamp taller than wide`).toBeGreaterThan(t.scale.x * 2);
+      // Straight on from behind, up the middle of the back: the doors' seam (or the bus's grille), not bare paint.
+      const y = s.height * 0.4;
+      const hit = new THREE.Raycaster(new THREE.Vector3(0, y, -s.length), new THREE.Vector3(0, 0, 1)).intersectObjects([mesh(v, 'body'), mesh(v, 'exterior')], false)[0];
+      expect(hit?.object.name, kind).toBe('exterior');
+    }
+  });
+
+  it('the van\'s roof carries stiffening ribs across it', () => {
+    const s = VEHICLE_SPECS.van;
+    const v = view('van');
+    // Down onto the roof's middle along the van: the height steps up over every rib.
+    const tops: number[] = [];
+    for (let z = -s.length / 2 + 0.2; z < 0.5; z += 0.02) {
+      const hit = new THREE.Raycaster(new THREE.Vector3(0, s.height + 1, z), new THREE.Vector3(0, -1, 0)).intersectObject(mesh(v, 'body'), false)[0]!;
+      tops.push(hit.point.y);
+    }
+    let steps = 0;
+    for (let i = 1; i < tops.length; i++) if (tops[i]! - tops[i - 1]! > 0.02) steps++;
+    expect(steps).toBeGreaterThanOrEqual(4);
+  });
+
   /** The body's vertices beyond the arches at one end: the furthest reach along the car at the middle and at the flanks. */
   const endReach = (g: THREE.BufferGeometry, front: boolean, hw: number): { middle: number; corner: number; flank: number } => {
     const p = g.getAttribute('position');

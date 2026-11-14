@@ -218,10 +218,17 @@ function lengthWarp(half: number, zr: number, zf: number, a: number): (z: number
   };
 }
 
-/** Conforming refinement: every edge longer than `maxEdge` is halved (for both its triangles) until none is. */
-function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]>, parts: Part[], maxEdge: number): { positions: THREE.Vector3[]; tris: Array<[number, number, number]>; parts: Part[] } {
+/**
+ * Conforming refinement: every edge longer than `maxEdge` is halved (for both its triangles) until none is. `normals`
+ * (per triangle corner, 9 per triangle) are carried along: a corner on a split edge takes the normalised mean of the
+ * edge's two corner normals in its own triangle, so the refined body shades as the coarse one does, smooth across each
+ * of the model's faces. (Normals computed on the refined mesh instead are flat over the middle of every original face
+ * and bend only in a band one refined edge wide along its edges, which drew the low-poly facets as wavy blotches.)
+ */
+function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]>, parts: Part[], normals: Float32Array, maxEdge: number): { positions: THREE.Vector3[]; tris: Array<[number, number, number]>; parts: Part[]; normals: Float32Array } {
   let T = tris;
   let P = parts;
+  let N: ArrayLike<number> = normals;
   const max2 = maxEdge * maxEdge;
   for (let pass = 0; pass < 12; pass++) {
     const mid = new Map<string, number>();
@@ -242,14 +249,32 @@ function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]
     if (!any) break;
     const NT: Array<[number, number, number]> = [];
     const NP: Part[] = [];
+    const NN: number[] = [];
+    const n = new THREE.Vector3();
     T.forEach(([a, b, c], t) => {
       const part = P[t]!;
       const ab = mid.get(key(a, b));
       const bc = mid.get(key(b, c));
       const ca = mid.get(key(c, a));
+      // The triangle's corner normals by vertex, with its split edges' midpoints.
+      const corner = new Map<number, readonly number[]>([
+        [a, [N[t * 9]!, N[t * 9 + 1]!, N[t * 9 + 2]!]],
+        [b, [N[t * 9 + 3]!, N[t * 9 + 4]!, N[t * 9 + 5]!]],
+        [c, [N[t * 9 + 6]!, N[t * 9 + 7]!, N[t * 9 + 8]!]],
+      ]);
+      for (const [m, u, v] of [[ab, a, b], [bc, b, c], [ca, c, a]] as const) {
+        if (m === undefined) continue;
+        const nu = corner.get(u)!;
+        const nv = corner.get(v)!;
+        n.set(nu[0]! + nv[0]!, nu[1]! + nv[1]!, nu[2]! + nv[2]!);
+        if (n.lengthSq() < 1e-12) n.set(nu[0]!, nu[1]!, nu[2]!);
+        n.normalize();
+        corner.set(m, [n.x, n.y, n.z]);
+      }
       const emit = (x: number, y: number, z: number): void => {
         NT.push([x, y, z]);
         NP.push(part);
+        for (const k of [x, y, z]) NN.push(...corner.get(k)!);
       };
       if (ab !== undefined && bc !== undefined && ca !== undefined) {
         emit(a, ab, ca);
@@ -281,8 +306,9 @@ function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]
     });
     T = NT;
     P = NP;
+    N = NN;
   }
-  return { positions, tris: T, parts: P };
+  return { positions, tris: T, parts: P, normals: Float32Array.from(N) };
 }
 
 /** Welds the triangles by position into an indexed list. */
@@ -331,7 +357,7 @@ const CREASE = Math.cos((38 * Math.PI) / 180);
 /**
  * Per-corner normals of a welded mesh: each corner averages (by area) the faces round its vertex of the same part that
  * turn less than the crease angle from its own face, so the model's curved panels shade smooth and its creases stay
- * crisp (as the model was drawn), however the refinement split its faces.
+ * crisp (as the model was drawn). Computed on the model's own faces; the refinement carries them onto its pieces.
  */
 function cornerNormals(positions: readonly THREE.Vector3[], tris: ReadonlyArray<readonly [number, number, number]>, parts: readonly Part[]): Float32Array {
   const face: THREE.Vector3[] = [];
@@ -680,6 +706,291 @@ function lampsOf(tris: readonly Tri[], part: Part, front: boolean): ModelLamp[] 
   return out;
 }
 
+/** What a ray meets first on the fitted body: the point, the face's normal turned back along the ray, and its part. */
+interface Hit {
+  readonly at: THREE.Vector3;
+  readonly normal: THREE.Vector3;
+  readonly part: Part;
+}
+
+/** Casts a ray (origin, unit direction) at the body's triangles that `keep` passes (never its glass). */
+type SurfaceCast = (origin: THREE.Vector3, dir: THREE.Vector3) => Hit | null;
+
+function surfaceCast(tris: readonly Tri[], keep: (t: Tri) => boolean): SurfaceCast {
+  const list = tris.filter((t) => t.part !== 'glass' && keep(t));
+  const ray = new THREE.Ray();
+  const at = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  return (origin, dir) => {
+    ray.set(origin, dir);
+    let best = Infinity;
+    let hit: Tri | null = null;
+    const p = new THREE.Vector3();
+    for (const t of list) {
+      if (!ray.intersectTriangle(t.p[0], t.p[1], t.p[2], false, at)) continue;
+      const d = at.distanceToSquared(origin);
+      if (d >= best) continue;
+      best = d;
+      hit = t;
+      p.copy(at);
+    }
+    if (!hit) return null;
+    const n = new THREE.Vector3().crossVectors(ab.subVectors(hit.p[1], hit.p[0]), ac.subVectors(hit.p[2], hit.p[0])).normalize();
+    if (n.dot(dir) > 0) n.negate();
+    return { at: p, normal: n, part: hit.part };
+  };
+}
+
+/** Painted parts, which the fittings may be laid over (the model's own trim keeps its own). */
+const PAINTED = (h: Hit | null): h is Hit => h !== null && (h.part === 'paint' || h.part === 'livery');
+
+/**
+ * Fittings laid onto an imported body, in the fittings atlas (dark rubber and satin metal): non-indexed triangles with
+ * the trim's attributes, merged into its draw. `near` has everything; `far` only what still reads at 40 m and beyond.
+ */
+class Kit {
+  private readonly pos: number[][] = [[], []];
+  private readonly nor: number[][] = [[], []];
+  private readonly uv: number[][] = [[], []];
+
+  private tri(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, out: THREE.Vector3, cell: 'dark' | 'metal', far: boolean): void {
+    const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    if (n.lengthSq() < 1e-14) return;
+    // Wound to face `out`.
+    const [p, q] = n.dot(out) >= 0 ? [b, c] : [c, b];
+    n.normalize().multiplyScalar(Math.sign(n.dot(out)) || 1);
+    const [u, v] = TRIM_UV[cell]!;
+    for (const k of far ? [0, 1] : [0]) {
+      for (const x of [a, p, q]) {
+        this.pos[k]!.push(x.x, x.y, x.z);
+        this.nor[k]!.push(n.x, n.y, n.z);
+        this.uv[k]!.push(u, v);
+      }
+    }
+  }
+
+  /**
+   * A patch laid over the body: `grid` is rows of hits (null: nothing there), each lifted `lift` off the surface along
+   * its normal; a cell is drawn when its four corners hit paint. Less than `minShare` of its cells drawn (scraps round
+   * the model's own trim, cut into by its curves) and none is.
+   */
+  patch(grid: ReadonlyArray<ReadonlyArray<Hit | null>>, lift: number, cell: 'dark' | 'metal', far: boolean, minShare = 0.6): void {
+    const up = (h: Hit): THREE.Vector3 => h.at.clone().addScaledVector(h.normal, lift);
+    const cells: Hit[][] = [];
+    let all = 0;
+    for (let r = 0; r + 1 < grid.length; r++) {
+      for (let c = 0; c + 1 < grid[r]!.length; c++) {
+        const q = [grid[r]![c], grid[r]![c + 1], grid[r + 1]![c + 1], grid[r + 1]![c]];
+        all++;
+        if (q.every(PAINTED)) cells.push(q as Hit[]);
+      }
+    }
+    if (cells.length < minShare * all) return;
+    for (const h of cells) {
+      const out = h.reduce((v, x) => v.add(x.normal), new THREE.Vector3());
+      const [a, b, c, d] = h.map(up) as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      this.tri(a, b, c, out, cell, far);
+      this.tri(a, c, d, out, cell, far);
+    }
+  }
+
+  /** A whole geometry (moved into place), every face in `cell`. */
+  solid(g: THREE.BufferGeometry, cell: 'dark' | 'metal', far: boolean): void {
+    const src = g.index ? g.toNonIndexed() : g;
+    const p = src.getAttribute('position');
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const mid = new THREE.Vector3();
+    src.computeBoundingBox();
+    const centre = src.boundingBox!.getCenter(new THREE.Vector3());
+    for (let i = 0; i + 2 < p.count; i += 3) {
+      a.fromBufferAttribute(p, i);
+      b.fromBufferAttribute(p, i + 1);
+      c.fromBufferAttribute(p, i + 2);
+      // Closed convex pieces: each face looks away from the piece's middle.
+      n.subVectors(b, a).cross(c.clone().sub(a));
+      mid.copy(a).add(b).add(c).multiplyScalar(1 / 3).sub(centre);
+      this.tri(a, b, c, n.dot(mid) >= 0 ? n.clone() : n.clone().negate(), cell, far);
+    }
+    if (src !== g) src.dispose();
+    g.dispose();
+  }
+
+  build(far: boolean): THREE.BufferGeometry {
+    const k = far ? 1 : 0;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos[k]!, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor[k]!, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv[k]!, 2));
+    return g;
+  }
+}
+
+/** Spaced samples from a to b, no step longer than `step` (both ends included). */
+function steps(a: number, b: number, step: number): number[] {
+  const n = Math.max(1, Math.ceil(Math.abs(b - a) / step));
+  return Array.from({ length: n + 1 }, (_, i) => a + ((b - a) * i) / n);
+}
+
+/** What the fittings are laid round: the lamps, the plates, the body's foot, the wheels and the side windows. */
+interface KitFrame {
+  readonly head: readonly ModelLamp[];
+  readonly tail: readonly ModelLamp[];
+  readonly plates: PlateFrames;
+  readonly low: number;
+  readonly half: number;
+  readonly hw: number;
+  readonly wheelR: number;
+  readonly beltY: number;
+  /** z of the front door's rear edge and of the rear door's (a two-door: the one door's, and null). */
+  readonly doors: readonly number[];
+}
+
+/** Spacing of a fitting's vertices (m): within the refined body's, so dents bend it with the panel under it. */
+const KIT_STEP = 0.18;
+
+/**
+ * The fittings an imported body is given where its paint runs on (it has none of its own there): a dark grille with
+ * satin slats and a top bar between the head lamps, a dark panel under a satin bar joining the tail lamps, a dark
+ * valance across the foot of the tail, an exhaust tip (two on the sports and muscle cars), dark sills between the wheel arches, and a door handle at the rear edge of
+ * each door. Every piece is laid on the body by rays, a few millimetres proud of it.
+ */
+function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
+  const kit = new Kit();
+  const { half, hw, low } = f;
+  const front = surfaceCast(tris, (t) => t.p.some((p) => p.z > half - 1.2));
+  const rear = surfaceCast(tris, (t) => t.p.some((p) => p.z < -half + 1.2));
+  const fromEnd = (cast: SurfaceCast, end: 1 | -1) => (x: number, y: number): Hit | null => cast(new THREE.Vector3(x, y, end * (half + 1)), new THREE.Vector3(0, 0, -end));
+  const atFront = fromEnd(front, 1);
+  const atRear = fromEnd(rear, -1);
+  // On the ends the pieces follow the body closely (a 5 by 4 cm grid): a coarser one's flat cells cut into the curve
+  // of a bumper or a tail panel and showed only in broken scraps.
+  const band = (at: (x: number, y: number) => Hit | null, x0: number, x1: number, y0: number, y1: number): Array<Array<Hit | null>> => {
+    const xs = steps(x0, x1, 0.05);
+    return steps(y0, y1, 0.04).map((y) => xs.map((x) => at(x, y)));
+  };
+  // The grille: between the head lamps' inner edges, from over the plate to the lamps' tops. The end patches stand
+  // 8 mm proud: a dent bends them on their fine grid and the body on its coarser one, and at 4 mm an 8 cm dent sank
+  // a third of the sedan's grille under the paint.
+  const lampY = f.head.reduce((y, l) => y + l.at.y, 0) / f.head.length;
+  const lampH = f.head.reduce((h, l) => h + l.size[1], 0) / f.head.length;
+  const inner = Math.min(...f.head.map((l) => Math.abs(l.at.x) - l.size[0] / 2)) - 0.03;
+  const gTop = lampY + Math.min(0.05, lampH * 0.3);
+  const gBot = Math.max(f.plates.front.y1 + 0.03, lampY - Math.max(0.1, lampH * 0.7));
+  if (inner > 0.15 && gTop - gBot > 0.06) {
+    const x0 = -inner;
+    const x1 = inner;
+    kit.patch(band(atFront, x0, x1, gBot, gTop), 0.008, 'dark', true);
+    // Satin slats across it and a bar along its top.
+    const slats = Math.max(2, Math.floor((gTop - gBot) / 0.045));
+    for (let i = 1; i <= slats; i++) {
+      const y = gBot + ((gTop - gBot) * i) / (slats + 1);
+      kit.patch(band(atFront, x0 + 0.03, x1 - 0.03, y - 0.006, y + 0.006), 0.013, 'metal', false);
+    }
+    kit.patch(band(atFront, x0, x1, gTop - 0.004, gTop + 0.016), 0.015, 'metal', true);
+  }
+  const rp = f.plates.rear;
+  // A dark valance across the foot of the tail, where its paint runs down square to the end (its corners turn away and
+  // left only scraps of it): the lowest height at which a ray along the car meets paint within 30 cm of the end.
+  let foot: number | null = null;
+  for (let y = low; y < low + 0.45 && foot === null; y += 0.01) {
+    const h = atRear(0, y);
+    if (PAINTED(h) && h.at.z < -half + 0.3) foot = y;
+  }
+  if (foot !== null) kit.patch(band(atRear, -hw * 0.5, hw * 0.5, foot + 0.01, foot + 0.1), 0.008, 'dark', true, 0.85);
+  // A dark panel joining the tail lamps under a satin bar, so they read as one cluster across the tail (where the
+  // panel between them is all paint).
+  const tailY = f.tail.reduce((y, l) => y + l.at.y, 0) / f.tail.length;
+  const tailH = f.tail.reduce((h, l) => h + l.size[1], 0) / f.tail.length;
+  const tIn = Math.min(...f.tail.map((l) => Math.abs(l.at.x) - l.size[0] / 2)) + 0.01;
+  const tTop = tailY + tailH * 0.3;
+  const tBot = Math.max(tailY - tailH * 0.3, rp.y1 + 0.03);
+  if (f.tail.length > 1 && tIn > 0.15 && tTop - tBot > 0.04) {
+    kit.patch(band(atRear, -tIn, tIn, tBot, tTop), 0.008, 'dark', true, 0.95);
+    kit.patch(band(atRear, -tIn, tIn, tTop - 0.002, tTop + 0.02), 0.013, 'metal', true, 0.95);
+  }
+  // Exhaust tips 4 cm over the foot of the tail (the lowest height where a ray along the car meets its end): on the
+  // right (-x), and both sides on the sports and muscle cars.
+  for (const side of kind === 'sports' || kind === 'muscle' ? [-1, 1] : [-1]) {
+    const x = side * hw * 0.55;
+    let h: Hit | null = null;
+    for (let y = low; y < low + 0.45; y += 0.01) {
+      const at = atRear(x, y);
+      if (!PAINTED(at) || at.at.z > -half + 0.3) continue;
+      h = atRear(x, y + 0.04);
+      break;
+    }
+    if (!h) continue;
+    const y = h.at.y;
+    const pipe = new THREE.CylinderGeometry(0.036, 0.036, 0.09, 10, 1, true);
+    pipe.rotateX(Math.PI / 2);
+    // Its open end 3.5 cm out of the body.
+    pipe.translate(x, y, h.at.z - 0.01);
+    kit.solid(pipe, 'metal', false);
+  }
+  // Dark sills between the wheel arches.
+  const z0 = -AXLE * 2 * half + f.wheelR + 0.14;
+  const z1 = AXLE * 2 * half - f.wheelR - 0.14;
+  const sides = surfaceCast(tris, (t) => t.p.some((p) => p.y < low + 0.3));
+  for (const side of [-1, 1]) {
+    const at = (z: number, y: number): Hit | null => sides(new THREE.Vector3(side * (hw + 1), y, z), new THREE.Vector3(-side, 0, 0));
+    const zs = steps(z0, z1, KIT_STEP);
+    kit.patch([0.03, 0.1].map((y) => zs.map((z) => at(z, low + y))), 0.004, 'dark', true);
+  }
+  // A satin handle at the rear edge of each door, on a dark recess.
+  const flank = surfaceCast(tris, (t) => t.p.some((p) => Math.abs(p.y - f.beltY) < 0.4));
+  const hy = f.beltY - 0.09;
+  for (const side of [-1, 1]) {
+    for (const zd of f.doors) {
+      const z = zd + 0.16;
+      const h = flank(new THREE.Vector3(side * (hw + 1), hy, z), new THREE.Vector3(-side, 0, 0));
+      if (!PAINTED(h)) continue;
+      // Turned so its depth (x) runs along the panel's level normal.
+      const turn = Math.atan2(-h.normal.z, h.normal.x);
+      for (const [w, t, d, lift, cell] of [[0.24, 0.055, 0.012, 0.004, 'dark'], [0.19, 0.026, 0.02, 0.012, 'metal']] as const) {
+        const g = new THREE.BoxGeometry(d, t, w);
+        g.rotateY(turn);
+        const c = h.at.clone().addScaledVector(h.normal, lift);
+        g.translate(c.x, c.y, c.z);
+        kit.solid(g, cell, false);
+      }
+    }
+  }
+  return kit;
+}
+
+/**
+ * Where the doors end (z of each door's rear edge): the side windows are split by the B pillar where the car has
+ * rear doors (the widest break in the side glass), and the one door of a two-door ends at its window's foot.
+ */
+function doorEdges(glass: readonly THREE.Vector3[], cabinHalf: number, yLo: number, fb: number, rb: number): number[] {
+  const zs = glass.filter((p) => Math.abs(p.x) > cabinHalf - 0.2 && p.y > yLo + 0.04 && p.y < yLo + 0.3 && p.z < fb - 0.1 && p.z > rb + 0.1).map((p) => p.z);
+  zs.sort((a, b) => a - b);
+  let gap = 0;
+  let at = 0;
+  for (let i = 1; i < zs.length; i++) {
+    if (zs[i]! - zs[i - 1]! > gap) {
+      gap = zs[i]! - zs[i - 1]!;
+      at = zs[i - 1]!;
+    }
+  }
+  return gap > 0.05 ? [at + gap / 2, rb] : [rb];
+}
+
+/** The model's own trim with the kit's fittings merged into it (one draw). */
+function withKit(trim: THREE.BufferGeometry, kit: THREE.BufferGeometry): THREE.BufferGeometry {
+  if (kit.getAttribute('position').count === 0) return trim;
+  const g = mergeGeometries([trim, kit])!;
+  trim.dispose();
+  kit.dispose();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
 function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, sockets: Readonly<Record<string, readonly [number, number, number]>>, wheelRadius: number, wheelNodes: Readonly<Record<string, string>>, key: string): CarModel {
   const s = VEHICLE_SPECS[kind];
   const tris = collect(spec, scene, wheelNodes);
@@ -742,9 +1053,9 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
   const plates: PlateFrames = { front: frames.front ?? fill, rear: frames.rear ?? fill };
   const kept = [...tris.filter((t) => t.part !== 'head' && t.part !== 'tail'), ...plateTris];
   const coarse = weld(kept);
-  const fine = refine(coarse.positions.map((v) => v.clone()), coarse.tris, coarse.parts, MAX_EDGE);
-  const fineNormals = cornerNormals(fine.positions, fine.tris, fine.parts);
   const coarseNormals = cornerNormals(coarse.positions, coarse.tris, coarse.parts);
+  const fine = refine(coarse.positions.map((v) => v.clone()), coarse.tris, coarse.parts, coarseNormals, MAX_EDGE);
+  const fineNormals = fine.normals;
   const make = (w: typeof coarse, parts: Part[], kindOf: 'paint' | 'trim' | 'glass'): THREE.BufferGeometry => geometryOf(w.positions, w.tris, w.parts, parts, kindOf, w === fine ? fineNormals : coarseNormals, plates);
   const hasLivery = kept.some((t) => t.part === 'livery');
   // Windows: their side outline and the beltline and roof they sit between.
@@ -791,6 +1102,7 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
     }
   }
   const wheelX = (front ? Math.abs(front[0] - cx) : s.width / 2 - 0.15) * sx;
+  const kit = modelKit(kind, tris, { head, tail, plates, low, half, hw: s.width / 2, wheelR: wheelRadius * sy, beltY: yLo, doors: doorEdges(glassPts, cabinHalf, yLo, fb, rb) });
   return {
     kind,
     id: spec.id,
@@ -798,14 +1110,14 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
     scale: [sx, sy, sz],
     paint: make(fine, ['paint'], 'paint'),
     livery: hasLivery ? make(fine, ['livery'], 'paint') : null,
-    trim: make(fine, ['dark', 'metal', 'plate'], 'trim'),
+    trim: withKit(make(fine, ['dark', 'metal', 'plate'], 'trim'), kit.build(false)),
     glass: make(fine, ['glass'], 'glass'),
     // Everything from under the beltline up, along the whole car: through the windows a look reaches the bonnet's and
     // the boot lid's insides too.
     liner: linerOf(fine.positions, fine.tris, fine.parts, fineNormals, -Infinity, Infinity, yLo - 0.12, roofTopY + 0.05),
     // (With the cabin's lining, so the far version's windows are as dark a band as the near one's.)
     farPaint: mergeGeometries([make(coarse, ['paint'], 'paint'), linerOf(coarse.positions, coarse.tris, coarse.parts, coarseNormals, -Infinity, Infinity, yLo - 0.12, roofTopY + 0.05)])!,
-    farTrim: make(coarse, ['dark', 'metal', 'plate'], 'trim'),
+    farTrim: withKit(make(coarse, ['dark', 'metal', 'plate'], 'trim'), kit.build(true)),
     farGlass: make(coarse, ['glass'], 'glass'),
     head,
     tail,

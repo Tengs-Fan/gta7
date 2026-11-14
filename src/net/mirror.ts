@@ -208,7 +208,7 @@ export class Mirror implements ViewState {
     this.world = opts.world;
     this.roads = opts.world.roads;
     this.combat = opts.combat ?? NO_COMBAT;
-    this.interactions = multiplayerInteractions(opts.world);
+    this.interactions = multiplayerInteractions(opts.world, this.vehicles);
     this.tickRate = opts.tickRate ?? 60;
     this.renderClock = new RenderClock(this.tickRate, opts.delayTicks ?? 7);
     for (const c of this.world.grid.colliders) if (c.breakable && c.propIndex >= 0) this.colliderOfProp.set(c.propIndex, c);
@@ -327,6 +327,7 @@ export class Mirror implements ViewState {
 
     const wasDown = this.hud.down;
     this.hud = s.hud;
+    this.me.controlLock = s.hud.locked ? 1 : 0;
     if (this.slot >= 0) this.syncDown(wasDown);
     if (s.job) this.jobHud = s.job;
     if (s.roster) this.roster = s.roster;

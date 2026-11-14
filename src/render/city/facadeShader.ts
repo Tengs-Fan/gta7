@@ -115,6 +115,8 @@ export function withBuildingFog<T extends THREE.Material>(mat: T, key: string, u
 }
 
 const COLS = FACADE_COLS.toFixed(1);
+/** Mip level (of the wall set) of the blurred sample whose light and shade FacadeLook.stain scales. */
+const STAIN_LOD = '4.0';
 const ROWS = FACADE_ROWS.toFixed(1);
 
 const FACADE_PARS = /* glsl */ `
@@ -123,6 +125,7 @@ uniform vec4 uWinRect;
 uniform vec4 uWinShape;
 uniform vec2 uCellM;
 uniform vec4 uWallLook;
+uniform float uWallStain;
 uniform vec3 uWallBase;
 uniform vec4 uGlassLook;
 uniform vec3 uGlassAvg;
@@ -179,6 +182,14 @@ vec2 fCell;
   vec2 wuv = vec2(vFUv.x * uCellM.x * ${COLS}, vFWorld.y) / uWallLook.x;
   vec4 wt = texture2D(map, wuv);
   float lum = dot(wt.rgb, vec3(0.2126, 0.7152, 0.0722)) / uWallLook.z;
+  // The set's broad light and shade: its mip ${STAIN_LOD} levels down (16 texels, about 8 cm on the plaster), or one
+  // past the mip in use where that is coarser. Dividing it out keeps the grain; uWallStain of it is put back.
+  vec2 wtx = wuv * vec2(textureSize(map, 0));
+  float wLod = 0.5 * log2(max(max(dot(dFdx(wtx), dFdx(wtx)), dot(dFdy(wtx), dFdy(wtx))), 1e-6));
+  if (uWallStain < 0.999) {
+    float broad = dot(textureLod(map, wuv, max(wLod + 1.0, ${STAIN_LOD})).rgb, vec3(0.2126, 0.7152, 0.0722)) / uWallLook.z;
+    lum *= mix(1.0, broad, uWallStain) / max(broad, 0.05);
+  }
   vec3 wall = mix(wt.rgb, uWallBase * lum, uWallLook.y);
   float wallRough = uGlassLook.z;
   #ifdef USE_ROUGHNESSMAP
@@ -397,6 +408,7 @@ export function createFacadeMaterial(style: FacadeStyle, seed: number, night: Fa
     uWinShape: { value: new THREE.Vector4(win.depth, win.sill, win.ribbon ? 1 : 0, win.skip) },
     uCellM: { value: new THREE.Vector2(cell.w, cell.h) },
     uWallLook: { value: new THREE.Vector4(look.tile, look.desaturate, look.meanLuma, look.normalScale) },
+    uWallStain: { value: look.stain },
     uWallBase: { value: linear(look.base) },
     uGlassLook: { value: new THREE.Vector4(look.glassRoughness, look.glassMetalness, look.roughness, look.metalness) },
     uGlassAvg: { value: linear(look.glassAlbedo) },

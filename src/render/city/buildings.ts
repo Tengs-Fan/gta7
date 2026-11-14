@@ -9,14 +9,14 @@ import {
   type Block, type Building, type FacadeStyle, type Side, type Tier,
 } from '../../world/layout';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from '../geo';
-import { facadeRelief } from '../cityArchitecture';
+import { balconies, facadeRelief, fireEscape, houseShutters, trimColors } from '../cityArchitecture';
 import { drawLandmark, landmarkTowers } from './landmarks';
 import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
 import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
 import { DECOR_PROGRAM, NIGHT_HASH, createFacadeMaterial, facadeTexturesOf, withBuildingFog } from './facadeShader';
 import {
-  CELLS, CELL_DESIGN, DOOR_U, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
-  signTexture, storefrontAtlas, storefrontUv, swatchUv,
+  CELLS, CELL_DESIGN, DOOR_OPENING, DOOR_U, FACADE_LOOK, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
+  signTexture, storefrontAtlas, storefrontUv, swatchUv, type DoorOpening,
 } from '../textures';
 import type { CityView } from './index';
 
@@ -278,12 +278,22 @@ export function buildBuildings(view: CityView): void {
     const street = new Set<Side>(block ? b.groundSides : []);
     // With a ground floor the window grid starts on top of it, on every wall so the rows meet at the corners.
     const baseY = CURB_H + (street.size > 0 ? b.groundH : 0);
+    // Hotels run a balcony along every floor of their street walls; a little under half the apartment blocks have one at
+    // every other window.
+    const balconyEvery = street.size === 0 ? 0 : b.style === 'hotel' ? 1 : b.style === 'stucco' && hashInts(b.id, 0xba1c) / 4294967296 < 0.45 ? 2 : 0;
+    // Two brick blocks in three have a fire escape down a street wall.
+    const escape = street.size > 0 && b.style === 'brick' && !b.special && hashInts(b.id, 0xe5c) / 4294967296 < 0.65;
     for (const t of b.tiers) {
       const uv = { kind: 'facade' as const, w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY };
-      if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, b, block, t, street, uv, color);
+      if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, relief, b, block, t, street, uv, color);
       else gb.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color, top: false });
       facadeRelief(relief, b, t, baseY, color);
-      if (b.roof === 'gable' && t === b.tiers[b.tiers.length - 1]) gable(roofs, t, b, color);
+      // Not on the wall carrying a sign, which stands over the first storey above the ground floor.
+      const plainSides = b.groundSides.filter((s) => s !== b.sign?.side);
+      if (balconyEvery > 0 && !landmarks.has(b.id)) balconies(decor, b, t, baseY, plainSides, wallTone(b, color), balconyEvery);
+      if (escape && t === b.tiers[0]) fireEscape(decor, b, t, baseY, plainSides);
+      if (b.style === 'house' && b.district !== 'country') houseShutters(relief, t, baseY, b.groundSides, offU * FACADE_COLS, offV * FACADE_ROWS);
+      if (b.roof === 'gable' && t === b.tiers[b.tiers.length - 1]) gable(roofs, relief, decor, t, b, color);
       else {
         const rc = scaleRgb([0.55, 0.54, 0.52], 0.85 + rng.next() * 0.3);
         roofs.flat(t.minX, t.minZ, t.maxX, t.maxZ, t.y1, { kind: 'world', scale: 6 }, rc);
@@ -296,6 +306,18 @@ export function buildBuildings(view: CityView): void {
         roofs.box(t.minX, t.y1, t.maxZ - th, t.maxX, t.y1 + lip, t.maxZ, { uv: pu, color: lc });
         roofs.box(t.minX, t.y1, t.minZ + th, t.minX + th, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
         roofs.box(t.maxX - th, t.y1, t.minZ + th, t.maxX, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
+        // A coping along the parapet's top in the trim's stone, standing a little proud of both faces: the roofline's
+        // crisp edge against the sky, where it is seen from the street (on towers' upper roofs it is under a pixel).
+        if (t.y1 <= COPING_MAX_Y) {
+          const cp = trimColors(b, color).cap;
+          const y = t.y1 + lip;
+          const o = 0.06;
+          const i = th + 0.03;
+          relief.box(t.minX - o, y, t.minZ - o, t.maxX + o, y + 0.07, t.minZ + i, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.maxZ - i, t.maxX + o, y + 0.07, t.maxZ + o, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.minZ + i, t.minX + i, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp });
+          relief.box(t.maxX - i, y, t.minZ + i, t.maxX + o, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp });
+        }
       }
     }
     const lm = landmarks.get(b.id);
@@ -341,7 +363,7 @@ export function buildBuildings(view: CityView): void {
  * ground floor and the band below becomes shop, lobby, house or loading-bay frontage; the other
  * walls stay full height.
  */
-function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: GeoBuilder, b: Building, block: Block, t: Tier, street: Set<Side>, uv: UvMode, color: RGB): void {
+function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: GeoBuilder, relief: GeoBuilder, b: Building, block: Block, t: Tier, street: Set<Side>, uv: UvMode, color: RGB): void {
   const w = t.maxX - t.minX;
   const d = t.maxZ - t.minZ;
   const lot = block.lot;
@@ -356,6 +378,8 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
   const def = specialDef(b, block);
   const poi = def ? view.world.layout.pois.find((p) => p.id === def.id) : undefined;
   const top = t.y0 + b.groundH;
+  const piers = b.ground !== 'house';
+  const { trim } = trimColors(b, color);
   for (const wl of walls) {
     if (!street.has(wl.side)) {
       gb.wall(wl.x0, wl.z0, wl.x1, wl.z1, t.y0, t.y1, uv, color, wl.u);
@@ -363,8 +387,45 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
     }
     gb.wall(wl.x0, wl.z0, wl.x1, wl.z1, top, t.y1, uv, color, wl.u);
     const main = wl.side === entrance;
-    frontage(view, front, decor, b, wl, t.y0, top, color, main, main && poi ? poi : null);
+    const edges = frontage(view, front, decor, b, wl, t.y0, top, color, main, main && poi ? poi : null);
+    if (piers) for (const e of edges.slice(1, -1)) pilaster(relief, wl, e, t.y0, top, trim);
   }
+  // A pier on every corner of the band that turns onto a street wall, clasping the corner as the piers above do.
+  if (piers) {
+    for (const [x, z, sx, sz, a, c] of [
+      [t.minX, t.maxZ, -1, 1, 'W', 'S'],
+      [t.maxX, t.maxZ, 1, 1, 'S', 'E'],
+      [t.maxX, t.minZ, 1, -1, 'E', 'N'],
+      [t.minX, t.minZ, -1, -1, 'N', 'W'],
+    ] as const) {
+      if (!street.has(a) && !street.has(c)) continue;
+      const xs = [x + sx * PIER_OUT, x - sx * (PIER_W - PIER_OUT)];
+      const zs = [z + sz * PIER_OUT, z - sz * (PIER_W - PIER_OUT)];
+      relief.box(Math.min(...xs), t.y0 - 0.02, Math.min(...zs), Math.max(...xs), top - 0.07, Math.max(...zs), { uv: TRIM_UV, color: trim, top: false });
+    }
+  }
+}
+
+/** Roofs (m) up to which parapets carry a coping. */
+const COPING_MAX_Y = 45;
+
+/** Width (m) of the piers between the bays of a ground floor, and how far they stand out from the wall. */
+export const PIER_W = 0.32;
+export const PIER_OUT = 0.1;
+const TRIM_UV = { kind: 'world', scale: 3 } as const;
+
+/** A pier `along` metres down a street wall's band, from the pavement to under the band's cornice. */
+function pilaster(g: GeoBuilder, wl: TierWall, along: number, y0: number, y1: number, color: RGB): void {
+  const len = Math.hypot(wl.x1 - wl.x0, wl.z1 - wl.z0);
+  const ux = (wl.x1 - wl.x0) / len;
+  const uz = (wl.z1 - wl.z0) / len;
+  const nx = -uz;
+  const nz = ux;
+  const cx = wl.x0 + ux * along;
+  const cz = wl.z0 + uz * along;
+  const xs = [cx - ux * (PIER_W / 2) - nx * 0.05, cx + ux * (PIER_W / 2) + nx * PIER_OUT];
+  const zs = [cz - uz * (PIER_W / 2) - nz * 0.05, cz + uz * (PIER_W / 2) + nz * PIER_OUT];
+  g.box(Math.min(...xs), y0 - 0.02, Math.min(...zs), Math.max(...xs), y1 - 0.07, Math.max(...zs), { uv: TRIM_UV, color, top: false });
 }
 
 /** The side that gets the main door: a special's entrance side, else the street side nearest its lot edge (then the longest). */
@@ -381,10 +442,10 @@ function entranceSide(b: Building, block: Block, walls: TierWall[]): Side {
 
 /**
  * Frontage quads (about 6.5 m each, see frontageSplit) for the band of one street-facing wall, plus
- * their awnings, canopies and porches. The entrance wall's door stands in front of `marker` (a
- * special's POI) or in the middle of the wall.
+ * their awnings, canopies and porches; returns the quads' edges along the wall. The entrance wall's
+ * door stands in front of `marker` (a special's POI) or in the middle of the wall.
  */
-function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Building, wl: TierWall, y0: number, y1: number, wallColor: RGB, entrance: boolean, marker: { x: number; z: number } | null): void {
+function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Building, wl: TierWall, y0: number, y1: number, wallColor: RGB, entrance: boolean, marker: { x: number; z: number } | null): number[] {
   const len = Math.hypot(wl.x1 - wl.x0, wl.z1 - wl.z0);
   const ux = (wl.x1 - wl.x0) / len;
   const uz = (wl.z1 - wl.z0) / len;
@@ -420,7 +481,8 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
           const fascia = y0 + (y1 - y0) * (1 - SHOP_FASCIA_FRAC);
           const display = storefrontUv(PAWN, SHOP_FASCIA_FRAC, 1);
           front.seed = seed(FRONT_LAMP);
-          quadUv(front, ax, az, bx, bz, y0, fascia, door && split.mirror ? mirrored(display) : display, WHITE);
+          const flip = door && split.mirror;
+          frontQuad(front, ax, az, bx, bz, y0, fascia, flip ? mirrored(display) : display, flip, WHITE, DOOR_OPENING[PAWN], { w: CELL_DESIGN.shop.w, h: CELL_DESIGN.shop.h * (1 - SHOP_FASCIA_FRAC) });
           quadUv(front, ax, az, bx, bz, fascia, y1, swatchUv(SWATCHES.gunFascia), WHITE);
           continue;
         }
@@ -459,8 +521,70 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
     // quad is mirrored when that brings its door to its spot.
     const flip = door ? split.mirror : ((LOBBY_GLASS as readonly number[]).includes(cell) || cell === CELLS.houseWindows) && i % 2 === 1;
     const uv = storefrontUv(cell);
-    quadUv(front, ax, az, bx, bz, y0, y1, flip ? mirrored(uv) : uv, tint);
+    frontQuad(front, ax, az, bx, bz, y0, y1, flip ? mirrored(uv) : uv, flip, tint, DOOR_OPENING[cell], cellDesign(cell));
   }
+  return split.edges;
+}
+
+/** The frontage (width, height in metres) an atlas cell is drawn for. */
+function cellDesign(cell: number): { w: number; h: number } {
+  if (cell < CELLS.lobbyRevolving) return CELL_DESIGN.shop;
+  if (cell === CELLS.rollup) return CELL_DESIGN.rollup;
+  if (cell === CELLS.houseDoorA || cell === CELLS.houseDoorB || cell === CELLS.houseWindows) return CELL_DESIGN.house;
+  return CELL_DESIGN.lobby;
+}
+
+/**
+ * A frontage quad (as quadUv), its doorway set back by the opening's depth behind the wall, with reveals either side,
+ * a soffit over it and a threshold under it, each taking the cell's colour just outside the doorway. `design` is the
+ * part of the cell the quad shows, in metres as drawn; `mirror` says the quad's uv run the other way.
+ */
+function frontQuad(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, uv: readonly [number, number, number, number], mirror: boolean, color: RGB, opening: DoorOpening | undefined, design: { w: number; h: number }): void {
+  if (!opening) {
+    quadUv(g, ax, az, bx, bz, y0, y1, uv, color);
+    return;
+  }
+  const seg = Math.hypot(bx - ax, bz - az);
+  const ux = (bx - ax) / seg;
+  const uz = (bz - az) / seg;
+  // Outward normal of the wall; the doorway is set back along -n.
+  const nx = -uz;
+  const nz = ux;
+  const band = y1 - y0;
+  const [u0, v0, u1, v1] = uv;
+  const U = (s: number) => u0 + ((u1 - u0) * clamp(s, 0, seg)) / seg;
+  const V = (h: number) => v0 + ((v1 - v0) * clamp(h, 0, band)) / band;
+  const sx = seg / design.w;
+  const sy = band / design.h;
+  const s0 = mirror ? seg - opening.x1 * sx : opening.x0 * sx;
+  const s1 = mirror ? seg - opening.x0 * sx : opening.x1 * sx;
+  const h0 = opening.y0 * sy;
+  const h1 = opening.y1 * sy;
+  const d = opening.depth;
+  const P = (s: number, h: number, o: number): [number, number, number] => [ax + ux * s - nx * o, y0 + h, az + uz * s - nz * o];
+  const quad = (a: [number, number, number], b: [number, number, number], c: [number, number, number], e: [number, number, number], uvs: number[]) => g.quad(...a, ...b, ...c, ...e, uvs, color);
+  const piece = (sa: number, sb: number, ha: number, hb: number, o: number) => {
+    if (sb - sa < 1e-4 || hb - ha < 1e-4) return;
+    quad(P(sa, ha, o), P(sb, ha, o), P(sb, hb, o), P(sa, hb, o), [U(sa), V(ha), U(sb), V(ha), U(sb), V(hb), U(sa), V(hb)]);
+  };
+  // The wall round the doorway, then the door set back.
+  piece(0, s0, 0, band, 0);
+  piece(s1, seg, 0, band, 0);
+  piece(s0, s1, h1, band, 0);
+  piece(s0, s1, 0, h0, 0);
+  piece(s0, s1, h0, h1, d);
+  const out = 0.03;
+  // Reveals, facing into the doorway.
+  const ul = U(s0 - out);
+  const ur = U(s1 + out);
+  quad(P(s0, h0, 0), P(s0, h0, d), P(s0, h1, d), P(s0, h1, 0), [ul, V(h0), ul, V(h0), ul, V(h1), ul, V(h1)]);
+  quad(P(s1, h0, d), P(s1, h0, 0), P(s1, h1, 0), P(s1, h1, d), [ur, V(h0), ur, V(h0), ur, V(h1), ur, V(h1)]);
+  // Soffit (facing down) and threshold (facing up, just clear of the ground under the building).
+  const vs = V(h1 + out);
+  quad(P(s0, h1, d), P(s1, h1, d), P(s1, h1, 0), P(s0, h1, 0), [U(s0), vs, U(s1), vs, U(s1), vs, U(s0), vs]);
+  const vt = V(h0 > 0 ? h0 - out : 0.01);
+  const lift = h0 > 0 ? 0 : 0.006;
+  quad(P(s0, h0 + lift, 0), P(s1, h0 + lift, 0), P(s1, h0 + lift, d), P(s0, h0 + lift, d), [U(s0), vt, U(s1), vt, U(s1), vt, U(s0), vt]);
 }
 
 /** Awning depth (m) out from the wall over a frontage whose wall stands `gap` m from its lot edge. */
@@ -626,27 +750,132 @@ function hood(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux:
   boxAround(g, mx + nx * 0.3, mz + nz * 0.3, Math.abs(ux) * w + Math.abs(nx) * 0.6, Math.abs(uz) * w + Math.abs(nz) * 0.6, y, y + 0.12, [0.3, 0.32, 0.34]);
 }
 
-/** Pitched roof along the longer side. */
-function gable(gb: GeoBuilder, t: { minX: number; minZ: number; maxX: number; maxZ: number; y1: number }, b: Building, wallColor: RGB): void {
+/** Lap boards (m) of a house's gable end, and how far the foot of each stands out over the board below. */
+const SIDING_COURSE = 0.2;
+const SIDING_LAP = 0.03;
+/** Eaves and rake overhang (m) of a pitched roof. */
+const EAVES = 0.4;
+const ROOF_TRIM: RGB = [0.82, 0.8, 0.74];
+
+/** The colour a facade paints its wall in: the building's tint times its style's base, as the facade shader has it. */
+function wallTone(b: Building, color: RGB): RGB {
+  const base = linearRgb(FACADE_LOOK[b.style].base);
+  return [color[0] * base[0], color[1] * base[1], color[2] * base[2]];
+}
+
+/**
+ * A quad a, b, c, d whose winding is turned, if need be, so it faces `want` (a direction). c and d may be one point (a
+ * triangle): GeoBuilder takes the normal from the first three corners, so the turned quad starts b, a, d.
+ */
+function facing(g: GeoBuilder, p: ReadonlyArray<readonly [number, number, number]>, want: readonly [number, number, number], color: RGB): void {
+  const [a, b, c, d] = p as [readonly [number, number, number], readonly [number, number, number], readonly [number, number, number], readonly [number, number, number]];
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+  const q = n[0]! * want[0] + n[1]! * want[1] + n[2]! * want[2] >= 0 ? [a, b, c, d] : [b, a, d, c];
+  g.quad(...q[0]!, ...q[1]!, ...q[2]!, ...q[3]!, [0, 0, 1, 0, 1, 1, 0, 1], color);
+}
+
+/**
+ * Pitched roof along the longer side, with its trim: the gable ends in the wall's colour (a house's in lap boards round
+ * an attic vent), fascia boards along the eaves, barge boards up the rakes and a ridge cap; a house gets a chimney and
+ * downpipes at two corners. The county's farmhouses keep their plain roofs.
+ */
+function gable(roofs: GeoBuilder, relief: GeoBuilder, decor: GeoBuilder, t: Tier, b: Building, wallColor: RGB): void {
   const w = t.maxX - t.minX;
   const d = t.maxZ - t.minZ;
   const h = Math.min(w, d) * 0.35;
   const y = t.y1;
   const roofCol: RGB = b.tint > 0.5 ? [0.55, 0.22, 0.18] : [0.32, 0.33, 0.36];
-  const uv = [0, 0, 1, 0, 1, 1, 0, 1];
-  const o = 0.4; // eaves overhang
-  if (w >= d) {
-    const zm = (t.minZ + t.maxZ) / 2;
-    gb.quad(t.minX - o, y - 0.1, t.maxZ + o, t.maxX + o, y - 0.1, t.maxZ + o, t.maxX + o, y + h, zm, t.minX - o, y + h, zm, uv, roofCol);
-    gb.quad(t.maxX + o, y - 0.1, t.minZ - o, t.minX - o, y - 0.1, t.minZ - o, t.minX - o, y + h, zm, t.maxX + o, y + h, zm, uv, roofCol);
-    gb.tri(t.minX, y, t.minZ, t.minX, y, t.maxZ, t.minX, y + h, zm, [0, 0, 1, 0, 0.5, 1], wallColor);
-    gb.tri(t.maxX, y, t.maxZ, t.maxX, y, t.minZ, t.maxX, y + h, zm, [0, 0, 1, 0, 0.5, 1], wallColor);
-  } else {
-    const xm = (t.minX + t.maxX) / 2;
-    gb.quad(t.maxX + o, y - 0.1, t.maxZ + o, t.maxX + o, y - 0.1, t.minZ - o, xm, y + h, t.minZ - o, xm, y + h, t.maxZ + o, uv, roofCol);
-    gb.quad(t.minX - o, y - 0.1, t.minZ - o, t.minX - o, y - 0.1, t.maxZ + o, xm, y + h, t.maxZ + o, xm, y + h, t.minZ - o, uv, roofCol);
-    gb.tri(t.minX, y, t.maxZ, t.maxX, y, t.maxZ, xm, y + h, t.maxZ, [0, 0, 1, 0, 0.5, 1], wallColor);
-    gb.tri(t.maxX, y, t.minZ, t.minX, y, t.minZ, xm, y + h, t.minZ, [0, 0, 1, 0, 0.5, 1], wallColor);
+  const o = EAVES;
+  // Local frame: p runs along the ridge, q across it.
+  const alongX = w >= d;
+  const P = (p: number, q: number, yy: number): [number, number, number] => (alongX ? [p, yy, q] : [q, yy, p]);
+  const dirP = (sgn: number): [number, number, number] => (alongX ? [sgn, 0, 0] : [0, 0, sgn]);
+  const dirQ = (sgn: number): [number, number, number] => (alongX ? [0, 0, sgn] : [sgn, 0, 0]);
+  const p0 = alongX ? t.minX : t.minZ;
+  const p1 = alongX ? t.maxX : t.maxZ;
+  const q0 = alongX ? t.minZ : t.minX;
+  const q1 = alongX ? t.maxZ : t.maxX;
+  const qm = (q0 + q1) / 2;
+  const half = (q1 - q0) / 2;
+  // The two roof slopes.
+  for (const s of [-1, 1]) {
+    const qe = qm + s * (half + o);
+    facing(roofs, [P(p0 - o, qe, y - 0.1), P(p1 + o, qe, y - 0.1), P(p1 + o, qm, y + h), P(p0 - o, qm, y + h)], [dirQ(s)[0], 1, dirQ(s)[2]], roofCol);
+  }
+  if (b.district === 'country') {
+    // The county's farmhouses keep their plain gable ends, in the wall's tint on the roof's material.
+    for (const s of [-1, 1]) {
+      const pe = s < 0 ? p0 : p1;
+      facing(roofs, [P(pe, q0, y), P(pe, q1, y), P(pe, qm, y + h), P(pe, qm, y + h)], dirP(s), wallColor);
+    }
+    return;
+  }
+  const house = b.style === 'house';
+  const gableCol = wallTone(b, wallColor);
+  for (const s of [-1, 1]) {
+    const pe = s < 0 ? p0 : p1;
+    const out = dirP(s);
+    if (house) {
+      // Lap boards, each course's foot standing out over the one below.
+      const halfAt = (yy: number) => half * Math.max(0, 1 - (yy - y) / h);
+      for (let ya = y; ya < y + h - 1e-3; ya += SIDING_COURSE) {
+        const yb = Math.min(ya + SIDING_COURSE, y + h);
+        const a = pe + s * SIDING_LAP;
+        const c = pe + s * 0.004;
+        facing(relief, [P(a, qm - halfAt(ya), ya), P(a, qm + halfAt(ya), ya), P(c, qm + halfAt(yb), yb), P(c, qm - halfAt(yb), yb)], out, gableCol);
+      }
+      // A louvred vent under the apex.
+      const vy = y + h * 0.42;
+      const vw = Math.min(0.6, half * 0.4);
+      const vb = alongX ? { x0: pe - 0.02, x1: pe + s * 0.07, z0: qm - vw / 2, z1: qm + vw / 2 } : { x0: qm - vw / 2, x1: qm + vw / 2, z0: pe - 0.02, z1: pe + s * 0.07 };
+      relief.box(Math.min(vb.x0, vb.x1), vy, Math.min(vb.z0, vb.z1), Math.max(vb.x0, vb.x1), vy + vw * 0.75, Math.max(vb.z0, vb.z1), { uv: TRIM_UV, color: ROOF_TRIM });
+      const f = pe + s * 0.072;
+      const i = 0.06;
+      facing(relief, [P(f, qm - vw / 2 + i, vy + i), P(f, qm + vw / 2 - i, vy + i), P(f, qm + vw / 2 - i, vy + vw * 0.75 - i), P(f, qm - vw / 2 + i, vy + vw * 0.75 - i)], out, [0.06, 0.06, 0.07]);
+    } else {
+      facing(relief, [P(pe, q0, y), P(pe, q1, y), P(pe, qm, y + h), P(pe, qm, y + h)], out, gableCol);
+    }
+    // Barge boards up both rakes, 0.18 m deep under the roof's edge, just proud of the gable.
+    const pb = pe + s * (o + 0.005);
+    for (const r of [-1, 1]) {
+      const qe = qm + r * (half + o);
+      facing(decor, [P(pb, qe, y - 0.1 - 0.18), P(pb, qm, y + h - 0.18), P(pb, qm, y + h + 0.02), P(pb, qe, y - 0.08)], out, ROOF_TRIM);
+    }
+  }
+  // Fascia boards along the eaves, and the ridge cap.
+  for (const s of [-1, 1]) {
+    const qe = qm + s * (half + o);
+    const [ax, , az] = P(p0 - o - 0.02, qe - 0.03, 0);
+    const [bx, , bz] = P(p1 + o + 0.02, qe + 0.03, 0);
+    relief.box(Math.min(ax, bx), y - 0.28, Math.min(az, bz), Math.max(ax, bx), y - 0.07, Math.max(az, bz), { uv: TRIM_UV, color: ROOF_TRIM, bottom: true });
+  }
+  {
+    const [ax, , az] = P(p0 - o, qm - 0.09, 0);
+    const [bx, , bz] = P(p1 + o, qm + 0.09, 0);
+    roofs.box(Math.min(ax, bx), y + h - 0.05, Math.min(az, bz), Math.max(ax, bx), y + h + 0.06, Math.max(az, bz), { uv: { kind: 'world', scale: 6 }, color: scaleRgb(roofCol, 0.75) });
+  }
+  if (!house) return;
+  const r = (k: number) => hashInts(b.id, k, 0xc41) / 4294967296;
+  // A chimney through one slope near a gable end, in brick or in the wall's render.
+  if (r(1) < 0.75) {
+    const pc = p0 + (p1 - p0) * (r(2) < 0.5 ? 0.2 : 0.8);
+    const qc = qm + (r(3) < 0.5 ? -1 : 1) * Math.min(0.9, half * 0.35);
+    const col: RGB = r(4) < 0.55 ? [0.36, 0.15, 0.1] : gableCol;
+    const [ax, , az] = P(pc - 0.33, qc - 0.3, 0);
+    const [bx, , bz] = P(pc + 0.33, qc + 0.3, 0);
+    relief.box(Math.min(ax, bx), y, Math.min(az, bz), Math.max(ax, bx), y + h + 0.9, Math.max(az, bz), { uv: TRIM_UV, color: col, top: false });
+    relief.box(Math.min(ax, bx) - 0.06, y + h + 0.9, Math.min(az, bz) - 0.06, Math.max(ax, bx) + 0.06, y + h + 0.98, Math.max(az, bz) + 0.06, { uv: TRIM_UV, color: [0.5, 0.49, 0.46], bottom: true });
+  }
+  // Downpipes from the eaves at two opposite corners.
+  if (b.tiers.length === 1) {
+    for (const [pp, s] of [[p0 + 0.16, 1], [p1 - 0.16, -1]] as const) {
+      const qe = qm + s * (half + 0.07);
+      const [ax, , az] = P(pp - 0.045, qe - 0.045, 0);
+      const [bx, , bz] = P(pp + 0.045, qe + 0.045, 0);
+      relief.box(Math.min(ax, bx), t.y0, Math.min(az, bz), Math.max(ax, bx), y - 0.2, Math.max(az, bz), { uv: TRIM_UV, color: ROOF_TRIM });
+    }
   }
 }
 

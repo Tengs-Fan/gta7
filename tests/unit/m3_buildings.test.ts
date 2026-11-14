@@ -383,9 +383,16 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // (no pines on the fire break west of the tower's pad, three boulders round the pad, the old scrub set aside). All three
     // were re-recorded once on the merged head, where the passes run places, lakeland, valley's farms, oddities: the cabins'
     // buildings come before the winery's and the ranch house's, and the colliders follow the passes' order (the places' solids,
-    // the lakeland's, the valley's hedgerows and solids, the oddities' after them).
+    // the lakeland's, the valley's hedgerows and solids, the oddities' after them); and the colliders again when the 18
+    // signals that drowning the four bays had taken off their corners stood again, their colliders after every other
+    // (src/world/layout.ts drown).
     expect(b).toBe('82da27b5e4df7346a1912b31fea4630267655e068345b4b546da54e56ce6e1b0');
-    expect(c).toBe('9e30cb01443de12df89267513eed57887983c923d97288f3825153418ba4663e');
+    expect(c).toBe('eaaec4f95aff1fde9f1d8da94a568a63d34dd206ed64100874886cf20f2c90f1');
+    // And every collider but those 18, the last ones, as at 28dfbee before they stood again.
+    const first = W.layout.firstQuaySignal;
+    const older = W.grid.colliders.filter((x) => x.propIndex < first);
+    expect(W.grid.colliders.length - older.length).toBe(18);
+    expect(createHash('sha256').update(JSON.stringify(older.map((x) => ({ ...x })))).digest('hex')).toBe('9e30cb01443de12df89267513eed57887983c923d97288f3825153418ba4663e');
   });
 });
 
