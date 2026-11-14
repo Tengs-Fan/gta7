@@ -16,7 +16,7 @@ import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { FACADE_CELL, FACADE_COLS, FACADE_ROWS } from '../textures/facade';
 import { canvas, toTexture } from '../textures/misc';
 import type { CountryView } from './index';
-import { beam, TIN_TILE, tinBand } from './farms';
+import { beam, paddedBand, TIN_TILE, tinBand } from './farms';
 import { DIRT_Y, type PlacePieces, type PlacesKit } from './kit';
 
 /** The shop windows' band, from the boardwalk up; the porch roofs over the boardwalks, from the fronts out. */
@@ -420,17 +420,18 @@ function porchRoof(p: PlacePieces, tin: [number, number], slab: { minX: number; 
   const [la, lb] = zr(0, 0.12);
   boxC(p.plain, xa, ph.high - 0.25, la, xb, ph.high - 0.05, lb, scaleRgb(WOOD, 0.7));
   for (let x = xa + 0.6; x < xb - 0.3; x += 1.2) beam(p.plain, [x, ph.high - 0.12, fz + out * 0.12], [x, ph.low - 0.12, edge - out * 0.12], 0.09, scaleRgb(WOOD, 0.7));
-  const [ea, eb] = zr(2.88, 3.12);
-  boxC(p.plain, xa, ph.low - 0.24, ea, xb, ph.low, eb, trim);
+  // The beam on the posts' heads, 2.8 m out, just under the boards there.
+  const [ea, eb] = zr(2.66, 2.94);
+  boxC(p.plain, xa, ph.low - 0.26, ea, xb, ph.low - 0.02, eb, trim);
   const posts = Math.max(2, Math.round((slab.maxX - slab.minX) / ph.gap) + 1);
   const pz = edge - out * 0.2;
   for (let k = 0; k < posts; k++) {
     const x = slab.minX + 0.1 + ((slab.maxX - slab.minX - 0.2) * k) / (posts - 1);
-    boxC(p.plain, x - ph.post / 2, DECK_Y, pz - ph.post / 2, x + ph.post / 2, ph.low - 0.24, pz + ph.post / 2, trim);
+    boxC(p.plain, x - ph.post / 2, DECK_Y, pz - ph.post / 2, x + ph.post / 2, ph.low - 0.26, pz + ph.post / 2, trim);
     boxC(p.plain, x - 0.13, DECK_Y, pz - 0.13, x + 0.13, DECK_Y + 0.22, pz + 0.13, scaleRgb(trim, 0.8));
     for (const s of [-1, 1]) {
       if ((k === 0 && s < 0) || (k === posts - 1 && s > 0)) continue;
-      beam(p.plain, [x, ph.low - 0.85, pz], [x + s * 0.6, ph.low - 0.24, pz], 0.08, trim);
+      beam(p.plain, [x, ph.low - 0.85, pz], [x + s * 0.6, ph.low - 0.26, pz], 0.08, trim);
     }
   }
 }
@@ -453,7 +454,7 @@ function awning(p: PlacePieces, band: [number, number], x0: number, x1: number, 
 
 /** Slipformed concrete: the lifts' faint seams across it, darker streaks run down from the top, a little grime toward the foot (v[0]). */
 function concreteBand(kit: PlacesKit): [number, number] {
-  return kit.atlas.band(256, (ctx) => {
+  return paddedBand(kit.atlas, 256, (ctx) => {
     const rng = new Rng(4420);
     ctx.fillStyle = '#d2cdc2';
     ctx.fillRect(0, 0, 1024, 256);
@@ -473,7 +474,7 @@ function concreteBand(kit: PlacesKit): [number, number] {
   });
 }
 
-/** The concrete band's tile round a silo (m): its width spans CONCRETE_TILE m of wall, its height a sixth of the silo. */
+/** The concrete band's tile round a silo (m): its width spans about CONCRETE_TILE m of wall (a whole number of them round it), its height a sixth of the silo. */
 const CONCRETE_TILE = 8;
 
 /**
@@ -481,11 +482,11 @@ const CONCRETE_TILE = 8;
  * caged ladder up the west one; the head house across their tops and the leg tower at their east end in ribbed tin with
  * a strip of windows, roofed in tin; the spout from the leg down to the head house.
  */
-function elevator(kit: PlacesKit, p: PlacePieces, e: TownAnchors['elevator'], tin: [number, number]): void {
-  const concrete = concreteBand(kit);
+function elevator(p: PlacePieces, e: TownAnchors['elevator'], tin: [number, number], concrete: [number, number]): void {
   const n = 24;
   const lifts = 6;
-  const round = (2 * Math.PI * e.r) / CONCRETE_TILE;
+  // A whole number of the band's widths round a silo, so its u meets itself where the circle closes.
+  const round = Math.max(1, Math.round((2 * Math.PI * e.r) / CONCRETE_TILE));
   for (const s of e.silos) {
     for (let j = 0; j < lifts; j++) {
       const y0 = (e.height * j) / lifts;
@@ -524,6 +525,9 @@ function elevator(kit: PlacesKit, p: PlacePieces, e: TownAnchors['elevator'], ti
     paintWall(p, [r.minX, y0, r.minZ], [r.minX, y0, r.maxZ], y1, [-1, 0, 0], scaleRgb(grey, 0.95), v);
   };
   walls(e.head, e.height, e.headTop);
+  // The head house's floor over the gaps between the silos' tops, seen from the ground between them.
+  const hd = e.head;
+  face(p.plain, [hd.minX, e.height, hd.maxZ], [hd.maxX, e.height, hd.maxZ], [hd.maxX, e.height, hd.minZ], [hd.minX, e.height, hd.minZ], [0, -1, 0], scaleRgb(grey, 0.7));
   walls(e.leg, 0, e.top - 1.5);
   const roofs = (r: { minX: number; minZ: number; maxX: number; maxZ: number }, y: number, rise: number) => {
     const cz = (r.minZ + r.maxZ) / 2;
@@ -558,7 +562,12 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   const town = L.country.places.town;
   const p = kit.place('dry-creek');
   const facades = new Map<FacadeStyle, GeoBuilder>();
+  // The unlit bands first, together at the atlas's top, the concrete between the tin and the cob's kernels: a lit band's
+  // glow next to the concrete reached its edges at the coarser mipmaps, and every lift of the silos glowed in a ring at
+  // its top after dark.
   const tin = tinBand(kit.atlas);
+  const concrete = concreteBand(kit);
+  const k = kernels(kit);
   const bands: StoreBands = {
     fronts: { shop: shopFront(kit, 'shop'), diner: shopFront(kit, 'diner'), sheriff: shopFront(kit, 'sheriff'), gas: shopFront(kit, 'gas') },
     tin,
@@ -596,17 +605,21 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   kit.board(p, fascia, c.maxX - c.minX, y1 - y0, cxm, (y0 + y1) / 2, c.minZ - 0.02, Math.PI);
   kit.board(p, fascia, c.maxZ - c.minZ, y1 - y0, c.maxX + 0.02, (y0 + y1) / 2, czm, Math.PI / 2);
   kit.board(p, fascia, c.maxZ - c.minZ, y1 - y0, c.minX - 0.02, (y0 + y1) / 2, czm, -Math.PI / 2);
-  const panel = kit.atlas.band(16, (ctx) => {
+  // The panels' light lit in the middle third of its band only, so the bands either side never sample its glow at their
+  // edges (the CO-OP's sign, painted next, showed a line of it along its top after dark).
+  const lit = kit.atlas.band(48, (ctx) => {
     ctx.fillStyle = '#fffaf0';
-    ctx.fillRect(0, 0, 1024, 16);
+    if (ctx.canvas === kit.atlas.canvas) ctx.fillRect(0, 0, 1024, 48);
+    else ctx.fillRect(0, 16, 1024, 16);
   }, true);
+  const panel: [number, number] = [lit[0] + (lit[1] - lit[0]) / 3, lit[1] - (lit[1] - lit[0]) / 3];
   for (const x of [-796, -784]) {
     const q: V[] = [[x - 1.6, y0 - 0.02, -283], [x + 1.6, y0 - 0.02, -283], [x + 1.6, y0 - 0.02, -297], [x - 1.6, y0 - 0.02, -297]];
     face(p.painted, q[0]!, q[1]!, q[2]!, q[3]!, [0, -1, 0], [1, 1, 1], [0, panel[0], 1, panel[0], 1, panel[1], 0, panel[1]]);
   }
 
   // The grain elevator: concrete silos, the corrugated head house over them and the leg tower at their end.
-  elevator(kit, p, town.elevator, tin);
+  elevator(p, town.elevator, tin, concrete);
   const e = town.elevator;
   kit.board(p, sign(kit, [['DRY CREEK CO-OP', 96]], '#f6f1e4', '#7a2e1c'), 12, 1.6, (e.head.minX + e.head.maxX) / 2, e.height + 3.2, e.head.maxZ + 0.04, 0);
 
@@ -640,7 +653,6 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
 
   // The World's Second-Largest Corn Cob on its plinth, husk leaves round its foot, and its plaque.
   const cob = town.cob;
-  const k = kernels(kit);
   boxC(p.plain, cob.x - 1.8, 0, cob.z - 1.8, cob.x + 1.8, 0.6, cob.z + 1.8, CONCRETE);
   const segs = [[0.6, 1.25], [2.5, 1.3], [5, 1.18], [7, 0.95], [8.2, 0.62], [cob.height, 0.08]] as const;
   for (let s = 1; s < segs.length; s++) {

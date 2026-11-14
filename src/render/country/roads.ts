@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { CROSSWALK_W, LANE_W } from '../../world/constants';
-import { rectContains, type Rect } from '../../world/layout';
+import { mkRect, rectContains, type Rect } from '../../world/layout';
 import type { RoadNode } from '../../world/roads';
 import { quadLine } from '../city/shared';
 import { NO_RECT, setGroundAttribute, type GroundRange } from '../city/surfaces';
@@ -93,7 +93,11 @@ export function buildCountryRoads(view: CountryView): void {
     }
   }
   // A pad on every county junction.
-  for (const n of roads.nodes.slice(roads.gridNodeCount)) if (!roads.isBend(n)) asphalt.flat(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, ASPHALT_Y, uv);
+  for (const n of roads.nodes.slice(roads.gridNodeCount)) {
+    if (roads.isBend(n)) continue;
+    asphalt.flat(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, ASPHALT_Y, uv);
+    padShoulders(gravel, land, n, dirtUv.scale);
+  }
   const roadMat = surfaces.patch(view.city.wet.patch(surfaces.material('road')), 'road');
   roadMat.polygonOffset = true;
   roadMat.polygonOffsetFactor = -1;
@@ -193,7 +197,7 @@ function ribbon(g: GeoBuilder, ranges: GroundRange[], pts: Vertex[], s0: number,
 /**
  * Gravel along the run from s0 to s1 between offsets o0 and o1, in pieces from vertex to vertex of SHOULDER_STEP m at most,
  * each laid only where all of it is on the county's `land`: none on the links' spans over the water or through the city's
- * promenade.
+ * promenade. A piece that runs off the land is laid metre by metre up to its edge.
  */
 function shoulder(g: GeoBuilder, land: readonly Rect[], pts: Vertex[], s0: number, s1: number, o0: number, o1: number, tile: number): void {
   const on = (p: { x: number; z: number }) => land.some((r) => rectContains(r, p.x, p.z));
@@ -206,10 +210,36 @@ function shoulder(g: GeoBuilder, land: readonly Rect[], pts: Vertex[], s0: numbe
   for (let i = 1; i < cuts.length; i++) {
     const a = cuts[i - 1]!;
     const b = cuts[i]!;
-    const q = [at(pts, a, o1), at(pts, b, o1), at(pts, b, o0), at(pts, a, o0)] as const;
-    if (!q.every(on)) continue;
-    g.quad(q[0].x, SHOULDER_Y, q[0].z, q[1].x, SHOULDER_Y, q[1].z, q[2].x, SHOULDER_Y, q[2].z, q[3].x, SHOULDER_Y, q[3].z, q.flatMap((p) => [p.x * k, -p.z * k]));
+    const piece = (a: number, b: number): boolean => {
+      const q = [at(pts, a, o1), at(pts, b, o1), at(pts, b, o0), at(pts, a, o0)] as const;
+      if (!q.every(on)) return false;
+      g.quad(q[0].x, SHOULDER_Y, q[0].z, q[1].x, SHOULDER_Y, q[1].z, q[2].x, SHOULDER_Y, q[2].z, q[3].x, SHOULDER_Y, q[3].z, q.flatMap((p) => [p.x * k, -p.z * k]));
+      return true;
+    };
+    if (piece(a, b)) continue;
+    for (let s = a; s < b - 1e-6; s += 1) piece(s, Math.min(b, s + 1));
   }
+}
+
+/**
+ * Gravel round a junction's pad on the sides no road leaves it by (the far side of a T), SHOULDER m wide and running on
+ * past the pad's corners to meet the roads' shoulders, laid only where it is on the county's `land`.
+ */
+function padShoulders(g: GeoBuilder, land: readonly Rect[], n: RoadNode, tile: number): void {
+  const k = 1 / tile;
+  const { x, z, halfX: hx, halfZ: hz } = n;
+  // By the node's slots: north (-z), east, south, west.
+  const sides = [
+    mkRect(x - hx - SHOULDER, z - hz - SHOULDER, x + hx + SHOULDER, z - hz),
+    mkRect(x + hx, z - hz - SHOULDER, x + hx + SHOULDER, z + hz + SHOULDER),
+    mkRect(x - hx - SHOULDER, z + hz, x + hx + SHOULDER, z + hz + SHOULDER),
+    mkRect(x - hx - SHOULDER, z - hz - SHOULDER, x - hx, z + hz + SHOULDER),
+  ];
+  sides.forEach((r, slot) => {
+    if (n.neighbors[slot]! >= 0) return;
+    if (![[r.minX, r.minZ], [r.maxX, r.minZ], [r.maxX, r.maxZ], [r.minX, r.maxZ]].every(([px, pz]) => land.some((l) => rectContains(l, px!, pz!)))) return;
+    g.quad(r.minX, SHOULDER_Y, r.maxZ, r.maxX, SHOULDER_Y, r.maxZ, r.maxX, SHOULDER_Y, r.minZ, r.minX, SHOULDER_Y, r.minZ, [r.minX * k, -r.maxZ * k, r.maxX * k, -r.maxZ * k, r.maxX * k, -r.minZ * k, r.minX * k, -r.minZ * k]);
+  });
 }
 
 /**

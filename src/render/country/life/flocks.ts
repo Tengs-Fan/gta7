@@ -10,6 +10,7 @@ import { clamp, dampAngle, smoothstep, TAU } from '../../../core/math';
 import { hashInts, rectCX, rectCZ } from '../../../world/layout';
 import { GARAGE_ROOF, type StaticWorld } from '../../../world/staticWorld';
 import { spanWires, wirePoint, type Wire } from './wires';
+import { RIDGE_CAP } from '../farms';
 
 /** A car or the player this close (m) to any of a flock's birds, on the ground plane, puts it up. */
 export const SCARE_R = 20;
@@ -315,7 +316,7 @@ export function crowSites(world: StaticWorld, spans: ReadonlyArray<readonly Wire
     const r = f.barn;
     const alongX = f.door === 'E' || f.door === 'W';
     const hw = (alongX ? r.maxZ - r.minZ : r.maxX - r.minX) / 2;
-    const y = gar.height + GARAGE_ROOF + hw * 0.86 + 0.05;
+    const y = gar.height + GARAGE_ROOF + hw * 0.86 + RIDGE_CAP;
     const perches: Perch[] = [];
     for (let k = 0; k < 4; k++) {
       const along = rng.range(0.15, 0.85);
