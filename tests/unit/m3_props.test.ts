@@ -10,11 +10,11 @@ import { assets } from '../../src/render/assets';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
 import { DRESSING_SIZE, DressingRules, dressingItems, footprint, GARAGE_ITEM_HEIGHT, garageSpecs, houseLots, type DressingItem } from '../../src/render/dressing';
 import {
-  broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, cypressTrunkGeometry, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_TILES, PALM_RING, palmCurve, palmFrondsGeometry, palmTrunkGeometry, TREE_FORKS, TREE_LIMBS, treeTrunkGeometry,
+  broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, cypressTrunkGeometry, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_CARDS_FAR, LEAF_TILES, PALM_RING, palmCurve, palmFrondsGeometry, palmTrunkGeometry, TREE_FORKS, TREE_LIMBS, treeTrunkFarGeometry, treeTrunkGeometry,
 } from '../../src/render/foliage';
-import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, lensAt, railGeometry, signalGeometry, signalLayout, triangles } from '../../src/render/furniture';
+import { BENCH_SEAT, benchGeometry, binGeometry, bollardGeometry, fenceGeometry, hydrantGeometry, mailboxGeometry, planterGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, lensAt, railGeometry, signalGeometry, signalLayout, triangles } from '../../src/render/furniture';
 import { OCCLUDER_AXIS, occluderOpacity } from '../../src/render/occluderFade';
-import { foliageSpheres, LAMP_HEAD, palmAxis, palmLean, palmMatrix, PropsView } from '../../src/render/props';
+import { foliageSpheres, LAMP_HEAD, LOD_FAR, palmAxis, palmLean, palmMatrix, PropsView } from '../../src/render/props';
 import { SiteView } from '../../src/render/siteView';
 import { HARDWARE_CHUNK_SIZE, spatialKey } from '../../src/render/spatial';
 import { SHADOW_LAYER } from '../../src/render/vehicleBatches';
@@ -719,13 +719,13 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
 });
 
 describe('VAL-PRP-011 street trees and lamps: shape and triangle budget per kind', () => {
-  it('each kind keeps within its triangles: a tree or lamp is drawn hundreds of times in every street view', () => {
+  it('each kind keeps within its triangles: a tree or lamp is drawn hundreds of times in every street view (the near model; past LOD_FAR its far one)', () => {
     const budget: Array<[string, number, number]> = [
       ['tree trunk', triangles(treeTrunkGeometry()), 250],
       ['cypress trunk', triangles(cypressTrunkGeometry()), 60],
       ['tree canopy', triangles(broadleafGeometry('tree')), LEAF_CARDS.tree * 4],
       ['palm', triangles(palmTrunkGeometry()) + triangles(palmFrondsGeometry()), 2300],
-      ['lamp', triangles(lampPoleGeometry(LAMP_HEAD)) + triangles(lampHeadGeometry(LAMP_HEAD)) + triangles(lampLensGeometry(LAMP_HEAD)), 560],
+      ['lamp', triangles(lampPoleGeometry(LAMP_HEAD)) + triangles(lampHeadGeometry(LAMP_HEAD)) + triangles(lampLensGeometry(LAMP_HEAD)), 720],
     ];
     console.log(`[props] triangles per kind: ${budget.map(([k, n, max]) => `${k} ${n} (at most ${max})`).join(', ')}`);
     for (const [k, n, max] of budget) expect(n, k).toBeLessThanOrEqual(max);
@@ -764,6 +764,66 @@ describe('VAL-PRP-011 street trees and lamps: shape and triangle budget per kind
     // Nothing of the head below the lens, where the halo hangs.
     expect(hb.boundingBox!.min.y).toBeGreaterThanOrEqual(LAMP_HEAD.y + 0.02);
     expect(head.z).toBeLessThanOrEqual(1.0);
+  });
+});
+
+describe('VAL-PRP-012 normals, the bench seat, and the distance level', () => {
+  it('every vertex normal of the street furniture and foliage models is finite and of unit length', () => {
+    const models: Record<string, THREE.BufferGeometry> = {
+      lampPole: lampPoleGeometry(LAMP_HEAD), lampHead: lampHeadGeometry(LAMP_HEAD), lampPoleFar: lampPoleGeometry(LAMP_HEAD, true), lampHeadFar: lampHeadGeometry(LAMP_HEAD, true),
+      lampLens: lampLensGeometry(LAMP_HEAD), lampShadow: lampShadowGeometry(LAMP_HEAD), trunk: treeTrunkGeometry(), trunkFar: treeTrunkFarGeometry(), cypress: cypressTrunkGeometry(),
+      canopy: broadleafGeometry('tree'), bush: broadleafGeometry('bush'), yardShrub: broadleafGeometry('bush').scale(0.45, 0.6, 0.45), palmTrunk: palmTrunkGeometry(), palmFronds: palmFrondsGeometry(),
+      bench: benchGeometry(), bin: binGeometry(), hydrant: hydrantGeometry(), fence: fenceGeometry(), mailbox: mailboxGeometry(), planter: planterGeometry(), rail: railGeometry(), bollard: bollardGeometry(),
+    };
+    for (const [name, g] of Object.entries(models)) {
+      const n = g.getAttribute('normal');
+      expect(n, name).toBeTruthy();
+      let bad = 0;
+      for (let i = 0; i < n.count; i++) {
+        const l = Math.hypot(n.getX(i), n.getY(i), n.getZ(i));
+        if (!Number.isFinite(l) || Math.abs(l - 1) > 1e-3) bad++;
+      }
+      expect(bad, name).toBe(0);
+    }
+  });
+
+  it('the bench seat is where it was: the top of its slats at 0.4625 m, from z -0.205 to 0.145', () => {
+    expect(BENCH_SEAT).toEqual({ top: 0.4625, front: 0.145, back: -0.205 });
+    const g = benchGeometry();
+    const pos = g.getAttribute('position');
+    let top = -Infinity, front = -Infinity, back = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      // The seat slats: the wood below the back (y under 0.5), their ends past the iron sides.
+      if (pos.getY(i) < 0.44 || pos.getY(i) > 0.5 || Math.abs(pos.getX(i)) < 0.85) continue;
+      top = Math.max(top, pos.getY(i));
+      front = Math.max(front, pos.getZ(i));
+      back = Math.min(back, pos.getZ(i));
+    }
+    expect(top).toBeCloseTo(BENCH_SEAT.top, 4);
+    expect(front).toBeCloseTo(BENCH_SEAT.front, 2);
+    expect(back).toBeGreaterThanOrEqual(BENCH_SEAT.back - 0.05);
+  });
+
+  it('a tree or lamp batch draws its far model, the same batch, once every instance is more than LOD_FAR m away', () => {
+    const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
+    const count = () => { let n = 0; props.group.traverse((o) => { if (o instanceof THREE.Mesh) n++; }); return n; };
+    const before = count();
+    for (const kind of ['tree', 'lamp'] as const) {
+      const i = W.layout.props.findIndex((p) => p.kind === kind);
+      const p = W.layout.props[i]!;
+      props.cull(p.x, p.z, Infinity, Infinity);
+      expect(props.drawnFar(i), `${kind} near`).toBe(false);
+      props.cull(p.x + 5000, p.z + 5000, Infinity, Infinity);
+      expect(props.drawnFar(i), `${kind} far`).toBe(true);
+      props.cull(p.x + LOD_FAR - 1, p.z, Infinity, Infinity);
+      expect(props.drawnFar(i), `${kind} inside ${LOD_FAR} m`).toBe(false);
+    }
+    expect(count()).toBe(before);
+    // The far models are cheaper, the canopy's its first cards.
+    expect(triangles(treeTrunkFarGeometry())).toBeLessThan(triangles(treeTrunkGeometry()) / 3);
+    expect(triangles(lampPoleGeometry(LAMP_HEAD, true)) + triangles(lampHeadGeometry(LAMP_HEAD, true))).toBeLessThan(120);
+    expect(LEAF_CARDS_FAR.tree).toBeLessThan(LEAF_CARDS.tree);
+    expect(LEAF_CARDS_FAR.bush).toBeLessThan(LEAF_CARDS.bush);
   });
 });
 
