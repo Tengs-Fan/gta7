@@ -1075,10 +1075,10 @@ export class Hud {
     const o = el.objective!;
     el.navigation!.classList.toggle('quiet', contact);
     if (contact && o.classList.contains('next') && o.classList.contains('show')) el.navigation!.classList.add('hidden');
-    // On a mission or a job the line at the bottom names the step and mostly the place too ("Drive it into Lou's
-    // garage"): the card then gives only the way and the distance.
+    // On a mission or a job, a line at the bottom that names the place already ("Drive it into Lou's garage") leaves the
+    // card only the way and the distance; one that does not ("Lose the tail", the Buyer) leaves the card the name.
     const step = !race && !this.waypoint && (!!active || sim.activities.busy) && o.classList.contains('show') && !o.classList.contains('next');
-    el.navigation!.classList.toggle('unnamed', step);
+    el.navigation!.classList.toggle('unnamed', step && !!objective?.label && (o.textContent ?? '').toLowerCase().includes(objective.label.toLowerCase()));
     const detail = gate ? gate.label.split(' · ').slice(1).join(' · ') || race!.course.name : '';
     const text = `${label}:${name}:${detail}`;
     if (text !== this.navigationText) {

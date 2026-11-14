@@ -5103,7 +5103,7 @@ describe('San Azura driving HUD', () => {
     expect(el.zone!.classList.contains('show')).toBe(false);
   });
 
-  it("on a mission the card leaves the place to the objective line: the way and the distance", () => {
+  it("on a mission the card leaves a place the objective line names to it: the way and the distance", () => {
     const { hud, el, sim, update } = rig();
     const unnamed = () => el.navigation!.classList.contains('unnamed');
     expect(sim.missions.start('wheels')).toBe(true);
@@ -5118,6 +5118,17 @@ describe('San Azura driving HUD', () => {
     expect(el.navigation!.classList.contains('hidden')).toBe(false);
     expect(unnamed()).toBe(true);
     expect(el.navDistance!.textContent).toMatch(/ k?m$/);
+    // A line that does not name the place (wanted on the way): the card names it.
+    sim.wanted.setLevel(1);
+    step(sim, 0.1);
+    update();
+    expect(el.objective!.textContent).toBe('Lose the cops first');
+    expect(el.navName!.textContent).toBe("Lou's garage");
+    expect(unnamed()).toBe(false);
+    sim.wanted.clear();
+    step(sim, 0.1);
+    update();
+    expect(unnamed()).toBe(true);
     // His own waypoint is not what the line names: the card names it.
     const p = sim.playerPos();
     hud.waypoint = { x: p.x + 300, z: p.z };
