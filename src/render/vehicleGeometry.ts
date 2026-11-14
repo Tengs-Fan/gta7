@@ -565,6 +565,9 @@ export function displace(src: ArrayLike<number>, dst: Float32Array, dents: reado
  * its edge. (A flat face normal per moved triangle drew a disc of hard facets with a sharp ring round every dent.)
  */
 export function bendNormal(x: number, y: number, z: number, nx: number, ny: number, nz: number, dents: readonly DentLike[], out: Float32Array, o: number): void {
+  const n0x = nx;
+  const n0y = ny;
+  const n0z = nz;
   for (let j = 0; j < dents.length; j++) {
     const d = dents[j]!;
     const r = 0.6 + d.depth;
@@ -587,7 +590,21 @@ export function bendNormal(x: number, y: number, z: number, nx: number, ny: numb
     ny -= f * dy;
     nz -= f * dz;
   }
-  const l = Math.hypot(nx, ny, nz) || 1;
+  // A normal bent to nothing (or past a float's range) keeps the undented one: a zero or NaN normal shades NaN, and
+  // on High the bloom spreads that one pixel over a rectangle of the frame.
+  let l = Math.hypot(nx, ny, nz);
+  if (!(l > 1e-6) || !Number.isFinite(l)) {
+    nx = n0x;
+    ny = n0y;
+    nz = n0z;
+    l = Math.hypot(nx, ny, nz);
+  }
+  if (!(l > 1e-6)) {
+    out[o] = 0;
+    out[o + 1] = 1;
+    out[o + 2] = 0;
+    return;
+  }
   out[o] = nx / l;
   out[o + 1] = ny / l;
   out[o + 2] = nz / l;

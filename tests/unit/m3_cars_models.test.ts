@@ -317,6 +317,31 @@ describe('imported car bodies', () => {
     console.log(rows.join('\n'));
   });
 
+  it('every model body has a round lip over each wheel arch, all the way over it', () => {
+    for (const kind of MODEL_KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      const m = carModel(kind)!;
+      const ext = mesh(view(kind), 'exterior').geometry;
+      const pos = ext.getAttribute('position');
+      const nor = ext.getAttribute('normal');
+      for (const zc of [AXLE * s.length, -AXLE * s.length]) {
+        for (const side of [-1, 1]) {
+          // Kit faces looking out of the flank on a ring round the wheel; their angles over it, in 10-degree bins.
+          const bins = new Set<number>();
+          for (const i of kitVertices(ext)) {
+            if (nor.getX(i) * side < 0.9 || pos.getX(i) * side < s.width / 2 - 0.2) continue;
+            const dy = pos.getY(i) - m.wheelR;
+            const dz = pos.getZ(i) - zc;
+            const r = Math.hypot(dy, dz);
+            if (r < m.wheelR + 0.02 || r > m.wheelR + 0.26 || dy < 0) continue;
+            bins.add(Math.floor(THREE.MathUtils.radToDeg(Math.atan2(dy, dz)) / 10));
+          }
+          expect(bins.size, `${kind} arch at ${zc.toFixed(2)} ${side > 0 ? 'left' : 'right'}`).toBeGreaterThanOrEqual(15);
+        }
+      }
+    }
+  });
+
   it('the kit follows the body\'s own dented surface: its sill, tail panel and grille stay in front of the paint in dents of 8, 15 and 40 cm', () => {
     const rows: string[] = [];
     const fails: Array<[string, number, number]> = [];
@@ -425,14 +450,58 @@ describe('imported car bodies', () => {
     }
   });
 
-  it('a made-up reverse lamp (the sedan and taxi have no white rear lamp) stands off the tail, not inside it', () => {
+  it('the sedan and taxi have a whole roof under the dropped sign, and a made-up reverse lamp stands off the tail', () => {
     for (const kind of ['sedan', 'taxi'] as const) {
       const s = VEHICLE_SPECS[kind];
-      const rv = carModel(kind)!.reverse;
+      const m = carModel(kind)!;
+      const rv = m.reverse;
       const v = view(kind);
+      // Straight down onto the roof where the sign stood: the roof, not the floor through an opening.
+      for (const [x, z] of [[0, -0.05], [0.2, 0.05], [-0.25, -0.2], [0.1, -0.3]] as const) {
+        const hit = new THREE.Raycaster(new THREE.Vector3(x, s.height + 1, z), new THREE.Vector3(0, -1, 0)).intersectObjects([mesh(v, 'body'), mesh(v, 'exterior'), mesh(v, 'glass')], false)[0]!;
+        expect(hit.point.y, `${kind} roof at ${x}, ${z}`).toBeGreaterThan(m.roofTopY - 0.08);
+      }
       const hit = new THREE.Raycaster(new THREE.Vector3(rv.at.x, rv.at.y, -s.length), new THREE.Vector3(0, 0, 1)).intersectObjects([mesh(v, 'body'), mesh(v, 'exterior')], false)[0]!;
       expect(rv.at.z, kind).toBeLessThan(hit.point.z);
     }
+  });
+
+  it('no dent leaves a normal of no length or NaN on any kind (one NaN pixel blackens a rectangle through the bloom)', () => {
+    const rows: string[] = [];
+    for (const kind of KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      for (const depth of [0.08, 0.15, 0.4]) {
+        const v = view(kind);
+        const car = new Vehicle(1, kind, 0, 0, 0, 0, 0xb03a2e);
+        v.bind(car);
+        v.sync(car, 1 / 60, 0, 0);
+        // Front, rear, both flanks and the roof, each straight at the body (the dent's centre on its surface).
+        car.dents.push(
+          { lx: 0, ly: s.height * 0.45, lz: s.length / 2 - 0.05, nx: 0, nz: -1, depth },
+          { lx: 0.2, ly: s.height * 0.45, lz: -s.length / 2 + 0.05, nx: 0, nz: 1, depth },
+          { lx: s.width / 2 - 0.02, ly: s.height * 0.4, lz: 0.3, nx: -1, nz: 0, depth },
+          { lx: -s.width / 2 + 0.02, ly: s.height * 0.4, lz: -0.6, nx: 1, nz: 0, depth },
+          { lx: 0, ly: s.height, lz: 0, nx: 0, nz: 0, depth },
+        );
+        car.dentVersion++;
+        v.sync(car, 1 / 60, 0, 0);
+        let bad = 0;
+        let checked = 0;
+        v.group.traverse((o) => {
+          if (!(o instanceof THREE.Mesh)) return;
+          const n = o.geometry.getAttribute('normal');
+          if (!n) return;
+          for (let i = 0; i < n.count; i++) {
+            const l = Math.hypot(n.getX(i), n.getY(i), n.getZ(i));
+            checked++;
+            if (!Number.isFinite(l) || Math.abs(l - 1) > 1e-3) bad++;
+          }
+        });
+        expect(bad, `${kind} dented ${depth} m`).toBe(0);
+        if (depth === 0.4) rows.push(`${kind}: ${checked} normals unit length under five 40 cm dents`);
+      }
+    }
+    console.log(rows.join('\n'));
   });
 
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
@@ -513,7 +582,8 @@ describe('imported car bodies', () => {
         const ends = [new THREE.Box3(), new THREE.Box3()];
         for (let i = 0; i < pos.count; i++) {
           // The fittings atlas's plate cell.
-          if (uv.getY(i) < 0.5) continue;
+          // (The atlas's plate cell: the mirror cell beside it is the mirrors' glass.)
+          if (uv.getY(i) < 0.5 || uv.getX(i) > 0.5) continue;
           const p = new THREE.Vector3().fromBufferAttribute(pos, i);
           ends[p.z > 0 ? 0 : 1]!.expandByPoint(p);
           expect(nor.getZ(i) * Math.sign(p.z), `${kind} ${name}: the plate faces out of its end`).toBeGreaterThan(0.75);

@@ -160,7 +160,8 @@ To play with friends on your network, run the optional multiplayer server (see [
   Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
   The imported bodies shade smooth across their faces.
   They wear a grille, a dark panel joining their tail lamps, a valance, door handles, sills and exhausts.
-  Up close they carry shut lines round the boot lid, bonnet, doors and bumpers, lamp housings, roof drip rails, round arch lips and wipers, and a dent bends all of it with the paint.
+  Up close they carry shut lines round the boot lid, bonnet, doors and bumpers, lamp housings, roof drip rails and an aerial, round arch lips, mirrors with glass and wipers, and a dent bends all of it with the paint.
+  Alloy wheels are dished over their barrels.
   The box vans' backs are two doors between tall lamp clusters; the van has a sliding door and a ribbed roof, and the bus framed windows and an engine grille.
   Buildings have PBR stone, brick, plaster and metal facades with recessed windows, sills, cornices and coped parapets.
   Doorways stand back behind the shop, lobby and house fronts, and stone piers part the bays of a ground floor under its cornice.
