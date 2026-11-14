@@ -118,6 +118,8 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
   const cap = scaleRgb(color, 0.7);
   const W = { kind: 'world' as const, scale: 3 };
   const gold: RGB = [0.78, 0.66, 0.38];
+  // Dark steel for the open crown and the wedge's blade: in pale metal they melted into the hazy sky seen from the sea.
+  const steel: RGB = [0.24, 0.26, 0.29];
   const uv4 = [0, 0, 1, 0, 1, 1, 0, 1];
   const uv3 = [0, 0, 1, 0, 0.5, 1];
   type V3 = [number, number, number];
@@ -253,15 +255,15 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
       const mid = 0.6;
       for (const fx of [t.minX + i0, t.maxX - i0 - fin]) {
         for (const fz of [t.minZ + i0, t.maxZ - i0 - fin]) {
-          trim.box(fx, y, fz, fx + fin, y + ht, fz + fin, { uv: W, color: metal });
-          prism(trim, fx + fin / 2, fz + fin / 2, fin * 0.72, 0, y + ht, y + ht + 3.5, 4, metal);
+          trim.box(fx, y, fz, fx + fin, y + ht, fz + fin, { uv: W, color: steel });
+          prism(trim, fx + fin / 2, fz + fin / 2, fin * 0.72, 0, y + ht, y + ht + 3.5, 4, steel);
         }
       }
       const ring = (ry: number, hgt: number) => {
-        trim.box(t.minX + i0, ry, t.minZ + i0, t.maxX - i0, ry + hgt, t.minZ + i0 + rd, { uv: W, color: metal });
-        trim.box(t.minX + i0, ry, t.maxZ - i0 - rd, t.maxX - i0, ry + hgt, t.maxZ - i0, { uv: W, color: metal });
-        trim.box(t.minX + i0, ry, t.minZ + i0 + rd, t.minX + i0 + rd, ry + hgt, t.maxZ - i0 - rd, { uv: W, color: metal });
-        trim.box(t.maxX - i0 - rd, ry, t.minZ + i0 + rd, t.maxX - i0, ry + hgt, t.maxZ - i0 - rd, { uv: W, color: metal });
+        trim.box(t.minX + i0, ry, t.minZ + i0, t.maxX - i0, ry + hgt, t.minZ + i0 + rd, { uv: W, color: steel });
+        trim.box(t.minX + i0, ry, t.maxZ - i0 - rd, t.maxX - i0, ry + hgt, t.maxZ - i0, { uv: W, color: steel });
+        trim.box(t.minX + i0, ry, t.minZ + i0 + rd, t.minX + i0 + rd, ry + hgt, t.maxZ - i0 - rd, { uv: W, color: steel });
+        trim.box(t.maxX - i0 - rd, ry, t.minZ + i0 + rd, t.maxX - i0, ry + hgt, t.maxZ - i0 - rd, { uv: W, color: steel });
       };
       ring(y + ht - rh, rh);
       ring(y + ht * 0.4, rh * 0.6);
@@ -276,10 +278,10 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
           for (const side of [0, 1]) {
             if (long) {
               const z = side ? t.maxZ - i0 - mid : t.minZ + i0;
-              trim.box(a - mid / 2, y, z, a + mid / 2, top, z + mid, { uv: W, color: metal });
+              trim.box(a - mid / 2, y, z, a + mid / 2, top, z + mid, { uv: W, color: steel });
             } else {
               const x = side ? t.maxX - i0 - mid : t.minX + i0;
-              trim.box(x, y, a - mid / 2, x + mid, top, a + mid / 2, { uv: W, color: metal });
+              trim.box(x, y, a - mid / 2, x + mid, top, a + mid / 2, { uv: W, color: steel });
             }
           }
         }
@@ -324,7 +326,7 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
         faced(P(pa, q1, ya), P(pa, q0, ya), P(pb, q0, yb), P(pb, q1, yb), up(dirP(-1), 1), slate);
         if (k < n - 1) faced(P(pb, q1, yb), P(pb, q0, yb), P(pb, q0, ya + rise), P(pb, q1, ya + rise), dirP(-1), scaleRgb(slate, 1.35));
         // The side walls under this step, at both ends of the slope.
-        for (const [qq, sgn] of [[q0, -1], [q1, 1]] as const) faced(P(pa, qq, y), P(pb, qq, y), P(pb, qq, k < n - 1 ? ya + rise : yb), P(pa, qq, ya), dirQ(sgn), metal);
+        for (const [qq, sgn] of [[q0, -1], [q1, 1]] as const) faced(P(pa, qq, y), P(pb, qq, y), P(pb, qq, k < n - 1 ? ya + rise : yb), P(pa, qq, ya), dirQ(sgn), steel);
       }
       // The high end's wall, facing out.
       faced(P(L, q0, y), P(L, q1, y), P(L, q1, y + h * 0.925), P(L, q0, y + h * 0.925), dirP(1), scaleRgb(slate, 1.2));
@@ -336,11 +338,11 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
       for (const s of [-1, 1]) {
         const pp = L - 0.3 + s * bt;
         const tip = P(pp, bq + bl, yr + 7);
-        faced(P(pp, bq - bl, yr), P(pp, bq + bl, yr), tip, tip, dirP(s), metal);
+        faced(P(pp, bq - bl, yr), P(pp, bq + bl, yr), tip, tip, dirP(s), steel);
       }
       // The blade's tall end and its sloped edge.
-      faced(P(L - 0.3 - bt, bq + bl, yr), P(L - 0.3 + bt, bq + bl, yr), P(L - 0.3 + bt, bq + bl, yr + 7), P(L - 0.3 - bt, bq + bl, yr + 7), dirQ(1), metal);
-      faced(P(L - 0.3 - bt, bq - bl, yr), P(L - 0.3 + bt, bq - bl, yr), P(L - 0.3 + bt, bq + bl, yr + 7), P(L - 0.3 - bt, bq + bl, yr + 7), up(dirQ(-1), 0.4), metal);
+      faced(P(L - 0.3 - bt, bq + bl, yr), P(L - 0.3 + bt, bq + bl, yr), P(L - 0.3 + bt, bq + bl, yr + 7), P(L - 0.3 - bt, bq + bl, yr + 7), dirQ(1), steel);
+      faced(P(L - 0.3 - bt, bq - bl, yr), P(L - 0.3 + bt, bq - bl, yr), P(L - 0.3 + bt, bq + bl, yr + 7), P(L - 0.3 - bt, bq + bl, yr + 7), up(dirQ(-1), 0.4), steel);
       const [mx, , mz] = P(L - 0.3, bq + bl, 0);
       prism(trim, mx, mz, 0.25, 0.08, yr + 7, yr + 7 + lm.spire, 6, [0.85, 0.85, 0.86]);
       break;
