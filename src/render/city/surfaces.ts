@@ -11,6 +11,7 @@ import { assets } from '../assets';
 import { cloudNoiseTexture, groundSurface, type GroundTex } from '../textures';
 import { countyShore, seaDrawnDepth, surfPhases, type CountyShore } from '../sea';
 import { SURF_SWASH_GLSL } from '../waves';
+import { KERBSTONE_W, LAWN_OVERHANG } from './verges';
 
 export type GroundDetail = 'road' | 'lot' | 'kerb' | 'curb' | 'grass' | 'sand' | 'paving' | 'plain';
 export type AnisoTier = 'high' | 'medium' | 'low' | 'software';
@@ -47,11 +48,7 @@ export const PBR_SURFACES: Readonly<Partial<Record<GroundDetail, PbrSpec>>> = {
   sand: { set: 'coast_sand_01', tile: 4, tint: [2.3, 2.38, 2.5], normalScale: 0.8 },
 };
 
-/** Width (m) of the kerbstone band along the kerb edge of every sidewalk. */
-export const KERBSTONE_W = 0.3;
-
-/** Lawns spill this far (m) onto the paving where they meet a sidewalk; the shader frays the strip. */
-export const LAWN_OVERHANG = 0.18;
+export { KERBSTONE_W, LAWN_OVERHANG } from './verges';
 /** Sand within this distance (m) of the waterline is wet and dark (the shader frays the band's inland edge). */
 export const WET_SAND_BAND = 8.8;
 /** Wet sand keeps this share less of its albedo, and its roughness falls to WET_SAND_ROUGHNESS (dry sand is rougher). */
@@ -72,6 +69,7 @@ vGround = aGround;`;
 const FS_PARS = /* glsl */ `
 uniform sampler2D uGroundNoise;
 uniform vec3 uGroundSurf;
+uniform vec4 uGroundKerbed;
 ${SURF_SWASH_GLSL}
 varying vec4 vGround;
 varying vec3 vGroundPos;
@@ -138,8 +136,10 @@ ${lanes ? `  if ( vGround.w > 0.5 ) {
     float track = exp( - pow( ( abs( off ) - 0.85 ) / 0.3, 2.0 ) ) * smoothstep( 0.3, 0.7, br + 0.25 );
     float nearJ = 1.0 - smoothstep( 6.0, 30.0, min( vGround.y, vGround.z ) );
     float oil = exp( - pow( off / 0.38, 2.0 ) ) * ( 0.35 + 0.65 * nearJ ) * smoothstep( 0.35, 0.65, oilN );
-    // Grit and dust swept to the edge, in the 0.6 m beside the gutter (vGround.w - |across| is the distance to the kerb).
-    float grit = ( 1.0 - smoothstep( 0.3, 0.9 + 0.5 * br, vGround.w - a ) ) * ( 0.6 + 0.4 * oilN );
+    // Grit and dust swept to the edge, in the 0.6 m beside the gutter (vGround.w - |across| is the distance to the kerb),
+    // only on the city's roads, which have gutters and kerbs (uGroundKerbed: minX, minZ, maxX, maxZ); not the county's.
+    float kerbed = step( uGroundKerbed.x, gp.x ) * step( gp.x, uGroundKerbed.z ) * step( uGroundKerbed.y, gp.y ) * step( gp.y, uGroundKerbed.w );
+    float grit = kerbed * ( 1.0 - smoothstep( 0.3, 0.9 + 0.5 * br, vGround.w - a ) ) * ( 0.6 + 0.4 * oilN );
     tone *= ( 1.0 + 0.12 * track ) * ( 1.0 - 0.32 * oil ) * ( 1.0 + 0.16 * grit );
     gRough -= 0.1 * track + 0.14 * oil - 0.06 * grit;
   }` : ''}
@@ -147,22 +147,37 @@ ${lanes ? `  if ( vGround.w > 0.5 ) {
 }`;
 
 /**
- * Sidewalks, out from the kerb edge of the rectangle vGround (its sides are the kerbs): on a block's (or the city's) ring
- * a band of pale kerbstones with a joint behind it (not on a quay, whose rectangle comes with minZ > maxZ), flags whose tone changes from one to the next (a few relaid, a few
- * weathered), grime gathered along the kerb, and faint stains. A tactile pad where a crossing lands (ground.ts) carries its
- * kerb rectangle reversed (minX > maxX) and is drawn as buff paving studded with domes.
+ * How the sidewalk shader reads its kerb rectangle from vGround: a tactile pad's comes reversed (minX > maxX; padKerb).
+ * decodeKerb is its mirror on the CPU, for tests.
+ */
+export const KERB_DECODE_GLSL = /* glsl */ `
+  bool pad = vGround.x > vGround.z;
+  vec4 kr = pad ? vGround.zwxy : vGround;`;
+
+/** A tactile pad's vGround: its kerb rectangle (minX, minZ, maxX, maxZ) reversed, the shader's flag for buff domed slabs. */
+export function padKerb(k: readonly [number, number, number, number]): [number, number, number, number] {
+  return [k[2], k[3], k[0], k[1]];
+}
+
+/** decodeKerb mirrors KERB_DECODE_GLSL: whether vGround marks a tactile pad, and the kerb rectangle it carries. */
+export function decodeKerb(v: readonly [number, number, number, number]): { pad: boolean; kerb: [number, number, number, number] } {
+  const pad = v[0] > v[2];
+  return { pad, kerb: pad ? [v[2], v[3], v[0], v[1]] : [v[0], v[1], v[2], v[3]] };
+}
+
+/**
+ * Sidewalks, out from the kerb edge of the rectangle vGround (its sides are the kerbs; a quay's reaches far past its
+ * sides that meet no road): a band of pale kerbstones with a joint behind it, flags whose tone changes from one to the
+ * next (a few relaid, a few weathered), grime gathered along the kerb, and faint stains. A tactile pad where a crossing
+ * lands (ground.ts) is drawn as buff paving studded with domes.
  */
 const FS_KERB = /* glsl */ `
 {
-  bool pad = vGround.x > vGround.z;
-  bool quay = !pad && vGround.y > vGround.w;
-  vec4 kr = pad ? vGround.zwxy : quay ? vGround.xwzy : vGround;
+${KERB_DECODE_GLSL}
   vec2 lo2 = gp - kr.xy;
   vec2 hi2 = kr.zw - gp;
   float d = abs( min( min( lo2.x, hi2.x ), min( lo2.y, hi2.y ) ) );
   float jaa = gpx * 0.75;
-  // Kerbstones line a block's ring; a quay's strips abut one another and keep plain flags.
-  float ring = quay ? 0.0 : 1.0;
   // Flags on the texture's 1 m joints: each its own tone and warmth, about one in twenty relaid paler, one in fifteen weathered
   // darker and warmer.
   vec2 flag = floor( gp );
@@ -172,9 +187,9 @@ const FS_KERB = /* glsl */ `
   flagTone *= ( 1.0 + 0.14 * relaid ) * mix( vec3( 1.0 ), vec3( 0.84, 0.8, 0.74 ), stain );
   flagTone = mix( flagTone, vec3( 1.0 ), smoothstep( 0.25, 0.6, gpx ) );
   // Kerbstones: paler, cooler granite with a fine speckle, smoother than the flags, a mortar joint behind them.
-  float stone = ring * ( 1.0 - smoothstep( ${n(KERBSTONE_W)} - jaa, ${n(KERBSTONE_W)} + jaa, d ) );
+  float stone = ( 1.0 - smoothstep( ${n(KERBSTONE_W)} - jaa, ${n(KERBSTONE_W)} + jaa, d ) );
   float speck = mix( mix( 0.88, 1.1, gN( gp * 3.7 + 0.21 ) ), 1.0, smoothstep( 0.04, 0.12, gpx ) );
-  float joint = ring * clamp( 0.03 / gpx, 0.0, 1.0 ) * ( 1.0 - smoothstep( 0.015, 0.015 + jaa, abs( d - ${n(KERBSTONE_W)} ) ) );
+  float joint = clamp( 0.03 / gpx, 0.0, 1.0 ) * ( 1.0 - smoothstep( 0.015, 0.015 + jaa, abs( d - ${n(KERBSTONE_W)} ) ) );
   diffuseColor.rgb *= mix( flagTone, vec3( 1.2, 1.2, 1.22 ) * speck, stone ) * ( 1.0 - 0.55 * joint );
   gRough -= 0.1 * stone;
   if ( pad ) {
@@ -322,6 +337,8 @@ export interface GroundUniforms {
   uGroundNoise: { value: THREE.Texture };
   /** The breakers' phases (sea.ts surfPhases), for the swash's lace. */
   uGroundSurf: { value: THREE.Vector3 };
+  /** The rectangle (minX, minZ, maxX, maxZ) whose roads have gutters and kerbs, so grit by the kerb (the city's; set by buildRoads). */
+  uGroundKerbed: { value: THREE.Vector4 };
 }
 
 export class GroundSurfaces {
@@ -335,7 +352,7 @@ export class GroundSurfaces {
   private anisotropy = 0;
 
   constructor(readonly software: boolean) {
-    this.uniforms = { uGroundNoise: { value: cloudNoiseTexture() }, uGroundSurf: { value: new THREE.Vector3() } };
+    this.uniforms = { uGroundNoise: { value: cloudNoiseTexture() }, uGroundSurf: { value: new THREE.Vector3() }, uGroundKerbed: { value: new THREE.Vector4() } };
   }
 
   /** The PBR set of a surface when it loaded (never on the software tier). */
