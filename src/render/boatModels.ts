@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import type { VehicleKind } from '../sim/specs';
 import { VEHICLE_SPECS } from '../sim/specs';
-import { cockpitGeometry, foredeckGeometry, hullSection, hullSkin, stations, waterline, type HullSpec } from './hullGeometry';
+import { cockpitGeometry, foredeckGeometry, hullSection, hullSkin, soundNormals, stations, waterline, type HullSpec } from './hullGeometry';
 import type { RiderSeatLayout } from './riders';
 import { assemble, assemblePainted, assembleShape, block, gridSurface, lathe, loft, rod, sweep, V, type PartList, type Section } from './shapeKit';
 
@@ -145,7 +145,7 @@ function speedboat(kind: VehicleKind): BoatModel {
   const fore = foredeckGeometry(hull, deckT, floor, 0.06, 12);
   const deckZ = hullSection(hull, deckT).z;
 
-  const painted = assemblePainted([['topsides', skin.topsides, 0xffffff], ['transom', skin.transom, 0xffffff]]);
+  const painted = soundNormals(assemblePainted([['topsides', skin.topsides, 0xffffff], ['transom', skin.transom, 0xffffff]]));
   const parts: PartList = [];
   parts.push(['bottom', skin.bottom, 'antifoul']);
   parts.push(['gunwaleCap', cockpit.cap, 'gelcoat']);
@@ -243,7 +243,7 @@ function speedboat(kind: VehicleKind): BoatModel {
   // The outboard.
   const ob = outboard(parts, -hl, hull.sheerAft - 0.16, 1, -0.25, false);
 
-  const fittings = assemble(parts);
+  const fittings = soundNormals(assemble(parts));
   // Driver: hips 1.5 cm over the helm cushion, hands on the wheel at a quarter to three.
   const gl = V(wheelC.x + 0.17, wheelC.y, wheelC.z);
   const gr = V(wheelC.x - 0.17, wheelC.y, wheelC.z);
@@ -329,7 +329,7 @@ function dinghy(kind: VehicleKind): BoatModel {
     return radii[i]! + (radii[i + 1]! - radii[i]!) * (f - i);
   };
   // The tubes take the boat's colour.
-  const painted = assemblePainted([['tubes', sweep(path, radiusAt, 14, { segments: 96 }), 0xffffff]]);
+  const painted = soundNormals(assemblePainted([['tubes', sweep(path, radiusAt, 14, { segments: 96 }), 0xffffff]]));
   // Grab lines along both tubes' outer tops, scalloped between their D-rings, and the rings' patches.
   for (const side of [1, -1]) {
     const line: THREE.Vector3[] = [];
@@ -364,7 +364,7 @@ function dinghy(kind: VehicleKind): BoatModel {
   ob.push('tiller');
   parts.push(['bowLightBase', block(0.06, 0.04, 0.08, 0, 0.47, hl - 0.18, 4, 8), 'black']);
   parts.push(['sternPole', rod(V(-0.3, 0.45, -hl + 0.05), V(-0.3, 0.86, -hl + 0.05), 0.012, 5), 'steel']);
-  const fittings = assemble(parts);
+  const fittings = soundNormals(assemble(parts));
   const shoulder = V(0.285, 1.0, -0.97);
   const tl = handOn(grip, grip.clone().sub(shoulder));
   const seats: RiderSeatLayout[] = [
@@ -482,8 +482,8 @@ function cruiserGeometry(): { painted: THREE.BufferGeometry; fittings: THREE.Buf
   }
   // Turn it from the hull frame (bow +z, centred) into the prop's (bow +x, the hull from x -5 to 7).
   const toProp = new THREE.Matrix4().makeTranslation(1, 0, 0).multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2));
-  const painted = assemblePainted([['topsides', skin.topsides, 0xffffff], ['transom', skin.transom, 0xffffff]]).applyMatrix4(toProp);
-  const fittings = assemble(parts).applyMatrix4(toProp);
+  const painted = soundNormals(assemblePainted([['topsides', skin.topsides, 0xffffff], ['transom', skin.transom, 0xffffff]])).applyMatrix4(toProp);
+  const fittings = soundNormals(assemble(parts)).applyMatrix4(toProp);
   cruiser = { painted, fittings };
   return cruiser;
 }

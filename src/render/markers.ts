@@ -8,6 +8,7 @@ import type { Marker } from '../sim/interactions';
 import { pickupIconColor } from '../sim/pickups';
 import { SPOT_RADIUS, SPOTLIGHT_DARK } from '../sim/wanted';
 import { beamTexture, glowTexture } from './textures';
+import { pickupModel } from './weaponModels';
 
 const beamTex = beamTexture();
 const glowTex = glowTexture();
@@ -238,8 +239,9 @@ export class MarkerView {
   private readonly arrowGeo = new THREE.ConeGeometry(0.45, 0.9, 4).rotateX(Math.PI);
   private readonly markerIconGeo = new THREE.OctahedronGeometry(0.32, 0);
   private readonly markerMats = new Map<number, { beam: THREE.MeshBasicMaterial; icon: THREE.MeshStandardMaterial }>();
-  private readonly iconGeos = new Map<PickupKind, THREE.BufferGeometry>();
-  private readonly iconMats = new Map<PickupKind, THREE.MeshStandardMaterial>();
+  /** By pickup kind, and a weapon pickup by its weapon (`weapon:<id>`): it shows that weapon's own model. */
+  private readonly iconGeos = new Map<string, THREE.BufferGeometry>();
+  private readonly iconMats = new Map<string, THREE.MeshStandardMaterial>();
   private readonly glowMats = new Map<number, THREE.SpriteMaterial>();
   /** Helicopter built once; each view is a clone sharing its geometry and materials. */
   private heliTemplate: { g: THREE.Group; cone: THREE.Mesh; pool: THREE.Mesh } | null = null;
@@ -411,16 +413,22 @@ export class MarkerView {
       let g = this.pickupViews.get(p.id);
       if (!g) {
         g = new THREE.Group();
-        let mat = this.iconMats.get(p.kind);
+        // A weapon lying in the world is its own model (weaponModels.ts), coloured by its vertices and lifted a little
+        // so a dark gun still reads against the asphalt.
+        const model = p.kind === 'weapon' && p.weapon ? `weapon:${p.weapon}` : null;
+        const key = model ?? p.kind;
+        let geo = this.iconGeos.get(key);
+        if (!geo) {
+          geo = (model && pickupModel(p.weapon!)) || iconGeometry(p.kind);
+          this.iconGeos.set(key, geo);
+        }
+        let mat = this.iconMats.get(model ? 'weapon:model' : p.kind);
         if (!mat) {
           const c = pickupIconColor(p.kind);
-          mat = new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: p.kind === 'weapon' ? 0.4 : 0.9, roughness: 0.35, metalness: p.kind === 'weapon' ? 0.7 : 0.1 });
-          this.iconMats.set(p.kind, mat);
-        }
-        let geo = this.iconGeos.get(p.kind);
-        if (!geo) {
-          geo = iconGeometry(p.kind);
-          this.iconGeos.set(p.kind, geo);
+          mat = model
+            ? new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x2a2a2a, roughness: 0.45, metalness: 0.4 })
+            : new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: p.kind === 'weapon' ? 0.4 : 0.9, roughness: 0.35, metalness: p.kind === 'weapon' ? 0.7 : 0.1 });
+          this.iconMats.set(model ? 'weapon:model' : p.kind, mat);
         }
         const icon = new THREE.Mesh(geo, mat);
         icon.name = 'icon';

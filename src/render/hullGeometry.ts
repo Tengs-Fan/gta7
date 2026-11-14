@@ -213,3 +213,36 @@ export function waterline(h: HullSpec, n: number): THREE.Vector2[] {
   }
   return out;
 }
+
+/**
+ * Gives every vertex whose normal is not of unit length (a hull's stem and a cockpit's bow end close to a point, where
+ * the grids' triangles have no area and their smoothed normals none) its triangle's normal, or straight up where the
+ * triangle has no area either: a normal of no length shades as NaN, which the bloom spreads over the frame. Non-indexed
+ * geometry; the triangles (and so the part ranges) are kept.
+ */
+export function soundNormals(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const p = g.getAttribute('position');
+  const n = g.getAttribute('normal');
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (let i = 0; i + 2 < p.count; i += 3) {
+    let fixed = false;
+    for (let j = 0; j < 3; j++) {
+      const l = Math.hypot(n.getX(i + j), n.getY(i + j), n.getZ(i + j));
+      if (Number.isFinite(l) && Math.abs(l - 1) < 1e-3) continue;
+      if (!fixed) {
+        a.fromBufferAttribute(p, i);
+        b.fromBufferAttribute(p, i + 1).sub(a);
+        c.fromBufferAttribute(p, i + 2).sub(a);
+        a.crossVectors(b, c);
+        if (a.lengthSq() < 1e-20) a.set(0, 1, 0);
+        a.normalize();
+        fixed = true;
+      }
+      n.setXYZ(i + j, a.x, a.y, a.z);
+    }
+  }
+  n.needsUpdate = true;
+  return g;
+}
