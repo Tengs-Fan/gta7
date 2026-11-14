@@ -30,8 +30,9 @@ function installCamera(g) {
 }
 
 /**
- * Runs in the page: one vehicle of `kind` at the stage, the camera at `view` round it (a view ending in '-far' from ten
- * times as far on a lens ten times as long, past the far versions' 40 m), the player behind the camera.
+ * Runs in the page: one vehicle of `kind` at the stage, the camera at `view` round it (a view ending in '-far' from
+ * eight times as far on a lens eight times as long, past the far versions' 40 m: 'rear-far' and 'front-far' look along
+ * the car, down the car park's length), the player behind the camera.
  */
 function stage(g, kind, view, lights) {
   const sim = g.sim;
@@ -41,13 +42,15 @@ function stage(g, kind, view, lights) {
   v.persistent = true;
   v.missionTag = 'look';
   v.lights = lights ? 'on' : 'off';
+  // (A removed car stays in the sim's list until its next step: later steps of the script find this one here.)
+  window.__look = v;
   const spec = v.spec;
   const D = Math.max(5.5, spec.length * 1.25);
   const h = st.heading;
   // Vehicle-local (x left, z forward) to world.
   const w = (x, y, z) => [st.x + x * Math.cos(h) + z * Math.sin(h), st.y + y, st.z - x * Math.sin(h) + z * Math.cos(h)];
-  const far = view.endsWith('-far') ? 10 : 1;
-  const a = { side: [D, 1.45, 0], front: [D * 0.72, 1.6, D * 0.72], rear: [D * 0.72, 1.75, -D * 0.72] }[view.replace('-far', '')];
+  const far = view.endsWith('-far') ? 8 : 1;
+  const a = { side: [D, 1.45, 0], front: [D * 0.72, 1.6, D * 0.72], rear: [D * 0.72, 1.75, -D * 0.72], 'rear-far': [D * 0.25, 1.9, -D], 'front-far': [D * 0.25, 1.9, D] }[view];
   const at = spec.height * 0.45;
   window.__fixed = { pos: w(a[0] * far, at + (a[1] - at) * far, a[2] * far), at: w(0, at, 0), fov: 50 / far };
   const p = sim.player;
@@ -213,7 +216,7 @@ export default async function (t) {
     await t.wait(1500);
     await t.game(stage, 'sedan', 'rear', false);
     await t.game((g) => {
-      const v = g.sim.vehicles.find((q) => q.missionTag === 'look');
+      const v = window.__look;
       v.dents.push({ lx: 0.1, ly: v.spec.height * 0.45, lz: -v.spec.length / 2 + 0.05, nx: 0, nz: 1, depth: 0.08 });
       v.dentVersion++;
     });
@@ -231,7 +234,7 @@ export default async function (t) {
       for (const view of ['rear', 'front', 'side', 'rear-far', 'front-far']) {
         await t.game(stage, kind, view, false);
         await t.game((g) => {
-          const v = g.sim.vehicles.find((q) => q.missionTag === 'look');
+          const v = window.__look;
           const { length: L, width: W, height: H } = v.spec;
           v.dents.push({ lx: W / 2 - 0.02, ly: H * 0.4, lz: 0.3, nx: -1, nz: 0, depth: 0.06 }, { lx: -0.3, ly: H * 0.45, lz: -L / 2 + 0.05, nx: 0, nz: 1, depth: 0.15 }, { lx: 0.2, ly: H * 0.45, lz: L / 2 - 0.05, nx: 0, nz: -1, depth: 0.4 });
           v.dentVersion++;
