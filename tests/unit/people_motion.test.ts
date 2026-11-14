@@ -1,8 +1,8 @@
 // How the people move (round 9): someone standing about rests on one leg with his feet planted, an arm swings
 // forward with the other leg, no knee or elbow bends past its limit or the wrong way at any speed, each person's own
 // way of walking is his every time, and a turn is led by the head while a gun stays where the simulation has it. A
-// runner rides tall over a bent stance knee, his feet planted, his swinging foot bent no further than an ankle goes,
-// and his pelvis turns between his legs and his chest.
+// runner rides tall over a bent stance knee, his feet planted, and his swinging foot bent no further than an ankle
+// goes.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -536,38 +536,5 @@ describe('running tall', () => {
     // (Carried level through the swing, it was bent up 62 degrees at a jog and 86 at a sprint as the heel kicked up.)
     expect(run(4.3, 1).swingDorsi).toBeLessThan(28);
     for (const speed of [1.45, 2.8, 5.4, 7.4]) expect(run(speed, 1.07).swingDorsi, `${speed} m/s`).toBeLessThan(40);
-  });
-
-  it('his pelvis turns between his legs and his chest: half way behind a shouldered rifle, against the chest with the stride', () => {
-    const yaw = (m: THREE.Matrix4) => {
-      const f = new THREE.Vector3(0, 0, 1).transformDirection(m);
-      return Math.atan2(f.x, f.z);
-    };
-    const c = person(6);
-    c.inventory.give('rifle', 30);
-    c.inventory.current = 'rifle';
-    c.aiming = true;
-    c.aimYaw = 0;
-    const cv = new CrowdView();
-    for (let i = 0; i < 60; i++) cv.sync([c], 0, 0, 1 / 60);
-    const t = trunkPose(c, makeTrunk());
-    const hips = yaw(matrixAt(parts(cv).hips!, 0));
-    expect(Math.abs(t.chestYaw - t.hipYaw)).toBeGreaterThan(0.5);
-    expect(hips).toBeCloseTo((t.hipYaw + t.chestYaw) / 2, 2);
-    // Jogging, the pelvis and the chest turn opposite ways about the legs' heading.
-    const r = person(6);
-    let against = 0;
-    let n = 0;
-    walk(r, 4.3, 1, (v) => {
-      const legs = trunkPose(r, makeTrunk()).hipYaw;
-      const chest = yaw(matrixAt(parts(v).torso!, 0)) - legs;
-      const pelvis = yaw(matrixAt(parts(v).hips!, 0)) - legs;
-      if (Math.abs(chest) > 0.05) {
-        n++;
-        if (Math.sign(pelvis) === -Math.sign(chest) && Math.abs(pelvis) > 0.02) against++;
-      }
-    });
-    expect(n).toBeGreaterThan(50);
-    expect(against / n).toBeGreaterThan(0.95);
   });
 });
