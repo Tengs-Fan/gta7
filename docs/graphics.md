@@ -97,7 +97,7 @@ The camera keeps up with him at a steady pace (its follow point aims ahead by it
 It has a little weight: a change of his pace is a change of the camera's own against his, which a critically damped spring (8.5 rad/s) takes out, so it drops about 0.18 m back as he sets off, drifts up to 0.32 m in as he stops from a sprint and swings a little wide as he turns off his line, and is back in place within half a second; none while aiming or swimming, and no bob or roll.
 His pace is taken in the view's frame, so a pan of the view as he walks on (he turns with it) is the player's look and moves nothing; taken in the world, a quick pan at a sprint swung the camera out by its whole 0.32 m.
 Leaving a car the follow point starts at his head and the boom eases in from as far back as the chase camera stood, as the aim's does; the follow point used to ease out of the car's body, which put the boom's root inside the car and the camera right over him looking a radian down for the first quarter second.
-In the water the camera keeps the geometry it had on land before (4.3 m back, 0.18 m up, the full setting's lens): it cannot dip under the surface, and the glide over quays and decks is tuned to it.
+In the water the camera keeps the geometry it had on land before (4.3 m back, 6.6 m on the far zoom, 0.18 m up, the full setting's lens): it cannot dip under the surface, and the glide over quays and decks is tuned to it; on the closer boom a pan round a swimmer at a deck's edge turned the view 5.7 degrees in a frame.
 
 ## Night lights
 

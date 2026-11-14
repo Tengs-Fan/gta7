@@ -56,12 +56,14 @@ export const FOOT_LIFT = 0;
  */
 export const FOOT_LIFT_AIM = 0.18;
 /**
- * In the water the camera stands as it did on land before: SWIM_BOOM back, SWIM_LIFT up, on the full setting's lens. It
+ * In the water the camera stands as it did on land before: SWIM_BOOM back (SWIM_BOOM_FAR on the far zoom), SWIM_LIFT up, on
+ * the full setting's lens. It
  * cannot dip under the surface to look up at a swimmer, and the glide that looks over quays and decks (liftSight) is
  * tuned to it: on the closer boom a pan round a swimmer at a deck's edge turned the view 5.7 degrees in a frame, and
  * looking up (pitch 0.3) beside one lost his head out of the frame.
  */
 const SWIM_BOOM = 4.3;
+const SWIM_BOOM_FAR = 6.6;
 const SWIM_LIFT = 0.18;
 /**
  * The on-foot lens (degrees) against the Field of view setting: FOOT_FOV_REST at rest (a longer lens than the setting,
@@ -860,7 +862,7 @@ export class CameraController {
       this.target.lerp(this.scratch.set(p.pos.x + p.vel.x * ahead, p.pos.y + headY, p.pos.z + p.vel.z * ahead), ease);
       this.stepSway(dt, p.vel, aim || swimming || lying);
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
-      const distTarget = aim ? FOOT_BOOM_AIM : swimming ? Math.max(SWIM_BOOM, footBoom(this.baseFov, this.zoomLevel === 1)) : footBoom(this.baseFov, this.zoomLevel === 1);
+      const distTarget = aim ? FOOT_BOOM_AIM : swimming ? Math.max(this.zoomLevel === 1 ? SWIM_BOOM_FAR : SWIM_BOOM, FOOT_FRAME_BELOW / Math.tan((this.baseFov * Math.PI) / 360)) : footBoom(this.baseFov, this.zoomLevel === 1);
       this.lift = damp(this.lift, swimming ? SWIM_LIFT : aim ? FOOT_LIFT_AIM : FOOT_LIFT, 10, dt);
       this.dist = damp(this.dist, distTarget, 10, dt);
       const cy = Math.cos(this.pitch);
@@ -1087,6 +1089,7 @@ export class CameraController {
     this.swayFresh = true;
     this.swayNow.set(0, 0, 0);
     this.dist = FOOT_BOOM_AIM;
+    this.lift = FOOT_LIFT_AIM;
   }
 
   /**
@@ -1301,7 +1304,7 @@ export class CameraController {
     // further than GLIDE_RATE allows; never further out than the rule allows now.
     // (As fast for the far boom, which has as much further to go.)
     const ease = 1 - Math.exp(-GLIDE_EASE * dt);
-    const most = GLIDE_RATE * Math.max(1, this.dist / FOOT_BOOM) * dt;
+    const most = GLIDE_RATE * Math.max(1, this.dist / SWIM_BOOM) * dt;
     const step = (from: number, to: number) => (dt <= 0 ? from : Math.abs(to - from) < 1e-4 ? to : from + clamp((to - from) * ease, -most, most));
     this.glideIn = gliding ? step(this.glideIn, reach - wantReach) : reach - now.reach;
     const at = clamp(reach - this.glideIn, 0, now.reach);
