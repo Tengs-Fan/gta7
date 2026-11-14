@@ -573,6 +573,7 @@ export class GameRenderer {
     // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
     this.props.setGlow(this.bloom !== null);
     this.props.setWindEnabled(!this.software && q !== 'low');
+    this.props.setDetail(!this.software && q === 'high');
     this.country.setTier(this.software ? 'software' : q);
     // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
     // The number of visible lights only changes here, so shaders are not rebuilt during play.

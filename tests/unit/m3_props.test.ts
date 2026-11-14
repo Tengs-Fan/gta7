@@ -772,7 +772,7 @@ describe('VAL-PRP-012 normals, the bench seat, and the distance level', () => {
     const models: Record<string, THREE.BufferGeometry> = {
       lampPole: lampPoleGeometry(LAMP_HEAD), lampHead: lampHeadGeometry(LAMP_HEAD), lampPoleFar: lampPoleGeometry(LAMP_HEAD, true), lampHeadFar: lampHeadGeometry(LAMP_HEAD, true),
       lampLens: lampLensGeometry(LAMP_HEAD), lampShadow: lampShadowGeometry(LAMP_HEAD), trunk: treeTrunkGeometry(), trunkFar: treeTrunkFarGeometry(), cypress: cypressTrunkGeometry(),
-      canopy: broadleafGeometry('tree'), bush: broadleafGeometry('bush'), yardShrub: broadleafGeometry('bush').scale(0.45, 0.6, 0.45), palmTrunk: palmTrunkGeometry(), palmFronds: palmFrondsGeometry(),
+      canopy: broadleafGeometry('tree'), bush: broadleafGeometry('bush'), yardShrub: broadleafGeometry('bush').scale(0.55, 0.75, 0.55), palmTrunk: palmTrunkGeometry(), palmFronds: palmFrondsGeometry(),
       bench: benchGeometry(), bin: binGeometry(), hydrant: hydrantGeometry(), fence: fenceGeometry(), mailbox: mailboxGeometry(), planter: planterGeometry(), rail: railGeometry(), bollard: bollardGeometry(),
     };
     for (const [name, g] of Object.entries(models)) {
@@ -818,6 +818,19 @@ describe('VAL-PRP-012 normals, the bench seat, and the distance level', () => {
       props.cull(p.x + LOD_FAR - 1, p.z, Infinity, Infinity);
       expect(props.drawnFar(i), `${kind} inside ${LOD_FAR} m`).toBe(false);
     }
+    expect(count()).toBe(before);
+    // Below High every trunk draws its far model, near ones too; the lamps and the leaves keep the distance rule.
+    const tree = W.layout.props.findIndex((p) => p.kind === 'tree');
+    const lamp = W.layout.props.findIndex((p) => p.kind === 'lamp');
+    const at = (i: number) => props.cull(W.layout.props[i]!.x, W.layout.props[i]!.z, Infinity, Infinity);
+    props.setDetail(false);
+    at(tree);
+    expect(props.drawnFar(tree), 'tree below High').toBe(true);
+    at(lamp);
+    expect(props.drawnFar(lamp), 'lamp below High').toBe(false);
+    props.setDetail(true);
+    at(tree);
+    expect(props.drawnFar(tree), 'tree on High').toBe(false);
     expect(count()).toBe(before);
     // The far models are cheaper, the canopy's its first cards.
     expect(triangles(treeTrunkFarGeometry())).toBeLessThan(triangles(treeTrunkGeometry()) / 3);

@@ -411,7 +411,9 @@ export function treeTrunkFarGeometry(): THREE.BufferGeometry {
     const end: Point = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
     parts.push(barkTube([l.from, end], [0, 1], 3, (t) => l.r0 * (1 - 0.6 * t), () => 0.95, l.from[1]));
   });
-  return merge(parts);
+  const g = merge(parts);
+  g.name = 'tree-trunk-far';
+  return g;
 }
 
 /** A cypress's trunk: straight and plain, hidden but for its foot inside the column of leaves it carries. */

@@ -155,6 +155,7 @@ vFadeWorld = ( modelMatrix * fadeWorld ).xyz;`,
         '#include <common>',
         `#include <common>
 varying vec3 vFadeWorld;
+uniform float uFoliageCoverage;
 float fadeBayer4( vec2 frag ) {
   const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
   ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
@@ -170,8 +171,12 @@ float fadeBayer4( vec2 frag ) {
 }`,
       )
       .replace('#include <alphatest_fragment>', `${FOLIAGE_COVERAGE}\n#include <alphatest_fragment>`);
+    shader.uniforms.uFoliageCoverage = foliageCoverage;
   };
 }
+
+/** The coverage boost per mip level (FOLIAGE_COVERAGE): a quarter on High, none on the lower tiers (PropsView.setDetail). */
+const foliageCoverage = { value: 0.25 };
 
 /**
  * Keeps alpha-tested leaves as full far away as near: a mip level averages a spray's leaves with the gaps between them,
@@ -184,7 +189,7 @@ export const FOLIAGE_COVERAGE = /* glsl */ `
   vec2 coverageTexel = vMapUv * vec2( textureSize( map, 0 ) );
   vec2 coverageX = dFdx( coverageTexel ), coverageY = dFdy( coverageTexel );
   float coverageLod = max( 0.0, 0.5 * log2( max( dot( coverageX, coverageX ), dot( coverageY, coverageY ) ) ) );
-  diffuseColor.a *= 1.0 + 0.25 * coverageLod;
+  diffuseColor.a *= 1.0 + uFoliageCoverage * coverageLod;
 }
 #endif`;
 
@@ -750,7 +755,9 @@ export class PropsView {
   };
   private readonly occluders: Occluder[] = [];
   /** Batches with a far model (pickLods): the near and far geometry and the plan box (min x, min z, max x, max z) of their instances. */
-  private readonly lods: Array<{ mesh: THREE.InstancedMesh; near: THREE.BufferGeometry; far: THREE.BufferGeometry; box: [number, number, number, number] }> = [];
+  private readonly lods: Array<{ mesh: THREE.InstancedMesh; near: THREE.BufferGeometry; far: THREE.BufferGeometry; box: [number, number, number, number]; trunk: boolean }> = [];
+  /** Full detail (High): see setDetail. */
+  private detail = true;
   private readonly occByProp = new Map<number, Occluder>();
   /** Standing occluders by OCC_CELL cell of their foot; fallen ones (a knocked-over signal) are looked at separately. */
   private readonly occCells = new Map<string, Occluder[]>();
@@ -855,9 +862,20 @@ export class PropsView {
     for (const l of this.lods) {
       const dx = Math.max(l.box[0] - x, 0, x - l.box[2]);
       const dz = Math.max(l.box[1] - z, 0, z - l.box[3]);
-      const geo = dx * dx + dz * dz > LOD_FAR * LOD_FAR ? l.far : l.near;
+      const geo = (l.trunk && !this.detail) || dx * dx + dz * dz > LOD_FAR * LOD_FAR ? l.far : l.near;
       if (l.mesh.geometry !== geo) l.mesh.geometry = geo;
     }
+  }
+
+  /**
+   * High draws the trees in full; Medium, Low and the software tier draw every trunk with its far model (54 triangles,
+   * 84 before the trees' pass) and keep the leaves' alpha as the atlas has it, so their trees cost no more than before it:
+   * on the integrated GPU at Medium the full trees cost 2 to 6 fps in the county's tree-heavy scenes. Uniforms and
+   * geometry only: no program changes.
+   */
+  setDetail(full: boolean): void {
+    this.detail = full;
+    foliageCoverage.value = full ? 0.25 : 0;
   }
 
   /** Whether the batch holding prop `index`'s instance draws its far model now (tests). */
@@ -955,7 +973,7 @@ export class PropsView {
         box[2] = Math.max(box[2], p.x);
         box[3] = Math.max(box[3], p.z);
       }
-      this.lods.push({ mesh, near: geo, far: opts.far, box });
+      this.lods.push({ mesh, near: geo, far: opts.far, box, trunk: opts.far.name === 'tree-trunk-far' });
     }
     return mesh;
   }
@@ -1712,10 +1730,10 @@ export class PropsView {
     const one = new THREE.Vector3(1, 1, 1);
     const c = new THREE.Color();
     const c2 = new THREE.Color();
-    // The yards' shrubs are the parks' bushes, leaf cards on the bushes' material, a metre across.
+    // The yards' shrubs are the parks' bushes, leaf cards on the bushes' material, 1.2 m across and 0.9 m tall, as the lumps they replace.
     const leafy = (k: DressingKind): boolean => k === 'shrub' && this.shrubMat !== null;
     for (const [kind, list] of byKind) {
-      const geo = leafy(kind) ? broadleafGeometry('bush').scale(0.45, 0.6, 0.45) : builders[kind]();
+      const geo = leafy(kind) ? broadleafGeometry('bush').scale(0.55, 0.75, 0.55) : builders[kind]();
       if (leafy(kind)) geo.name = 'shrub';
       const mat = leafy(kind) ? this.shrubMat! : kind === 'poster' ? this.posterMat : kind === 'lamptube' ? this.tubeMat : this.dressMat;
       const cells = new Map<string, DressingItem[]>();
