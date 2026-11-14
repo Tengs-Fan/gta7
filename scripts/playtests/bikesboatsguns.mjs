@@ -2,7 +2,7 @@
 // change: each bike parked 3 m off from three sides and with a rider, by night with its lamps on, and from the chase
 // camera standing and riding; each boat moored and under way, a moored cruiser; each weapon held (a fixed camera a
 // metre off the hand), aimed (the game's over-the-shoulder camera and a close side view), and lying as a pickup; then
-// a street of bikes and the Marina, measured on High.
+// a street of bikes and the Marina, measured on High, Medium and Low.
 //
 //   node scripts/playtest.mjs --script scripts/playtests/bikesboatsguns.mjs --out /tmp/bbg
 //   BBG_PARTS=guns,pickups node scripts/playtest.mjs --script scripts/playtests/bikesboatsguns.mjs --out /tmp/bbg
@@ -13,6 +13,7 @@ const PARTS = (process.env.BBG_PARTS ?? 'bikes,night,chase,boats,guns,pickups,me
 const BIKES = ['sportbike', 'scooter'];
 const GUNS = ['pistol', 'smg', 'shotgun', 'rifle', 'sniper', 'rocket'];
 const HELD = ['bat', 'knife', 'grenade', 'molotov'];
+const TIERS = (process.env.BBG_TIERS ?? 'high,medium,low').split(',');
 
 /** Runs in the page: holds the camera at window.__fixed ({ pos, at, fov }) while it is set. */
 function installCamera(g) {
@@ -392,9 +393,14 @@ export default async function (t) {
       g.setCamera(Math.PI / 2, -0.05);
     });
     await t.wait(3000);
-    await t.measure('bike-street-high', 3000);
-    await t.snap('bike-street-high');
-    await t.shot('bike-street-high');
+    for (const tier of TIERS) {
+      await t.game((g, tier) => g.game.applySettings({ ...g.game.settings, quality: tier }, false), tier);
+      await t.wait(2500);
+      await t.measure(`bike-street-${tier}`, 3000);
+      await t.snap(`bike-street-${tier}`);
+      await t.shot(`bike-street-${tier}`);
+    }
+    await t.game((g) => g.game.applySettings({ ...g.game.settings, quality: 'high' }, false));
     // The Marina from the speedboat, two more boats of each kind about.
     await t.game((g) => {
       const sim = g.sim;
@@ -416,9 +422,14 @@ export default async function (t) {
       g.game.renderer.cameraCtl.reset(sim);
     });
     await t.wait(3000);
-    await t.measure('marina-high', 3000);
-    await t.snap('marina-high');
-    await t.shot('marina-high');
+    for (const tier of TIERS) {
+      await t.game((g, tier) => g.game.applySettings({ ...g.game.settings, quality: tier }, false), tier);
+      await t.wait(2500);
+      await t.measure(`marina-${tier}`, 3000);
+      await t.snap(`marina-${tier}`);
+      await t.shot(`marina-${tier}`);
+    }
+    await t.game((g) => g.game.applySettings({ ...g.game.settings, quality: 'high' }, false));
   }
   await t.snap('end');
 }

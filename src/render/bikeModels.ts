@@ -219,25 +219,27 @@ function sportModel(): BikeModel {
     [0.36, 0.97, 0.145, 0.075, 0.1],
     [0.44, 0.95, 0.1, 0.05, 0.07],
   ], 2.6, 18);
-  // The fairing: a wedge narrowing to a beak over the front wheel, the twin lamps in its flanks, its sides wrapping
-  // down round the radiator and the engine's front (clear of the knees behind and of the tyre turning under it).
+  // The half fairing: its tail tucked under the tank's front, widening round the steering head and narrowing to a beak
+  // over the front wheel with the twin lamps in its flanks; it stops 0.65 m up, so the finned engine and its headers
+  // show below it (the full fairing to 0.43 m read as a bulbous shell with a flat back, cut off behind the knees).
   const nose = lofted([
-    [0.28, 0.69, 0.15, 0.2, 0.26],
-    [0.42, 0.76, 0.2, 0.25, 0.26],
-    [0.56, 0.82, 0.2, 0.205, 0.22],
-    [0.68, 0.86, 0.16, 0.14, 0.15],
-    [0.8, 0.865, 0.1, 0.08, 0.095],
-    [0.89, 0.855, 0.05, 0.045, 0.05],
-    [0.935, 0.85, 0.012, 0.012, 0.015],
-  ], 3.4, 20);
+    [0.4, 0.87, 0.1, 0.09, 0.07],
+    [0.48, 0.85, 0.165, 0.12, 0.19],
+    [0.6, 0.85, 0.18, 0.12, 0.2],
+    [0.7, 0.86, 0.15, 0.1, 0.16],
+    [0.8, 0.865, 0.1, 0.075, 0.1],
+    [0.885, 0.858, 0.05, 0.045, 0.05],
+    [0.93, 0.852, 0.014, 0.014, 0.016],
+  ], 3.2, 20);
+  // The tail: a slim unit sweeping up from under the seat to the tail lamp (as a fat sided wedge down to 0.76 m it read
+  // as a separate blob), the trellis subframe showing under it.
   const tail = lofted([
-    [-0.14, 0.86, 0.11, 0.1, 0.1],
-    [-0.3, 0.9, 0.125, 0.11, 0.08],
-    [-0.46, 0.95, 0.115, 0.11, 0.07],
-    [-0.62, 0.99, 0.095, 0.1, 0.06],
-    [-0.76, 1.02, 0.07, 0.075, 0.05],
-    [-0.86, 1.03, 0.05, 0.045, 0.035],
-    [-0.875, 1.03, 0.04, 0.036, 0.028],
+    [-0.16, 0.93, 0.1, 0.07, 0.065],
+    [-0.36, 0.96, 0.11, 0.07, 0.055],
+    [-0.56, 1.0, 0.095, 0.065, 0.045],
+    [-0.74, 1.025, 0.07, 0.05, 0.035],
+    [-0.86, 1.033, 0.045, 0.036, 0.026],
+    [-0.88, 1.033, 0.034, 0.028, 0.02],
   ], 3, 16);
   const painted: PaintList = [
     ['tank', tank, 0xffffff],
@@ -269,6 +271,10 @@ function sportModel(): BikeModel {
   const cyl = block(0.27, 0.22, 0.2, 0, 0, 0, 5, 14);
   cyl.rotateX(-0.45).translate(0, 0.67, 0.18);
   frame.push(['cylinders', cyl, 'engine']);
+  // Cooling fins round the block, bright alloy edges on the dark casting.
+  [-0.08, -0.045, -0.01, 0.025, 0.06].forEach((h, i) => {
+    frame.push([`fin${i}`, block(0.305, 0.008, 0.235, 0, h, 0, 6, 8).rotateX(-0.45).translate(0, 0.67, 0.18), 'alloy']);
+  });
   const cam = block(0.25, 0.06, 0.16, 0, 0, 0, 4, 14);
   cam.rotateX(-0.45).translate(0, 0.79, 0.24);
   frame.push(['camCover', cam, 'alloyDark']);
@@ -281,18 +287,28 @@ function sportModel(): BikeModel {
     [0.3, 0.27, 0.13, 0.06, 0.05],
     [0.4, 0.33, 0.08, 0.05, 0.04],
   ], 3, 14), 'plastic']);
-  frame.push(['radiator', block(0.3, 0.26, 0.035, 0, 0, 0, 8, 10).rotateX(-0.2).translate(0, 0.7, 0.385), 'black']);
+  // Radiator: an alloy frame round a black core, in front of the cylinders.
+  frame.push(['radiator', block(0.3, 0.22, 0.03, 0, 0, 0, 8, 10).rotateX(-0.2).translate(0, 0.7, 0.385), 'alloyDark']);
+  frame.push(['radiatorCore', block(0.27, 0.19, 0.012, 0, 0, 0.012, 8, 8).rotateX(-0.2).translate(0, 0.7, 0.385), 'black']);
   // Four headers down the front of the engine and under it to the collector and the underslung silencer.
   [0.105, 0.035, -0.035, -0.105].forEach((x, i) => {
     frame.push([`header${i}`, sweep([V(x, 0.66, 0.31), V(x * 1.05, 0.5, 0.42), V(x * 0.8, 0.24, 0.36), V(x * 0.35, 0.18, 0.12), V(-0.05, 0.2, -0.04)], 0.017, 5, { segments: 5 }), 'steel']);
   });
-  frame.push(['silencer', lofted([
-    [-0.04, 0.21, 0.055, 0.055, 0.055],
-    [-0.1, 0.225, 0.07, 0.065, 0.065],
-    [-0.3, 0.27, 0.075, 0.07, 0.065],
-    [-0.36, 0.285, 0.06, 0.055, 0.05],
-  ], 3, 14, -0.13), 'alloyDark']);
-  frame.push(['silencerTip', cylinder(-0.01, 0.03, 0.03, 12, 0.02).rotateY(Math.PI / 2).translate(-0.13, 0.285, -0.39), 'steel']);
+  // From the collector a link pipe rises on the right to a silencer slung under the tail, where the chase camera sees
+  // it past the rider's leg (an underslung one was hidden there), on its hanger from the subframe.
+  frame.push(['linkPipe', sweep([V(-0.05, 0.2, -0.04), V(-0.11, 0.24, -0.2), V(-0.155, 0.4, -0.31), V(-0.17, 0.52, -0.37)], 0.024, 8, { segments: 8 }), 'steel']);
+  frame.push(['silencer', loft([
+    { z: -0.745, y: 0.672, x: -0.17, w: 0.048, up: 0.048, down: 0.048, n: 2.4 },
+    { z: -0.72, y: 0.665, x: -0.17, w: 0.066, up: 0.066, down: 0.066, n: 2.4 },
+    { z: -0.42, y: 0.565, x: -0.17, w: 0.068, up: 0.068, down: 0.068, n: 2.4 },
+    { z: -0.36, y: 0.545, x: -0.17, w: 0.05, up: 0.05, down: 0.05, n: 2.4 },
+  ], 14), 'alloy']);
+  frame.push(['silencerCap', loft([
+    { z: -0.76, y: 0.677, x: -0.17, w: 0.05, up: 0.05, down: 0.05, n: 2.4 },
+    { z: -0.735, y: 0.669, x: -0.17, w: 0.062, up: 0.062, down: 0.062, n: 2.4 },
+  ], 14), 'black']);
+  frame.push(['silencerTip', cylinder(-0.012, 0.03, 0.02, 10, 0.014).rotateY(Math.PI / 2).translate(-0.17, 0.68, -0.785), 'steel']);
+  frame.push(['silencerHanger', rod(V(-0.08, 0.88, -0.62), V(-0.165, 0.7, -0.6), 0.01, 5), 'alloyDark']);
   // Chain: top and bottom runs between the sprockets (left side).
   frame.push(['chainTop', rod(V(0.085, 0.425, -0.15), V(0.085, 0.41, -0.7), 0.007, 4), 'steel']);
   frame.push(['chainBottom', rod(V(0.085, 0.335, -0.15), V(0.085, 0.21, -0.7), 0.007, 4), 'steel']);
@@ -322,8 +338,29 @@ function sportModel(): BikeModel {
     for (const p of mirror(V(s * 0.18, 1.0, 0.6), V(s * 0.29, 1.075, 0.62), 0.055, 0.03)) frame.push(p);
   }
   frame.push(['tailLampHousing', block(0.1, 0.05, 0.03, 0, 1.03, -0.868, 4, 10), 'black']);
-  frame.push(['plateHolder', rod(V(0, 0.95, -0.82), V(0, 0.86, -0.93), 0.012, 5), 'black']);
-  frame.push(['plate', block(0.17, 0.12, 0.006, 0, 0.83, -0.935, 8, 8), 'plate']);
+  // The tidy: a plate holder sweeping down and back from under the tail, the indicators on their stalks, the plate in a
+  // black border with its characters (one plate for every bike: they are built once per kind).
+  frame.push(['plateHolder', loft([
+    { z: -0.93, y: 0.9, w: 0.09, up: 0.012, down: 0.012, n: 4 },
+    { z: -0.84, y: 0.95, w: 0.07, up: 0.012, down: 0.012, n: 4 },
+    { z: -0.76, y: 0.97, w: 0.06, up: 0.012, down: 0.012, n: 4 },
+  ], 10), 'black']);
+  for (const s of [1, -1]) {
+    frame.push([`indicatorStalk${s > 0 ? 'L' : 'R'}`, rod(V(s * 0.05, 0.905, -0.88), V(s * 0.12, 0.905, -0.88), 0.007, 5), 'black']);
+    frame.push([`indicator${s > 0 ? 'L' : 'R'}`, block(0.03, 0.022, 0.04, s * 0.135, 0.905, -0.88, 4, 8), 'amber']);
+    frame.push([`indicatorFront${s > 0 ? 'L' : 'R'}`, block(0.022, 0.018, 0.04, s * 0.17, 0.83, 0.64, 4, 8), 'amber']);
+  }
+  frame.push(['plateBorder', block(0.182, 0.13, 0.006, 0, 0.83, -0.932, 8, 8), 'black']);
+  frame.push(['plate', block(0.166, 0.112, 0.006, 0, 0.83, -0.936, 8, 8), 'plate']);
+  [-0.056, -0.028, 0, 0.028, 0.056].forEach((x, i) => frame.push([`plateChar${i}`, block(0.016, 0.05, 0.003, x, 0.828, -0.9395, 4, 4), 'black']));
+  // The hugger over the rear tyre's front and top, filling the gap under the tail seen from behind.
+  const axleR = V(0, wheelR, rearZ);
+  const hug: THREE.Vector3[] = [];
+  for (let k = 0; k <= 5; k++) {
+    const th = -0.95 + (k / 5) * 1.05;
+    hug.push(axleR.clone().add(V(0, Math.cos(th) * (wheelR + 0.024), -Math.sin(th) * (wheelR + 0.024))));
+  }
+  frame.push(['hugger', sweep(hug, 0.1, 8, { segments: 6, flat: 0.3 }), 'black']);
 
   // Steering: upside-down fork (gold outer tubes, chrome sliders), clamps, clip-ons, levers, calipers, mudguard.
   const steer: PartList = [];
@@ -449,8 +486,13 @@ function scooterModel(): BikeModel {
     [-0.8, 0.64, 0.12, 0.1, 0.08],
     [-0.88, 0.66, 0.05, 0.045, 0.04],
   ], 3, 18);
+  // The spine down the shield's front, round the steering column (which stood bare in front of the shield and read as
+  // a black spike): round about the column's axis, so it need not turn with the bars.
+  const spine = loft([-0.21, -0.12, 0.0, 0.08].map((h, i): Section => ({ z: h, y: 0, w: [0.05, 0.055, 0.055, 0.045][i]!, up: [0.05, 0.055, 0.055, 0.045][i]!, down: [0.05, 0.055, 0.055, 0.045][i]!, n: 2.4 })), 16);
+  spine.applyMatrix4(new THREE.Matrix4().makeBasis(V(-1, 0, 0), V(0, 0, 1), V(0, 1, 0))).applyMatrix4(H);
   const painted: PaintList = [
     ['legShield', shield, 0xffffff],
+    ['legSpine', spine, 0xffffff],
     ['floorBase', floor, 0xffffff],
     ['rearBody', body, 0xffffff],
   ];

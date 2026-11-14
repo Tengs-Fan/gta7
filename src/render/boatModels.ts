@@ -11,9 +11,9 @@
 import * as THREE from 'three';
 import type { VehicleKind } from '../sim/specs';
 import { VEHICLE_SPECS } from '../sim/specs';
-import { cockpitGeometry, foredeckGeometry, hullSection, hullSkin, soundNormals, stations, waterline, type HullSpec } from './hullGeometry';
+import { cockpitGeometry, foredeckGeometry, hullSection, hullSkin, skinHalfBeamAt, soundNormals, stations, waterline, type HullSpec } from './hullGeometry';
 import type { RiderSeatLayout } from './riders';
-import { assemble, assemblePainted, assembleShape, block, gridSurface, lathe, loft, rod, sweep, V, type PartList, type Section } from './shapeKit';
+import { assemble, assemblePainted, assembleShape, block, gridSurface, lathe, loft, mirrorX, rod, sweep, V, type PartList, type Section } from './shapeKit';
 
 export type BoatStyle = 'speedboat' | 'dinghy';
 
@@ -121,6 +121,43 @@ function outboard(parts: PartList, z0: number, mountY: number, size: number, pro
   return names;
 }
 
+/**
+ * A stripe laid 4 mm proud of the hull's topsides on both sides, between heights y0(t) and y1(t) above the waterline
+ * (t 0 transom .. 1 stem), from the transom to where the hull grows narrower than 6 cm at the stripe's foot.
+ */
+function hullStripe(h: HullSpec, y0: (t: number) => number, y1: (t: number) => number, n = 30): THREE.BufferGeometry {
+  const rows: THREE.Vector3[][] = [];
+  for (const t of stations(n)) {
+    const q = hullSection(h, Math.min(t, 0.99));
+    const a = y0(t);
+    const b = y1(t);
+    const xa = skinHalfBeamAt(q, a);
+    if (xa < 0.06 || b > q.sheerY) break;
+    rows.push([V(xa + 0.004, a, q.z), V(skinHalfBeamAt(q, b) + 0.004, b, q.z)]);
+  }
+  const left = gridSurface(rows, V(1, 0, 0));
+  const l = left.index ? left.toNonIndexed() : left;
+  const r = mirrorX(l);
+  const out = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal']) {
+    const x = l.getAttribute(name).array as Float32Array;
+    const y = (r.index ? r.toNonIndexed() : r).getAttribute(name).array as Float32Array;
+    const arr = new Float32Array(x.length + y.length);
+    arr.set(x, 0);
+    arr.set(y, x.length);
+    out.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+  }
+  return out;
+}
+
+/** A name board on the transom (facing aft) at (x, y, z): a white board in a dark rim with dark letters. */
+function nameBoard(parts: PartList, x: number, y: number, z: number, w: number): void {
+  parts.push(['nameRim', block(w + 0.02, 0.1, 0.008, x, y, z - 0.002, 8, 8), 'dash']);
+  parts.push(['nameBoard', block(w, 0.08, 0.008, x, y, z - 0.005, 8, 8), 'plate']);
+  const n = Math.max(3, Math.round(w / 0.05));
+  for (let i = 0; i < n; i++) parts.push([`nameChar${i}`, block(0.026, 0.05, 0.004, x - w / 2 + (w * (i + 0.5)) / n, y, z - 0.009, 4, 4), 'dash']);
+}
+
 /** A rail along `pts` on posts down to the deck, one post every `every` points. */
 function rail(parts: PartList, name: string, pts: THREE.Vector3[], height: number, every: number, r = 0.013): void {
   parts.push([name, sweep(pts.map((p) => p.clone().add(V(0, height, 0))), r, 6, { segments: Math.max(4, pts.length * 3) }), 'steel']);
@@ -162,6 +199,11 @@ function speedboat(kind: VehicleKind): BoatModel {
     });
     parts.push([`rubRail${side > 0 ? 'L' : 'R'}`, sweep(pts, 0.02, 6, { segments: 30, flat: 0.6 }), 'plastic']);
   }
+  // A dark stripe under the sheer, following it up to the bow, and the boot stripe along the waterline: without them
+  // the topsides read as one flat white slab.
+  const sheerAt = (t: number) => hullSection(hull, Math.min(t, 0.99)).sheerY;
+  parts.push(['sheerStripe', hullStripe(hull, (t) => sheerAt(t) - 0.17, (t) => sheerAt(t) - 0.09), 'dash']);
+  parts.push(['bootStripe', hullStripe(hull, () => 0.05, () => 0.11), 'antifoul']);
   // Helm console (driver's side), the dash sloping up to the screen, the wheel on its column; the passenger's console.
   const cz0 = deckZ - 0.38;
   for (const x of [0.45, -0.45]) {
@@ -241,7 +283,10 @@ function speedboat(kind: VehicleKind): BoatModel {
   parts.push(['bowLightPost', rod(V(0, bq.sheerY + 0.03, bq.z), V(0, bq.sheerY + 0.1, bq.z), 0.012, 5), 'steel']);
   parts.push(['sternPole', rod(V(0.62, hull.sheerAft, -hl + 0.12), V(0.62, 1.32, -hl + 0.12), 0.014, 5), 'steel']);
   // The outboard.
-  const ob = outboard(parts, -hl, hull.sheerAft - 0.16, 1, -0.25, false);
+  // A white outboard with its dark band (a black cowling read as a blob against the sea), the boat's name on the
+  // transom beside it.
+  const ob = outboard(parts, -hl, hull.sheerAft - 0.16, 1, -0.25, true);
+  nameBoard(parts, 0.58, 0.5, -hl, 0.4);
 
   const fittings = soundNormals(assemble(parts));
   // Driver: hips 1.5 cm over the helm cushion, hands on the wheel at a quarter to three.
@@ -443,6 +488,10 @@ function cruiserGeometry(): { painted: THREE.BufferGeometry; fittings: THREE.Buf
   parts.push(['cockpitBulkhead', fore.bulkhead, 'gelcoat']);
   // Swim platform off the transom.
   parts.push(['swimPlatform', block(2.2, 0.08, 0.5, 0, 0.32, -L / 2 - 0.22, 6, 10), 'teak']);
+  // Its brackets back to the transom and a boarding ladder, so it is fixed to the boat.
+  for (const x of [0.75, -0.75]) parts.push([`platformBracket${x > 0 ? 'L' : 'R'}`, block(0.08, 0.2, 0.46, x, 0.2, -L / 2 - 0.2, 4, 8), 'gelcoat']);
+  for (const x of [0.62, 0.38]) parts.push([`ladderRail${x}`, rod(V(x, 0.36, -L / 2 - 0.4), V(x, -0.35, -L / 2 - 0.44), 0.012, 5), 'steel']);
+  for (const y of [0.1, -0.15]) parts.push([`ladderStep${y}`, rod(V(0.62, y, -L / 2 - 0.415 - (0.36 - y) * 0.05), V(0.38, y, -L / 2 - 0.415 - (0.36 - y) * 0.05), 0.012, 5), 'steel']);
   // The cabin (its x -2.2..1.2 in the prop's frame is z -3.2..0.2 here, the hull's centre at prop x 1): a white
   // superstructure with a raked front, a dark window band and a flat roof.
   const z0 = -3.2;
@@ -455,12 +504,41 @@ function cruiserGeometry(): { painted: THREE.BufferGeometry; fittings: THREE.Buf
     { z: z1, y: deckY(z1) + 0.3, w: 0.82, up: 0.32, down: 0.3, n: 4 },
   ];
   parts.push(['cabin', loft(cabinRows, 20), 'gelcoat']);
-  const band: Section[] = [
-    { z: z0 + 0.3, y: deckY(z0) + 0.92, w: 0.945, up: 0.2, down: 0.16, n: 8 },
-    { z: z1 - 0.75, y: deckY(z1 - 0.75) + 0.82, w: 0.935, up: 0.18, down: 0.14, n: 8 },
-    { z: z1 - 0.25, y: deckY(z1 - 0.25) + 0.5, w: 0.86, up: 0.16, down: 0.12, n: 6 },
-  ];
-  parts.push(['windows', loft(band, 20), 'window']);
+  // The windows laid 6 mm proud of the cabin's own surface (a loft of its own poked through it as black shards): a band
+  // down each side and the raked windscreen across the front.
+  const cabinAt = (z: number): Section => {
+    let i = 0;
+    while (i < cabinRows.length - 2 && cabinRows[i + 1]!.z < z) i++;
+    const a = cabinRows[i]!;
+    const b = cabinRows[i + 1]!;
+    const f = Math.min(1, Math.max(0, (z - a.z) / (b.z - a.z)));
+    const mix = (p: number, q: number) => p + (q - p) * f;
+    return { z, y: mix(a.y, b.y), w: mix(a.w, b.w), up: mix(a.up, b.up), down: mix(a.down, b.down), n: mix(a.n ?? 6, b.n ?? 6) };
+  };
+  /** The cabin's surface at (z, height dy over its section's centre) on the left, and at (z, across x) on its top. */
+  const sideX = (q: Section, dy: number) => q.w * Math.max(0, 1 - Math.abs(dy / q.up) ** q.n!) ** (1 / q.n!);
+  const topY = (q: Section, x: number) => q.y + q.up * Math.max(0, 1 - Math.abs(x / q.w) ** q.n!) ** (1 / q.n!);
+  const side: THREE.Vector3[][] = [];
+  for (let k = 0; k <= 8; k++) {
+    const z = z0 + 0.35 + ((z1 - 1.0 - z0 - 0.35) * k) / 8;
+    const q = cabinAt(z);
+    side.push([V(sideX(q, 0.12) + 0.006, q.y + 0.12, z), V(sideX(q, 0.42) + 0.006, q.y + 0.42, z)]);
+  }
+  const sideL = gridSurface(side, V(1, 0, 0));
+  parts.push(['windows', sideL, 'window']);
+  parts.push(['windowsR', mirrorX(sideL.index ? sideL.toNonIndexed() : sideL), 'window']);
+  const screen: THREE.Vector3[][] = [];
+  for (let k = 0; k <= 3; k++) {
+    const z = z1 - 0.62 + 0.4 * (k / 3);
+    const q = cabinAt(z);
+    const row: THREE.Vector3[] = [];
+    for (let j = 0; j <= 6; j++) {
+      const x = q.w * 0.78 * (1 - (2 * j) / 6);
+      row.push(V(x, topY(q, x) + 0.006, z));
+    }
+    screen.push(row);
+  }
+  parts.push(['windscreen', gridSurface(screen, V(0, 1, 1)), 'window']);
   parts.push(['roof', block(1.7, 0.06, 2.9, 0, 2.44, -1.75, 8, 12), 'gelcoat']);
   // Rails round the foredeck and along the side decks, cleats, the rub rail.
   for (const side of [1, -1]) {
@@ -480,6 +558,10 @@ function cruiserGeometry(): { painted: THREE.BufferGeometry; fittings: THREE.Buf
     });
     parts.push([`rubRail${side > 0 ? 'L' : 'R'}`, sweep(pts2, 0.035, 6, { segments: 36, flat: 0.6 }), 'steel']);
   }
+  // A dark stripe under the sheer and the boot stripe, as the speedboat's.
+  const sheerAt = (t: number) => hullSection(hull, Math.min(t, 0.99)).sheerY;
+  parts.push(['sheerStripe', hullStripe(hull, (t) => sheerAt(t) - 0.24, (t) => sheerAt(t) - 0.14), 'window']);
+  parts.push(['bootStripe', hullStripe(hull, () => 0.06, () => 0.14), 'antifoul']);
   // Turn it from the hull frame (bow +z, centred) into the prop's (bow +x, the hull from x -5 to 7).
   const toProp = new THREE.Matrix4().makeTranslation(1, 0, 0).multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2));
   const painted = soundNormals(assemblePainted([['topsides', skin.topsides, 0xffffff], ['transom', skin.transom, 0xffffff]])).applyMatrix4(toProp);
