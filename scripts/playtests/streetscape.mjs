@@ -179,8 +179,8 @@ export default async function (t) {
       await shoot(`tall-${k}`, Math.PI, 0.32);
     }
     // The landmark towers (render/city/landmarks.ts picks them by the same rule, so that each reads from the sea), each
-    // from the easternmost avenue at its latitude looking west: the skyline at the usual lens, then its crown through a
-    // 12-degree one.
+    // from the beach east of the city at its latitude looking west: the skyline at the usual lens, then its crown through an
+    // 18-degree one.
     const lms = await t.game((g) => {
       const L = g.sim.world.layout;
       const cz = (b) => (b.rect.minZ + b.rect.maxZ) / 2;
@@ -192,14 +192,15 @@ export default async function (t) {
         out.push(b);
       }
       const east = Math.max(...L.vLines.map((l) => l.pos));
-      return out.map((b) => ({ x: east, z: cz(b), dist: east - (b.rect.minX + b.rect.maxX) / 2, roof: b.height }));
+      // 90 m out past the easternmost avenue, on the beach, clear of the beachfront's hotels.
+      return out.map((b) => ({ x: east + 90, z: cz(b), dist: east + 90 - (b.rect.minX + b.rect.maxX) / 2, roof: b.height }));
     });
     for (const [k, lm] of lms.entries()) {
       const kind = ['stepped', 'pyramid', 'crown', 'wedge'][k];
       await t.game((g, a) => g.teleport(a.x, a.z), lm);
-      const aim = Math.atan2(lm.roof + 12 - 2, lm.dist);
+      const aim = Math.atan2(lm.roof + 15 - 2, lm.dist) + 0.02;
       await shoot(`lm-${kind}-far`, -Math.PI / 2, Math.min(0.6, aim * 0.6));
-      await t.game((g) => (g.game.renderer.cameraCtl.baseFov = 12));
+      await t.game((g) => (g.game.renderer.cameraCtl.baseFov = 18));
       await shoot(`lm-${kind}-crown`, -Math.PI / 2, aim);
       await t.game((g) => (g.game.renderer.cameraCtl.baseFov = g.game.settings.fov));
     }
