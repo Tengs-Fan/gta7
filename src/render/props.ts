@@ -12,11 +12,11 @@ import { attractionOf } from '../world/attractions';
 import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
-import { adTexture, AD_COUNT, glowTexture, groundTexture, radialTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
+import { adTexture, AD_COUNT, barkTextures, glowTexture, groundTexture, radialTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
 import { DARK_SIGNAL, hasOpposite, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, PINE_REACH, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
-import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
+import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, cypressTrunkGeometry, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 import {
   benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
   lampPoleGeometry, lampTubeGeometry, lifeguardGeometry, loungerGeometry, mailboxGeometry, planterGeometry, posterGeometry, railGeometry, shelvingGeometry, shrubGeometry,
@@ -142,9 +142,25 @@ float fadeBayer4( vec2 frag ) {
   float fadeD = distance( vFadeWorld, cameraPosition );
   if ( fadeD < ${FOLIAGE_FADE_FAR.toFixed(2)} && fadeBayer4( gl_FragCoord.xy ) >= smoothstep( ${FADE_NEAR.toFixed(2)}, ${FOLIAGE_FADE_FAR.toFixed(2)}, fadeD ) ) discard;
 }`,
-      );
+      )
+      .replace('#include <alphatest_fragment>', `${FOLIAGE_COVERAGE}\n#include <alphatest_fragment>`);
   };
 }
+
+/**
+ * Keeps alpha-tested leaves as full far away as near: a mip level averages a spray's leaves with the gaps between them,
+ * so past a few levels most of its alpha falls under the test and a crown 40 m off thinned to a see-through scatter of
+ * specks. Alpha is raised by a quarter for every level the texture is sampled down.
+ */
+export const FOLIAGE_COVERAGE = /* glsl */ `
+#if defined( USE_MAP ) && defined( USE_ALPHATEST )
+{
+  vec2 coverageTexel = vMapUv * vec2( textureSize( map, 0 ) );
+  vec2 coverageX = dFdx( coverageTexel ), coverageY = dFdy( coverageTexel );
+  float coverageLod = max( 0.0, 0.5 * log2( max( dot( coverageX, coverageX ), dot( coverageY, coverageY ) ) ) );
+  diffuseColor.a *= 1.0 + 0.25 * coverageLod;
+}
+#endif`;
 
 /** The wind every foliage material shares (wind.ts), and where one material's foliage hangs from. */
 export interface WindUniforms {
@@ -934,12 +950,14 @@ export class PropsView {
 
   private buildTrees(trees: number[], bushes: number[], cypresses: number[], orchard: number[], valleyTrees: number[], valleyBushes: number[]): void {
     const rng = new Rng(77);
-    const trunk = new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 });
+    // Grey-brown bark (textures/misc.ts barkTextures), its plates and furrows in the normal map, on every broadleaf trunk.
+    const { map, normalMap } = barkTextures();
+    const trunk = new THREE.MeshStandardMaterial({ color: 0xffffff, map, normalMap, vertexColors: true, roughness: 0.94 });
     dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
     this.makeInstanced(treeTrunkGeometry(), trunk, trees, PropsView.standard);
-    this.makeInstanced(treeTrunkGeometry(), trunk, cypresses, (p, m) => {
+    this.makeInstanced(cypressTrunkGeometry(), trunk, cypresses, (p, m) => {
       PropsView.standard(p, m);
-      m.multiply(this.tmpM.makeScale(0.6, 0.55, 0.6));
+      m.multiply(this.tmpM.makeScale(0.6, 0.4, 0.6));
     });
     // Leaf cards: alpha-tested (never sorted), the atlas's own greens with a per-tree tint, swaying in the wind.
     const leafMaterial = (name: string): THREE.MeshStandardMaterial => {
@@ -961,10 +979,10 @@ export class PropsView {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
       shadow: false,
     });
-    // Cypresses: the trees' canopy drawn tall and narrow, from about a metre up to nine, dark.
+    // Cypresses: the trees' canopy drawn tall and narrow, its leaves from about a metre up to eight, dark, over a short trunk.
     this.makeInstanced(canopy, canopyMat, cypresses, (p, m) => {
       PropsView.standard(p, m);
-      m.multiply(this.tmpM.makeScale(0.42, 2.4, 0.42)).multiply(this.tmpM.makeTranslation(0, -2.6, 0));
+      m.multiply(this.tmpM.makeScale(0.42, 2.4, 0.42)).multiply(this.tmpM.makeTranslation(0, -2.95, 0));
     }, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.31 + rng.range(-0.02, 0.02), 0.38, rng.range(0.2, 0.26)), 0.75),
     });

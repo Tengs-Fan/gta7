@@ -122,6 +122,93 @@ export function beamTexture(): THREE.Texture {
 }
 
 // ---------------------------------------------------------------------------
+// Bark: a tileable relief of plates between vertical furrows, broken now and then across, as an albedo and a normal
+// map built in plain arithmetic (no canvas: the trunks draw the same in Node tests, under ?assets=0 and on any tier).
+
+/** Texels of the bark tile: across (once round a trunk's half) and up. */
+export const BARK_SIZE = [128, 256] as const;
+
+/** A value noise on a lattice of `px` by `py` cells that wraps at the tile's edges (x, y in 0..1). */
+function wrapNoise(x: number, y: number, px: number, py: number, seed: number): number {
+  const h = (i: number, j: number) => {
+    const a = Math.sin((((i % px) + px) % px) * 127.1 + (((j % py) + py) % py) * 311.7 + seed * 74.7) * 43758.5453;
+    return a - Math.floor(a);
+  };
+  const u = x * px, v = y * py;
+  const i = Math.floor(u), j = Math.floor(v);
+  const fx = u - i, fy = v - j;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const top = h(i, j) + (h(i + 1, j) - h(i, j)) * sx;
+  const bot = h(i, j + 1) + (h(i + 1, j + 1) - h(i, j + 1)) * sx;
+  return top + (bot - top) * sy;
+}
+
+/** The bark's height (0 deep in a furrow, 1 on a plate) at (x, y) in the tile. */
+export function barkHeight(x: number, y: number): number {
+  // Furrows wander: their line is pushed sideways by a slow noise along the trunk.
+  const warp = (wrapNoise(x, y, 4, 3, 1) - 0.5) * 0.22 + (wrapNoise(x, y, 8, 9, 2) - 0.5) * 0.06;
+  const across = Math.abs(Math.sin(Math.PI * ((x + warp) * 6 + (wrapNoise(x, y, 6, 2, 3) - 0.5) * 0.8)));
+  const furrow = Math.min(1, Math.max(0, (across - 0.12) / 0.4));
+  // Cracks across a plate, about four per tile, not every one through.
+  const crack = Math.abs(Math.sin(Math.PI * (y * 5 + (wrapNoise(x, y, 6, 5, 4) - 0.5) * 1.6)));
+  const broken = wrapNoise(x, y, 6, 5, 5) > 0.45 ? Math.min(1, crack / 0.18) : 1;
+  const grain = wrapNoise(x, y, 32, 48, 6);
+  return furrow * (0.55 + 0.45 * broken) * (0.82 + 0.18 * grain);
+}
+
+let bark: { map: THREE.DataTexture; normalMap: THREE.DataTexture } | null = null;
+
+/**
+ * The broadleaf trunks' bark (sRGB albedo and tangent-space normals), shared by every trunk: grey-brown plates, dark
+ * furrows, lichen in patches. One tile spans half a trunk's girth and about a metre of its height.
+ */
+export function barkTextures(): { map: THREE.DataTexture; normalMap: THREE.DataTexture } {
+  if (bark) return bark;
+  const [W, H] = BARK_SIZE;
+  const height = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) height[y * W + x] = barkHeight((x + 0.5) / W, (y + 0.5) / H);
+  const albedo = new Uint8Array(W * H * 4);
+  const normal = new Uint8Array(W * H * 4);
+  const at = (x: number, y: number) => height[(((y + H) % H) * W) + ((x + W) % W)]!;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const h = at(x, y);
+      const u = (x + 0.5) / W, v = (y + 0.5) / H;
+      const tone = 0.85 + 0.3 * wrapNoise(u, v, 5, 7, 7);
+      const lichen = Math.max(0, wrapNoise(u, v, 7, 9, 8) - 0.62) * 2.2 * h;
+      const k = (0.36 + 0.64 * h) * tone;
+      const i = (y * W + x) * 4;
+      albedo[i] = Math.min(255, (118 * k + 40 * lichen) | 0);
+      albedo[i + 1] = Math.min(255, (104 * k + 58 * lichen) | 0);
+      albedo[i + 2] = Math.min(255, (88 * k + 30 * lichen) | 0);
+      albedo[i + 3] = 255;
+      // Sobel over the wrapped tile; the strength is the plates' relief over the texel's size.
+      const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+      const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+      const nx = -dx * 0.9, ny = -dy * 0.9;
+      const inv = 1 / Math.hypot(nx, ny, 1);
+      normal[i] = (nx * inv * 0.5 + 0.5) * 255;
+      normal[i + 1] = (ny * inv * 0.5 + 0.5) * 255;
+      normal[i + 2] = (inv * 0.5 + 0.5) * 255;
+      normal[i + 3] = 255;
+    }
+  }
+  const texture = (data: Uint8Array, srgb: boolean) => {
+    const t = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    t.anisotropy = 4;
+    t.needsUpdate = true;
+    return t;
+  };
+  bark = { map: texture(albedo, true), normalMap: texture(normal, false) };
+  return bark;
+}
+
+// ---------------------------------------------------------------------------
 // Cloud noise: one tileable channel of gradient noise that the sky shader samples once per
 // octave (a texture fetch is far cheaper than hashing four lattice gradients per octave).
 

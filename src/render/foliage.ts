@@ -115,14 +115,21 @@ function broadleaf(kind: BroadleafKind): { geometry: THREE.BufferGeometry; sampl
     uv.push(u, v);
     col.push(shade * (1 + warm), shade, shade * (0.92 - warm * 0.5));
   };
-  // The cards: sprays round each cluster, the twig end inward, each inside the envelopes with the storm margin.
+  // The cards: sprays round each cluster, the twig end inward, each inside the envelopes with the storm margin. The
+  // first fifth are the rim's: smaller open sprays near the clusters' surface, standing out from it (their face across
+  // the radius rather than along it), so a crown's outline seen from any side breaks into sprays of leaves.
   const volume = clusters.map(({ scale }) => scale[0] * scale[1] * scale[2]);
   const total = volume.reduce((a, b) => a + b, 0);
   const half = kind === 'tree' ? [0.28, 0.41] : [0.17, 0.26];
+  const rimCards = Math.round(LEAF_CARDS[kind] / 5);
+  // The crown's height, for its shading: a crown is darker underneath, where the leaves above shade it.
+  const bottom = Math.min(...clusters.map(({ at, scale }) => at[1] - scale[1]));
+  const top = Math.max(...clusters.map(({ at, scale }) => at[1] + scale[1]));
   const centre = new THREE.Vector3(), d = new THREE.Vector3(), n = new THREE.Vector3(), up = new THREE.Vector3(), right = new THREE.Vector3();
   const corner = new THREE.Vector3(), normal = new THREE.Vector3(), out = new THREE.Vector3();
   let cards = 0;
   for (let attempt = 0; cards < LEAF_CARDS[kind] && attempt < 20000; attempt++) {
+    const rim = cards < rimCards;
     let pick = rng.range(0, total);
     let ci = 0;
     while (ci < clusters.length - 1 && pick > volume[ci]!) pick -= volume[ci++]!;
@@ -130,21 +137,31 @@ function broadleaf(kind: BroadleafKind): { geometry: THREE.BufferGeometry; sampl
     d.set(rng.range(-1, 1), rng.range(-0.55, 1), rng.range(-1, 1));
     if (d.lengthSq() < 1e-3) continue;
     d.normalize();
-    const f = rng.range(0.35, 0.9);
+    const f = rim ? rng.range(0.72, 0.95) : rng.range(0.35, 0.9);
     centre.set(at[0] + d.x * scale[0] * f, at[1] + d.y * scale[1] * f, at[2] + d.z * scale[2] * f);
-    n.set(d.x + rng.range(-0.7, 0.7), d.y + rng.range(-0.7, 0.7), d.z + rng.range(-0.7, 0.7)).normalize();
+    if (rim) {
+      // Facing across the radius, its top outward.
+      n.set(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1));
+      n.addScaledVector(d, -0.85 * n.dot(d));
+      if (n.lengthSq() < 1e-4) continue;
+      n.normalize();
+    } else {
+      n.set(d.x + rng.range(-0.7, 0.7), d.y + rng.range(-0.7, 0.7), d.z + rng.range(-0.7, 0.7)).normalize();
+    }
     up.copy(d).addScaledVector(n, -d.dot(n));
     if (up.lengthSq() < 1e-3) up.set(0, 1, 0).addScaledVector(n, -n.y);
     up.normalize().applyAxisAngle(n, rng.range(-0.6, 0.6));
     right.crossVectors(up, n).normalize();
-    const s = rng.range(half[0]!, half[1]!) * (attempt > 8000 ? 0.75 : 1);
+    const s = rng.range(half[0]!, half[1]!) * (rim ? 0.75 : 1) * (attempt > 8000 ? 0.75 : 1);
     const corners: THREE.Vector3[] = [];
     for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) corners.push(centre.clone().addScaledVector(right, a * s).addScaledVector(up, b * s));
     if (!corners.every((c) => inEnvelope(clusters, c, leafMargin(c.y)))) continue;
-    // Deep inside the crown, half the cards are dense clumps, which give it body; the rest are open sprays.
-    const [u0, v0, u1, v1] = LEAF_TILES[f < 0.55 && rng.chance(0.5) ? 3 : rng.int(0, 2)]!;
+    // Inside the crown, three in five cards are dense clumps, which give it body; the rest, and every rim card, are open sprays.
+    const [u0, v0, u1, v1] = LEAF_TILES[!rim && f < 0.7 && rng.chance(0.6) ? 3 : rng.int(0, 2)]!;
     const uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]] as const;
-    const shade = 0.82 + f * 0.22 + rng.range(-0.06, 0.06);
+    // Lighter outward and upward: 0.62 of the light at the crown's foot, the full light at its top.
+    const height = Math.min(1, Math.max(0, (centre.y - bottom) / (top - bottom)));
+    const shade = (0.62 + 0.38 * Math.sqrt(height)) * (0.9 + f * 0.2) + rng.range(-0.06, 0.06);
     const warm = rng.range(-0.04, 0.06);
     // Both faces carry the same normal, bent out from the cluster, so the canopy shades as one soft mass.
     out.copy(d);
@@ -242,41 +259,143 @@ function bark(geometry: THREE.BufferGeometry, palm: boolean): THREE.BufferGeomet
   const colors: number[] = [];
   for (let i = 0; i < p.count; i++) {
     const y = p.getY(i);
-    const around = Math.atan2(p.getX(i), p.getZ(i));
+    const around = Math.atan2(p.getX(i) - (palm ? palmCurve(y) : 0), p.getZ(i));
     const grain = Math.sin(around * 9 + y * 0.9) * 0.055;
-    // Palms: a dark leaf-scar groove at the foot of every ring, lighter towards its flared top.
-    const ring = palm ? (y / PALM_RING - Math.floor(y / PALM_RING)) * 0.42 - 0.2 : 0;
+    // Palms: a dark leaf-scar groove at the foot of every ring, lighter towards its flared top, the scars staggered
+    // round the trunk from ring to ring; the foot greyer and the top, under the boot, browner.
+    const t = y / PALM_RING - Math.floor(y / PALM_RING);
+    const ring = palm ? t * 0.55 - 0.3 + Math.sin(around * 2 + Math.floor(y / PALM_RING) * 2.4) * 0.05 * t : 0;
+    const age = palm ? Math.min(1, y / 6) : 1;
     const shade = 0.85 + grain + ring;
-    colors.push(shade, shade * 0.94, shade * 0.84);
+    colors.push(shade * (0.92 + 0.08 * age), shade * (0.92 + 0.02 * age), shade * (0.9 - 0.06 * age));
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   return geometry;
 }
 
-function branch(from: Point, to: Point, bottom: number, top: number): THREE.BufferGeometry {
-  const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to);
-  const d = b.clone().sub(a);
-  const g = new THREE.CylinderGeometry(top, bottom, d.length(), 6, 1, true).toNonIndexed();
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
-  g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-  return bark(g, false);
+/** Metres of trunk one repeat of the bark tile spans (textures/misc.ts barkTextures), and its repeats round a trunk. */
+const BARK_V = 1.1;
+const BARK_U = 2;
+
+/**
+ * A bark-covered tube through `path` (a Catmull-Rom curve), a ring of `radial` sides at each station `t` (0..1 along
+ * it), the radius at a station `r(t, angle, y)`. Frames are carried along the curve without twist. UVs wrap the bark tile
+ * BARK_U times round it and run up it in metres from `v0`; the vertex colour is `shade(t)` times a light grain.
+ */
+function barkTube(path: readonly Point[], stations: readonly number[], radial: number, r: (t: number, a: number, y: number) => number, shade: (t: number, y: number) => number, v0 = 0): THREE.BufferGeometry {
+  const pts = path.map((p) => new THREE.Vector3(...p));
+  const curve = pts.length > 2 ? new THREE.CatmullRomCurve3(pts, false, 'centripetal') : new THREE.LineCurve3(pts[0]!, pts[1]!);
+  const length = curve.getLength();
+  const tan = curve.getTangentAt(0).normalize();
+  let nrm = new THREE.Vector3().crossVectors(tan, Math.abs(tan.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)).normalize();
+  let prev = tan.clone();
+  const cols = radial + 1;
+  const pos: number[] = [], uv: number[] = [], col: number[] = [], idx: number[] = [];
+  for (const t of stations) {
+    const p = curve.getPointAt(t);
+    const d = curve.getTangentAt(t).normalize();
+    const axis = new THREE.Vector3().crossVectors(prev, d);
+    const s = axis.length();
+    if (s > 1e-9) nrm.applyAxisAngle(axis.normalize(), Math.asin(Math.min(1, s)));
+    nrm = nrm.sub(d.clone().multiplyScalar(nrm.dot(d))).normalize();
+    prev = d;
+    const bin = new THREE.Vector3().crossVectors(d, nrm).normalize();
+    const k = shade(t, p.y);
+    for (let j = 0; j < cols; j++) {
+      const a = (j / radial) * Math.PI * 2;
+      const rr = r(t, a, p.y);
+      pos.push(p.x + (nrm.x * Math.cos(a) + bin.x * Math.sin(a)) * rr, p.y + (nrm.y * Math.cos(a) + bin.y * Math.sin(a)) * rr, p.z + (nrm.z * Math.cos(a) + bin.z * Math.sin(a)) * rr);
+      uv.push((j / radial) * BARK_U, (v0 + t * length) / BARK_V);
+      const grain = 1 + Math.sin(a * 3 + t * 7 + v0) * 0.04;
+      col.push(k * grain, k * grain * 0.97, k * grain * 0.92);
+    }
+  }
+  for (let i = 0; i < stations.length - 1; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * cols + j, b = a + 1, c = a + cols, e = c + 1;
+      idx.push(a, b, c, b, e, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  // The seam's two columns share one normal, so the tube shades round without a crease.
+  const n = g.getAttribute('normal');
+  for (let i = 0; i < stations.length; i++) {
+    const a = i * cols, b = a + radial;
+    const x = n.getX(a) + n.getX(b), y = n.getY(a) + n.getY(b), z = n.getZ(a) + n.getZ(b);
+    const l = Math.hypot(x, y, z) || 1;
+    n.setXYZ(a, x / l, y / l, z / l);
+    n.setXYZ(b, x / l, y / l, z / l);
+  }
+  return g.toNonIndexed();
 }
 
-/** The broadleaf trunk's limbs: from where they leave the trunk (all below the canopy, which starts near 3 m) out to it. */
-export const TREE_LIMBS: ReadonlyArray<{ from: Point; to: Point; r0: number; r1: number }> = [
-  { from: [0, 2.35, 0], to: [-0.95, 3.85, 0.2], r0: 0.12, r1: 0.04 },
-  { from: [0, 2.55, 0], to: [0.9, 4.0, 0.4], r0: 0.115, r1: 0.04 },
-  { from: [0, 2.75, 0], to: [-0.1, 4.1, -0.95], r0: 0.105, r1: 0.035 },
-  { from: [0, 2.9, 0], to: [0.15, 4.2, 0.95], r0: 0.1, r1: 0.035 },
-  { from: [0.45, 3.3, 0.2], to: [0.95, 4.6, -0.45], r0: 0.055, r1: 0.022 },
-  { from: [-0.5, 3.15, 0.1], to: [-0.75, 4.7, 0.5], r0: 0.055, r1: 0.022 },
+/** A limb: where it leaves its parent, the point it forks at (or ends), its radius at each end. */
+export interface Limb { readonly from: Point; readonly to: Point; readonly r0: number; readonly r1: number }
+
+/**
+ * The broadleaf trunk's four main limbs: each leaves the trunk below the canopy (which starts near 2.9 m) and runs
+ * 0.55 to 0.6 m out to where it forks, under the canopy's edge, so the fork shows from the street.
+ */
+export const TREE_LIMBS: readonly Limb[] = [
+  { from: [0, 2.3, 0], to: [-0.55, 3.05, 0.06], r0: 0.095, r1: 0.06 },
+  { from: [0, 2.5, 0], to: [0.5, 3.15, 0.3], r0: 0.09, r1: 0.058 },
+  { from: [0, 2.7, 0], to: [-0.1, 3.3, -0.55], r0: 0.085, r1: 0.055 },
+  { from: [0, 2.85, 0], to: [0.06, 3.45, 0.6], r0: 0.08, r1: 0.05 },
 ];
 
+/** Where each fork of a main limb (TREE_LIMBS, two each) reaches, into the canopy's lower clusters. */
+export const TREE_FORKS: readonly Point[][] = [
+  [[-1.0, 3.75, -0.35], [-0.85, 4.3, 0.35]],
+  [[0.8, 3.75, 0.75], [0.95, 4.35, 0.05]],
+  [[0.35, 4.0, -0.95], [-0.5, 4.25, -0.9]],
+  [[-0.4, 4.15, 1.0], [0.42, 4.25, 0.92]],
+];
+
+/** The trunk's height: it tapers from its flared foot into the canopy's middle. */
+const TRUNK_TOP = 4.4;
+
+/** The trunk's radius at height y, before the root flare: 0.2 m at the foot, 0.07 m at the top. */
+function trunkRadius(y: number): number {
+  return 0.07 + 0.13 * Math.max(0, 1 - y / TRUNK_TOP) ** 0.9;
+}
+
+/** Bark tone up the trunk: darker and a touch greener at the foot, where soil splashes and moss grows. */
+function trunkShade(y: number): number {
+  return 0.78 + 0.22 * Math.min(1, y / 1.2);
+}
+
+/**
+ * The broadleaf tree's woody frame: a trunk that flares into five root buttresses at its foot (at most 0.3 m out,
+ * inside the 0.32 m collider) and tapers as it bends a little on its way up, four limbs that leave it under the canopy
+ * and fork into two branches each, all barked (barkTextures). 238 triangles.
+ */
 export function treeTrunkGeometry(): THREE.BufferGeometry {
-  return merge([
-    branch([0, 0, 0], [0, 4.1, 0], 0.26, 0.085),
-    ...TREE_LIMBS.map((l) => branch(l.from, l.to, l.r0, l.r1)),
-  ]);
+  const flare = (a: number, y: number) => 1 + 0.45 * Math.exp(-y / 0.22) * (0.68 + 0.32 * Math.cos(5 * a + 0.7));
+  const trunk = barkTube(
+    [[0, 0, 0], [0.03, 1.3, 0.02], [-0.03, 2.6, 0.04], [0.05, 3.6, -0.02], [0.08, TRUNK_TOP, 0]],
+    [0, 0.03, 0.08, 0.2, 0.42, 0.64, 0.82, 1],
+    7,
+    (_t, a, y) => trunkRadius(y) * flare(a, y),
+    (_t, y) => trunkShade(y),
+  );
+  const parts = [trunk];
+  TREE_LIMBS.forEach((l, k) => {
+    // The limb bows up a little on its way out.
+    const mid: Point = [(l.from[0] + l.to[0]) * 0.5, (l.from[1] + l.to[1]) * 0.5 + 0.08, (l.from[2] + l.to[2]) * 0.5];
+    parts.push(barkTube([l.from, mid, l.to], [0, 0.5, 1], 5, (t) => l.r0 + (l.r1 - l.r0) * t, () => 0.95, l.from[1]));
+    for (const end of TREE_FORKS[k]!) parts.push(barkTube([l.to, end], [0, 1], 4, (t) => l.r1 * (0.8 - 0.45 * t), () => 1, l.to[1]));
+  });
+  return merge(parts);
+}
+
+/** A cypress's trunk: straight and plain, hidden but for its foot inside the column of leaves it carries. */
+export function cypressTrunkGeometry(): THREE.BufferGeometry {
+  return merge([barkTube([[0, 0, 0], [0, TRUNK_TOP, 0]], [0, 0.06, 0.4, 1], 6, (_t, _a, y) => trunkRadius(y) * (1 + 0.3 * Math.exp(-y / 0.25)), (_t, y) => trunkShade(y))]);
 }
 
 /** A palm trunk's built-in curve: its centre line leans this far (m, along local +x) at its top, PALM_TOP m up. */
@@ -298,12 +417,43 @@ export function palmTrunkGeometry(): THREE.BufferGeometry {
     // Stacked rings, each flaring a little at its top; inside the original 0.3 m collider, including at the broad base.
     // Two segments per ring; the nudge keeps a ring's foot (t = 0) from rounding up to the ring below's top.
     const t = y / PALM_RING + 1e-4 - Math.floor(y / PALM_RING + 1e-4);
-    const ridge = 0.92 + 0.12 * t * t;
+    // The foot swells into a bulb of roots, 0.29 m out at most (inside the 0.3 m collider).
+    const ridge = (0.92 + 0.12 * t * t) * (1 + 0.15 * Math.exp(-y / 0.45));
     p.setXYZ(i, p.getX(i) * ridge + palmCurve(y), y, p.getZ(i) * ridge);
   }
   trunk.computeVertexNormals();
   const crown = new THREE.CylinderGeometry(0.23, 0.28, 0.65, 8).translate(palmCurve(8.38), 8.38, 0);
-  return merge([bark(trunk.toNonIndexed(), true), bark(crown.toNonIndexed(), false)]);
+  return merge([bark(trunk.toNonIndexed(), true), bark(crown.toNonIndexed(), false), palmBoot()]);
+}
+
+/**
+ * The boot: the split bases of old fronds round the crown, fourteen wedges standing up and out from it in two staggered
+ * tiers, all above 8 m (the rings below are the trunk's own), browner than the trunk.
+ */
+function palmBoot(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const x0 = palmCurve(8.38);
+  for (let k = 0; k < 14; k++) {
+    const a = k * (Math.PI * 2 / 7) + (k >= 7 ? Math.PI / 7 : 0);
+    const y = k >= 7 ? 8.42 : 8.12;
+    const out = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
+    const side = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a));
+    const foot = new THREE.Vector3(x0, y, 0).addScaledVector(out, 0.2);
+    const tip = foot.clone().addScaledVector(out, 0.2).add(new THREE.Vector3(0, 0.3, 0));
+    const l = foot.clone().addScaledVector(side, -0.1), r = foot.clone().addScaledVector(side, 0.1);
+    const back = foot.clone().addScaledVector(out, -0.08).add(new THREE.Vector3(0, 0.18, 0));
+    // A wedge: its outer face, its two flanks and its back against the crown.
+    for (const [p, q, w] of [[l, r, tip], [r, back, tip], [back, l, tip], [l, back, r]] as const) positions.push(p.x, p.y, p.z, q.x, q.y, q.z, w.x, w.y, w.z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.computeVertexNormals();
+  const n = positions.length / 3;
+  const colors = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) colors.set([0.74, 0.6, 0.44], i * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+  return g;
 }
 
 /** Where the fronds spring from (local), for their wind: they bend more the further out they reach. */
@@ -349,6 +499,32 @@ export function palmFrondsGeometry(): THREE.BufferGeometry {
         const shade = 0.72 + 0.18 * Math.sin(t * Math.PI) + Math.sin(frond * 1.9 + leaf * 0.7) * 0.045;
         tri(root, left, ridge, shade); tri(root, ridge, right, shade * 1.05);
         tri(left, tip, ridge, shade); tri(ridge, tip, right, shade * 1.05);
+      }
+    }
+  }
+  // Three dead fronds hang under the green ones, dry and brown: each a folded strip, narrowing to its tip, from the crown
+  // down along the trunk. Their colour is what the fronds' green tint (PropsView.buildPalms) turns a straw brown.
+  for (let k = 0; k < 3; k++) {
+    const angle = k * 2.1 + 0.6;
+    const along = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+    const across = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+    // Out from the crown and down beside the trunk, following its curve.
+    const at = (t: number): THREE.Vector3 => {
+      const y = 8.45 - t * 1.5 - k * 0.12;
+      return along.clone().multiplyScalar(0.28 + 0.2 * Math.sin(t * Math.PI * 0.8)).addScaledVector(up, y).add(new THREE.Vector3(palmCurve(y) - PALM_BEND, 0, 0));
+    };
+    const dry = 0.62 + k * 0.05;
+    for (let segment = 0; segment < 5; segment++) {
+      const t0 = segment / 5, t1 = (segment + 1) / 5;
+      const a = at(t0), b = at(t1);
+      const w0 = 0.2 * (1 - t0 * 0.8), w1 = 0.2 * (1 - t1 * 0.8);
+      // Folded down the middle: its edges hang a little lower and further out than its spine.
+      const edge = (p: THREE.Vector3, w: number, s: number) => p.clone().addScaledVector(across, s * w).addScaledVector(along, w * 0.25).addScaledVector(up, -w * 0.3);
+      for (const s of [-1, 1]) {
+        const p0 = edge(a, w0, s), p1 = edge(b, w1, s);
+        for (const [x, y, z] of s > 0 ? [[a, b, p0], [p0, b, p1]] : [[a, p0, b], [p0, p1, b]]) {
+          for (const v of [x!, y!, z!]) { positions.push(v.x, v.y, v.z); colors.push(dry * 1.9, dry * 1.18, dry * 1.75); }
+        }
       }
     }
   }

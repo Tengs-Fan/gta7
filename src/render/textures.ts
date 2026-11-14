@@ -18,4 +18,5 @@ export {
   cloudNoiseData,
   cloudNoiseTexture,
   cloudFbm,
+  barkTextures,
 } from './textures/misc';
