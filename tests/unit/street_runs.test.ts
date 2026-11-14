@@ -398,7 +398,7 @@ describe('street course driving acceptance', () => {
 
 describe('the Las Lomas Loop', () => {
   it('races head-to-head in multiplayer: a marker at its start, the green wave over Dry Creek, both racers home', () => {
-    const marker = multiplayerInteractions(world(), []).markers.find((m) => m.id === 'race:laslomas')!;
+    const marker = multiplayerInteractions(world(), () => null).markers.find((m) => m.id === 'race:laslomas')!;
     const course = buildCountyRunCourses(world().roads)[0]!;
     expect(marker).toMatchObject({ kind: 'streetRun', x: course.start.x, z: course.start.z, label: 'Press T to race Las Lomas Loop head-to-head' });
     const sim = new Sim({ world: new StaticWorld(), ambient: false, police: false, multiplayer: true, seed: 3 });

@@ -178,6 +178,16 @@ export class Predictor {
     this.char.inventory.current = 'fists';
   }
 
+  /**
+   * The vehicle the predicted F takes for the player now, among this prediction's own copies of the vehicles around him
+   * (posed for the present, as the press acts on them); null when he is not on foot or F finds none. The prompt names
+   * this one, so the key and the prompt agree on a client as far as the prediction does.
+   */
+  enterable(): Vehicle | null {
+    if (!this.active || !this.char.onFoot) return null;
+    return this.slot.ctl.findEnterable(this.char, this.char.state === 'swimming');
+  }
+
   /** The predicted player's vehicle, if he sits in one. */
   get vehicle(): Vehicle | null {
     return this.char.vehicle;
