@@ -1,6 +1,7 @@
 // Shallow, batched facade relief. Building footprints, roof heights and street
 // clearances still come from the simulation; these are architectural finishes.
 import { hashInts, type Building, type FacadeStyle, type Side, type Tier } from '../world/layout';
+import { COPING_H, PARAPET_H } from './city/rooftops';
 import { GeoBuilder, scaleRgb, type RGB } from './geo';
 import { FACADE_CELL, FACADE_WINDOW, HOUSE_SILL, facadeWindowAt, facadeWindowFit } from './textures';
 
@@ -70,10 +71,13 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   const floorH = FACADE_CELL[style].h;
   const every = style === 'brick' ? 3 : style === 'stucco' ? 2 : glass ? 4 : 1;
   const floor0 = Math.max(1, Math.ceil((first - baseY + 0.5) / floorH));
+  // String courses at floor lines, hung just under the line, so a balcony's or fire escape's floor on that line covers
+  // its top instead of a course standing 5 to 13 cm proud of the floor along the wall.
   for (let floor = floor0; baseY + floor * floorH < t.y1 - 0.8; floor++) {
     if (floor % every !== 0) continue;
     const y = baseY + floor * floorH;
-    band(y - 0.07, style === 'hotel' ? 0.2 : 0.12, style === 'hotel' ? 0.18 : 0.1, trim);
+    const bh = style === 'hotel' ? 0.2 : 0.12;
+    band(y - bh - 0.005, bh, style === 'hotel' ? 0.18 : 0.1, trim);
   }
 
   // Corner piers stop above the entrance band; the amount of relief is shallow
@@ -107,13 +111,14 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
     for (let d = offset; d < length - 0.5; d += stride) {
       const x = ax + ux * d;
       const z = az + uz * d;
-      // Out from the wall by `fin` (the wall's outward normal is (-uz, ux)), `half` either side of the cell edge.
-      const ox = -uz * fin;
-      const oz = ux * fin;
-      const x0 = Math.min(x - Math.abs(ux) * half, x + ox - Math.abs(ux) * half);
-      const x1 = Math.max(x + Math.abs(ux) * half, x + ox + Math.abs(ux) * half);
-      const z0 = Math.min(z - Math.abs(uz) * half, z + oz - Math.abs(uz) * half);
-      const z1 = Math.max(z + Math.abs(uz) * half, z + oz + Math.abs(uz) * half);
+      // From 2 cm inside the wall (its back face hidden in it, off the wall's plane) out to `fin` (the wall's outward
+      // normal is (-uz, ux)), `half` either side of the cell edge.
+      const [ix, iz] = [x + uz * 0.02, z - ux * 0.02];
+      const [ox, oz] = [x - uz * fin, z + ux * fin];
+      const x0 = Math.min(ix, ox) - Math.abs(ux) * half;
+      const x1 = Math.max(ix, ox) + Math.abs(ux) * half;
+      const z0 = Math.min(iz, oz) - Math.abs(uz) * half;
+      const z1 = Math.max(iz, oz) + Math.abs(uz) * half;
       g.box(x0, bottom, z0, x1, t.y1 - 0.16, z1, { uv: UV, color: cap });
     }
   }
@@ -145,6 +150,8 @@ function housePlinth(g: GeoBuilder, t: Tier): void {
 /** How far (m) a balcony stands out from the wall, and its front's height above the slab. */
 export const BALCONY_DEPTH: Partial<Record<Building['style'], number>> = { hotel: 1.1, stucco: 0.85 };
 const BALCONY_FRONT = 1.0;
+/** Thickness (m) of a balcony's slab. */
+export const BALCONY_SLAB = 0.14;
 
 /**
  * Balconies on the street walls (`sides`) of an apartment block or hotel, on every storey above the ground floor whose
@@ -164,7 +171,8 @@ export function balconies(g: GeoBuilder, b: Building, t: Tier, baseY: number, si
     if (!sides.includes(wl.side) || wl.len < cell.w + 1) continue;
     for (let k = k0; baseY + (k + 1) * cell.h <= t.y1 - 0.6; k++) {
       const fy = baseY + k * cell.h;
-      if (fy < t.y0 + 0.5) continue;
+      // On a setback tier the slab's underside clears the parapet and coping of the roof below.
+      if (fy < t.y0 + (t === b.tiers[0] ? 0.5 : PARAPET_H + COPING_H + BALCONY_SLAB + 0.05)) continue;
       // Spans along the wall: the whole wall short of its ends, or one per window of every `every`th column.
       const spans: Array<[number, number]> = [];
       if (b.style === 'hotel') spans.push([0.4, wl.len - 0.4]);
@@ -176,7 +184,7 @@ export function balconies(g: GeoBuilder, b: Building, t: Tier, baseY: number, si
         }
       }
       for (const [s0, s1] of spans) {
-        wallBox(g, wl, s0, s1, 0, depth, fy - 0.14, fy, slab, true);
+        wallBox(g, wl, s0, s1, 0, depth, fy - BALCONY_SLAB, fy, slab, true);
         wallBox(g, wl, s0, s1, depth - 0.07, depth, fy, fy + BALCONY_FRONT, wall);
         wallBox(g, wl, s0, s0 + 0.07, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
         wallBox(g, wl, s1 - 0.07, s1, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
@@ -244,6 +252,11 @@ const IRON_GREEN: RGB = [0.05, 0.085, 0.065];
 /** A fire escape's landings stand this far (m) out from the wall; its rail is this high over them. */
 export const ESCAPE_DEPTH = 1.1;
 const ESCAPE_RAIL = 0.95;
+/**
+ * A landing's floor stands this far (m) over its storey's floor line: its 6 cm deck and its stairs' stringers (12 cm
+ * under it) clear the ground floor's cornice, whose lip reaches 0.17 m over the line of the first storey (facadeRelief).
+ */
+export const ESCAPE_FLOOR = 0.3;
 /** How far (m) the drop ladder hangs under the lowest landing. */
 export const LADDER_DROP = 0.95;
 
@@ -271,7 +284,7 @@ export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, s
   const iron = r(2) < 0.3 ? IRON_GREEN : IRON;
   const D = ESCAPE_DEPTH;
   const floors: number[] = [];
-  for (let k = Math.max(0, Math.ceil((t.y0 - baseY) / h - 1e-6)); baseY + k * h + 0.12 + ESCAPE_RAIL <= t.y1 - 0.4; k++) floors.push(baseY + k * h + 0.12);
+  for (let k = Math.max(0, Math.ceil((t.y0 - baseY) / h - 1e-6)); baseY + k * h + ESCAPE_FLOOR + ESCAPE_RAIL <= t.y1 - 0.4; k++) floors.push(baseY + k * h + ESCAPE_FLOOR);
   if (floors.length < 2) return 0;
   const bar = 0.045;
   floors.forEach((fy, i) => {
@@ -304,7 +317,7 @@ export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, s
 }
 
 /** Louvred shutters either side of the upper windows of a house, in the green of its ground floor's. */
-const SHUTTER: RGB = [0.05, 0.11, 0.075];
+export const SHUTTER: RGB = [0.05, 0.11, 0.075];
 
 /**
  * Shutters either side of every whole window of a house above its ground floor (on its street walls, `sides`) or on

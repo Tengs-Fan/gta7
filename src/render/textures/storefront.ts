@@ -647,14 +647,22 @@ export interface DoorOpening {
   y0: number;
   y1: number;
   depth: number;
+  /**
+   * Height (m) of the doorway's floor over the pavement where it stands on a step or a deck outside the cell (the bank's
+   * steps, a house's porch): it stays at that height when the band is drawn taller or shorter than the cell.
+   */
+  floor?: number;
 }
+
+/** Height (m) of the top of the bank's three steps, where its doorway's floor is. */
+export const BANK_STEP_TOP = 0.36;
 
 export const DOOR_OPENING: Readonly<Record<number, DoorOpening>> = {
   ...Object.fromEntries(SHOP_DESIGNS.map((d, i) => [i, { x0: shopDoorX(d), x1: shopDoorX(d) + SHOP_DOOR_W, y0: 0, y1: SHOP_DOOR_H + 0.04, depth: 0.45 }])),
   [CELLS.lobbyDoors]: { x0: CELL_DESIGN.lobby.w / 2 - 0.95, x1: CELL_DESIGN.lobby.w / 2 + 0.95, y0: 0, y1: 2.8, depth: 0.6 },
-  [CELLS.bank]: { x0: 1.85, x1: CELL_DESIGN.lobby.w - 1.85, y0: 0, y1: CELL_DESIGN.lobby.h - 2.8, depth: 0.5 },
-  [CELLS.houseDoorA]: { x0: CELL_DESIGN.house.w * HOUSE_DOOR_U.a - 0.5, x1: CELL_DESIGN.house.w * HOUSE_DOOR_U.a + 0.5, y0: HOUSE_SILL, y1: HOUSE_SILL + 2.1, depth: 0.14 },
-  [CELLS.houseDoorB]: { x0: CELL_DESIGN.house.w * HOUSE_DOOR_U.b - 0.5, x1: CELL_DESIGN.house.w * HOUSE_DOOR_U.b + 0.5, y0: HOUSE_SILL, y1: HOUSE_SILL + 2.1, depth: 0.14 },
+  [CELLS.bank]: { x0: 1.85, x1: CELL_DESIGN.lobby.w - 1.85, y0: BANK_STEP_TOP, y1: CELL_DESIGN.lobby.h - 2.8, depth: 0.5, floor: BANK_STEP_TOP },
+  [CELLS.houseDoorA]: { x0: CELL_DESIGN.house.w * HOUSE_DOOR_U.a - 0.5, x1: CELL_DESIGN.house.w * HOUSE_DOOR_U.a + 0.5, y0: HOUSE_SILL, y1: HOUSE_SILL + 2.1, depth: 0.14, floor: HOUSE_SILL },
+  [CELLS.houseDoorB]: { x0: CELL_DESIGN.house.w * HOUSE_DOOR_U.b - 0.5, x1: CELL_DESIGN.house.w * HOUSE_DOOR_U.b + 0.5, y0: HOUSE_SILL, y1: HOUSE_SILL + 2.1, depth: 0.14, floor: HOUSE_SILL },
 };
 
 function drawShop(p: Pair, d: ShopDesign): void {

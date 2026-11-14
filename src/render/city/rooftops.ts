@@ -26,6 +26,8 @@ export interface RooftopItem {
 
 /** Parapet round every flat roof: its height above the roof and its thickness (thinner on narrow roofs). */
 export const PARAPET_H = 0.6;
+/** Height (m) of the stone coping along a parapet's top. */
+export const COPING_H = 0.07;
 export function parapetThickness(t: Tier): number {
   return Math.min(0.3, Math.min(rectW(t), rectD(t)) / 8);
 }
