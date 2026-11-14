@@ -1693,11 +1693,12 @@ export class PropsView {
     // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood; a
     // smashed pumpkin goes in a burst of orange, the propane tank in its blast (renderer.ts), a pump up in its blast
     // (sim/dryCreek.ts).
+    // A hidden instance shrinks in place: shrunk at the origin it would drag its batch's bounding sphere out to it.
     const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin' || p.kind === 'propane' || p.kind === 'pump';
     const moved = new Set<THREE.InstancedMesh>();
     for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
-      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat) m = new THREE.Matrix4().makeScale(0, 0, 0);
+      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat) m = new THREE.Matrix4().makeScale(0, 0, 0).setPosition(p.x, p.y, p.z);
       else m = back.clone().multiply(fall).multiply(toOrigin).multiply(r.base);
       r.mesh.setMatrixAt(r.index, m);
       moved.add(r.mesh);
