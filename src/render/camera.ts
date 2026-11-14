@@ -485,6 +485,8 @@ export class CameraController {
   private roll = 0;
   private fov = 68;
   private dist = FOOT_BOOM;
+  /** The on-foot boom the camera settles at when not aiming (m), for the zoom, the setting and the water: see markerView. */
+  private restBoom = FOOT_BOOM;
   /** How far (m) the on-foot camera stands over the line back from his head: FOOT_LIFT, FOOT_LIFT_AIM aiming, SWIM_LIFT in the water. */
   private lift = FOOT_LIFT;
   /**
@@ -723,6 +725,15 @@ export class CameraController {
     };
   }
 
+  /**
+   * What the interaction markers fade by (MarkerView.syncMarkers) while the last update() framed him on foot: the view's
+   * heading over the ground and the boom it settles at when not aiming. Null otherwise (in a vehicle, through a scope,
+   * wasted): there they fade by distance from the lens.
+   */
+  markerView(): { dx: number; dz: number; boom: number } | null {
+    return this.footView ? { dx: Math.sin(this.yaw), dz: Math.cos(this.yaw), boom: this.restBoom } : null;
+  }
+
   /** Id of the player slot the camera follows. */
   localPlayerId = 0;
 
@@ -862,9 +873,9 @@ export class CameraController {
       this.target.lerp(this.scratch.set(p.pos.x + p.vel.x * ahead, p.pos.y + headY, p.pos.z + p.vel.z * ahead), ease);
       this.stepSway(dt, p.vel, aim || swimming || lying);
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
-      const distTarget = aim ? FOOT_BOOM_AIM : swimming ? Math.max(this.zoomLevel === 1 ? SWIM_BOOM_FAR : SWIM_BOOM, FOOT_FRAME_BELOW / Math.tan((this.baseFov * Math.PI) / 360)) : footBoom(this.baseFov, this.zoomLevel === 1);
       this.lift = damp(this.lift, swimming ? SWIM_LIFT : aim ? FOOT_LIFT_AIM : FOOT_LIFT, 10, dt);
-      this.dist = damp(this.dist, distTarget, 10, dt);
+      this.restBoom = swimming ? Math.max(this.zoomLevel === 1 ? SWIM_BOOM_FAR : SWIM_BOOM, FOOT_FRAME_BELOW / Math.tan((this.baseFov * Math.PI) / 360)) : footBoom(this.baseFov, this.zoomLevel === 1);
+      this.dist = damp(this.dist, aim ? FOOT_BOOM_AIM : this.restBoom, 10, dt);
       const cy = Math.cos(this.pitch);
       this.dir.set(Math.sin(this.yaw) * cy, Math.sin(this.pitch), Math.cos(this.yaw) * cy);
       const rx = -Math.cos(this.yaw);
