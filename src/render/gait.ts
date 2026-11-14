@@ -141,7 +141,22 @@ export interface ArmSwing {
   pitch: number;
   abduct: number;
   elbow: number;
+  /** Forearm turned out from the upper arm (negative: the hand comes in across the body). */
+  out: number;
 }
+
+/**
+ * How one person walks, beyond what the simulation sets (the stride, the pace of the cycle and the hip height, which
+ * the planted feet depend on): how far the arms swing (x), how much more the elbows bend (rad), and how far his feet
+ * fall from the line under his hips (x the hip spread).
+ */
+export interface GaitStyle {
+  swing: number;
+  elbow: number;
+  width: number;
+}
+
+export const PLAIN_GAIT: Readonly<GaitStyle> = { swing: 1, elbow: 0, width: 1 };
 
 export interface GaitOut {
   /** Hip joint height above the ground (the pelvis drop and bob included). */
@@ -165,7 +180,7 @@ export function makeGaitOut(): GaitOut {
     chestYaw: 0,
     lean: 0,
     legs: [makeLeg(), makeLeg()],
-    arms: [{ pitch: 0, abduct: 0, elbow: 0 }, { pitch: 0, abduct: 0, elbow: 0 }],
+    arms: [{ pitch: 0, abduct: 0, elbow: 0, out: 0 }, { pitch: 0, abduct: 0, elbow: 0, out: 0 }],
     cycle: makeGaitCycle(),
   };
 }
@@ -204,9 +219,9 @@ export function solveLeg(hx: number, hy: number, scale: number, leg: LegPose): L
  * Gait pose at `phase` (radians, one cycle per stride; 0 = left foot touch-down) for moving at `speed`
  * in direction `strafe` relative to the hips (0 forward, +PI/2 to the character's left, PI backwards),
  * for a character of height `scale` and build `build`. `cycle` may pass the gait cycle already set up
- * for exactly these (sim/pose.ts trunkPose computes it).
+ * for exactly these (sim/pose.ts trunkPose computes it). `style`: the person's own way of walking.
  */
-export function gait(phase: number, speed: number, strafe: number, out: GaitOut, scale = 1, build = 1, cycle: GaitCycle | null = null): GaitOut {
+export function gait(phase: number, speed: number, strafe: number, out: GaitOut, scale = 1, build = 1, cycle: GaitCycle | null = null, style: Readonly<GaitStyle> = PLAIN_GAIT): GaitOut {
   const g = cycle ? Object.assign(out.cycle, cycle) : gaitCycle(speed, Math.sin(strafe), Math.cos(strafe), scale, out.cycle);
   const u = cycleFraction(phase);
   const ph = u * Math.PI * 2;
@@ -222,21 +237,29 @@ export function gait(phase: number, speed: number, strafe: number, out: GaitOut,
     leg.planted = ui < g.duty;
     if (leg.planted) stanceFoot(g, ui / g.duty, scale, leg.foot);
     else swingFoot(g, (ui - g.duty) / (1 - g.duty), scale, leg.foot);
-    leg.foot.x += side * hx;
+    leg.foot.x += side * hx * style.width;
     solveLeg(side * hx, out.hipY, scale, leg);
   }
-  // Arms swing against the legs: the right arm comes forward with the left leg.
+  // Arms swing against the legs, the right arm forward with the left leg, about a point relative to the chest (+ forward,
+  // rad): a walker's a little forward of hanging, so with his lean they swing 20 degrees either side of plumb; a jogger's
+  // a little behind it, so the hand passes back beyond the hip (a swing about a point ahead of the shoulder kept both
+  // hands in front of the belly through the whole stride, 0.01 to 0.45 m ahead of the shoulder at 4.3 m/s); a sprinter's
+  // forward again, the hands driving up to the chin. The elbow bends more as the arm comes forward: 13 to 35 degrees
+  // walking, 57 to 100 jogging, and the forward hand comes in across the body.
   const run = smoothstep(1.9, 4.3, v);
   const sprint = smoothstep(4.3, 7.4, v);
-  const amp = (lerp(0.3, 0.55, run) + 0.35 * sprint) * (0.4 + 0.6 * Math.abs(g.mz)) * smoothstep(0.3, 1.2, v);
-  const bias = lerp(0.04, 0.2, run) + 0.1 * sprint;
-  const elbow = lerp(0.22, 1.15, run) + 0.3 * sprint;
+  const amp = (lerp(0.33, 0.61, run) + 0.22 * sprint) * (0.4 + 0.6 * Math.abs(g.mz)) * smoothstep(0.3, 1.2, v) * style.swing;
+  const mid = lerp(0.04, -0.02, run) + 0.19 * sprint;
+  const elbow = lerp(0.22, 1.0, run) + 0.15 * sprint + style.elbow;
+  const bend = lerp(0.38, 0.75, run);
   for (let i = 0; i < 2; i++) {
     const arm = out.arms[i]!;
     const forward = (i === 0 ? -1 : 1) * Math.cos(ph) * Math.sign(g.mz || 1);
-    arm.pitch = -(amp * forward + bias);
+    const ahead = (forward + 1) / 2;
+    arm.pitch = -(amp * forward + mid);
     arm.abduct = 0.1 + 0.05 * run;
-    arm.elbow = elbow + lerp(0.15, 0.2, run) * Math.max(0, forward);
+    arm.elbow = elbow + bend * ahead;
+    arm.out = -0.4 * run * ahead * ahead;
   }
   return out;
 }
