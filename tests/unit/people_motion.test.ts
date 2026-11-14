@@ -12,6 +12,7 @@ import { isWoman } from '../../src/sim/appearance';
 import { stepCharacter, type CharacterPhysicsHost } from '../../src/sim/characterPhysics';
 import { Character, type Appearance } from '../../src/sim/entities';
 import { gaitCycle, gaitHipY, makeGaitCycle, makeTrunk, SKELETON, trunkPose } from '../../src/sim/pose';
+import { wrapAngle } from '../../src/core/math';
 import type { StaticWorld } from '../../src/world/staticWorld';
 
 await vi.hoisted(async () => {
@@ -42,9 +43,13 @@ const LOOK: Appearance = { skin: 0xc68642, shirt: 0x2a2c33, pants: 0x34557f, hai
 /** Ids 1..n: civilians, about half of them women. */
 const IDS = Array.from({ length: 40 }, (_, i) => i + 1);
 
-function person(id: number, height = 1): Character {
-  return new Character(id, 'civilian', 0, 0, 0, { ...LOOK, height });
+function person(id: number, height = 1, build = 1): Character {
+  return new Character(id, 'civilian', 0, 0, 0, { ...LOOK, height, build });
 }
+
+/** Heights and builds across those the game gives people (randomAppearance; a riot squad's build is 1.18). */
+const HEIGHTS = [0.9, 1, 1.07];
+const BUILDS = [0.88, 1, 1.18];
 
 /** (x left, y up, z forward) of a world point relative to a character and its heading. */
 function local(c: Character, p: THREE.Vector3): THREE.Vector3 {
@@ -108,18 +113,18 @@ describe('standing about', () => {
   it('he rests on one leg, the other knee bent and that foot forward, both soles flat on the ground inside his collision circle', () => {
     let women = 0;
     for (const id of IDS) {
-      for (const height of [0.92, 1, 1.07]) {
-        const c = person(id, height);
-        if (height === 1 && isWoman(c)) women++;
+      for (const [height, build] of HEIGHTS.flatMap((h) => BUILDS.map((b) => [h, b] as const))) {
+        const c = person(id, height, build);
+        if (height === 1 && build === 1 && isWoman(c)) women++;
         const cv = new CrowdView();
         for (let i = 0; i < 120; i++) cv.sync([c], 0, 0, 1 / 60);
         const { legs } = limbs(cv, c);
         const [straight, bent] = legs[0]!.flex < legs[1]!.flex ? [legs[0]!, legs[1]!] : [legs[1]!, legs[0]!];
-        const label = `id ${id} height ${height}`;
+        const label = `id ${id} height ${height} build ${build}`;
         expect(straight.flex, label).toBeLessThan(8);
         expect(bent.flex, label).toBeGreaterThan(10);
         expect(bent.flex, label).toBeLessThan(25);
-        expect(bent.ankle.z - straight.ankle.z, label).toBeGreaterThan(0.025);
+        expect(bent.ankle.z - straight.ankle.z, label).toBeGreaterThan(0.015);
         // The hips over the leg he stands on.
         const mid = (legs[0]!.hip.x + legs[1]!.hip.x) / 2;
         expect(Math.sign(mid), label).toBe(Math.sign(straight.hip.x));
@@ -150,6 +155,22 @@ describe('standing about', () => {
     const { legs } = limbs(cv, c);
     expect(Math.max(legs[0]!.flex, legs[1]!.flex)).toBeGreaterThan(10);
     expect(Math.min(legs[0]!.sole, legs[1]!.sole)).toBeLessThan(0.01);
+  });
+});
+
+describe('a gun in hand pins the trunk', () => {
+  it('drawing a gun after standing about, the very next frame his trunk is the simulation’s', () => {
+    const c = person(6);
+    const cv = new CrowdView();
+    for (let i = 0; i < 90; i++) cv.sync([c], 0, 0, 1 / 60);
+    const rest = origin(matrixAt(parts(cv).torso!, 0));
+    // At rest the renderer has moved his hips over the leg he stands on.
+    expect(Math.hypot(rest.x - c.pos.x, rest.z - c.pos.z)).toBeGreaterThan(0.03);
+    c.inventory.give('pistol', 30);
+    c.inventory.current = 'pistol';
+    cv.sync([c], 0, 0, 1 / 60);
+    const t = trunkPose(c, makeTrunk());
+    expect(origin(matrixAt(parts(cv).torso!, 0)).distanceTo(new THREE.Vector3(c.pos.x, c.pos.y + t.y, c.pos.z))).toBeLessThan(1e-6);
   });
 });
 
@@ -242,11 +263,12 @@ describe('walking and running', () => {
 });
 
 describe('setting off and stopping', () => {
-  it.each([0, 0.13, 0.27])('stopping from a walk %f s into a stride, a foot steps into his stance instead of both sliding', (at) => {
+  it.each([0, 0.13, 0.27])('stopping from a walk %f s into a stride, one foot steps into his stance and the other stays down', (at) => {
     const c = person(1);
     const cv = new CrowdView();
     walk(c, 1.45, at, () => {}, cv);
     c.moveSpeed = 0;
+    const travel = [0, 0];
     const slid = [0, 0];
     const high = [0, 0];
     const last: Array<THREE.Vector3 | null> = [null, null];
@@ -259,13 +281,21 @@ describe('setting off and stopping', () => {
         const o = origin(m);
         const low = soleLow(m);
         high[k] = Math.max(high[k]!, low);
-        if (last[k] && low < 0.01) slid[k]! += Math.hypot(o.x - last[k]!.x, o.z - last[k]!.z);
+        if (last[k]) {
+          const d = Math.hypot(o.x - last[k]!.x, o.z - last[k]!.z);
+          travel[k]! += d;
+          if (low < 0.01) slid[k]! += d;
+        }
         last[k] = o;
       }
     }
-    // (Both feet slid 0.58 m between them stopping in the middle of the double support, before the step.)
-    expect(slid[0]! + slid[1]!).toBeLessThan(0.36);
-    expect(Math.max(...high)).toBeGreaterThan(0.025);
+    const stepper = high[0]! > high[1]! ? 0 : 1;
+    const stands = 1 - stepper;
+    // The foot he stands on never leaves the ground (its every movement counts as sliding), the other is lifted.
+    expect(high[stands]).toBeLessThan(0.01);
+    expect(high[stepper]).toBeGreaterThan(0.025);
+    // (0.34, 0.15 and 0.16 m; both feet slid 0.58, 0.33 and 0.16 m before the step.)
+    expect(travel[stands]! + slid[stepper]!).toBeLessThan(0.36);
   });
 });
 
@@ -336,6 +366,65 @@ describe('turning', () => {
     expect(armed.head).toBeGreaterThan(0.2);
     expect(Math.abs(armed.chest)).toBeLessThan(1e-6);
     expect(Math.abs(armed.bank)).toBeLessThan(0.02);
+  });
+
+  /** His head's turn relative to his hips (rad), as drawn. */
+  const headTurn = (cv: CrowdView, c: Character): number => {
+    const f = new THREE.Vector3(0, 0, 1).transformDirection(matrixAt(parts(cv).head!, 0));
+    return Math.atan2(f.x, f.z) - c.heading;
+  };
+
+  it('a heading changed while he lies, swims or the game is paused is no turn when he is up again', () => {
+    for (const away of ['knocked', 'swimming', 'paused'] as const) {
+      const c = person(5);
+      const cv = new CrowdView();
+      for (let i = 0; i < 30; i++) cv.sync([c], 0, 0, 1 / 60);
+      const still = headTurn(cv, c);
+      if (away === 'paused') {
+        c.heading += 2;
+        cv.sync([c], 0, 0, 0);
+      } else {
+        c.state = away;
+        for (let i = 0; i < 30; i++) {
+          c.heading += 0.05;
+          cv.sync([c], 0, 0, 1 / 60);
+        }
+        c.state = 'normal';
+      }
+      // Up again, every frame drawn upright (from lying the body comes up over a few) his head faces where his hips do. (The glance of someone
+      // standing about moves a little in between.)
+      let worst = 0;
+      for (let i = 0; i < 30; i++) {
+        cv.sync([c], 0, 0, 1 / 60);
+        const f = new THREE.Vector3(0, 0, 1).transformDirection(matrixAt(parts(cv).head!, 0));
+        if (Math.abs(f.y) < 0.2) worst = Math.max(worst, Math.abs(wrapAngle(headTurn(cv, c) - still)));
+      }
+      expect(worst, away).toBeLessThan(0.05);
+    }
+  });
+
+  it('putting a gun away mid-turn, the lean comes back over a few frames, not in one', () => {
+    const c = person(3);
+    c.inventory.give('pistol', 30);
+    c.inventory.current = 'pistol';
+    const cv = new CrowdView();
+    walk(c, 4.3, 0.25, () => {}, cv);
+    const bank = () => local(c, new THREE.Vector3().setFromMatrixColumn(matrixAt(parts(cv).torso!, 0), 1).add(c.pos)).x;
+    let worst = 0;
+    let was = NaN;
+    for (let i = 0; i < 60; i++) {
+      if (i === 10) c.inventory.current = 'fists';
+      c.heading += 9 / 240;
+      c.moveX = Math.sin(c.heading);
+      c.moveZ = Math.cos(c.heading);
+      stepCharacter(c, 1 / 240, flat);
+      cv.sync([c], c.pos.x, c.pos.z, 1 / 240);
+      const now = bank();
+      if (i > 10) worst = Math.max(worst, Math.abs(now - was));
+      was = now;
+    }
+    expect(was).toBeGreaterThan(0.05);
+    expect(worst).toBeLessThan(0.01);
   });
 });
 
