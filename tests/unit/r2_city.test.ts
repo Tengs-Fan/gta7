@@ -100,9 +100,14 @@ vi.mock('three', async (importOriginal) => {
 /** The plan's street-facing distance: a first-tier wall this close to its lot edge faces the street. */
 const STREET_FACING_DIST = 10;
 
-/** SHA-256 of the generated layout without the fields this round added to Building. */
-function layoutHash(): string {
-  const L = generateCity();
+/**
+ * SHA-256 of the generated layout without the fields this round added to Building; `older`, also without the drowned
+ * corners' signals (the props from firstQuaySignal on) and that field, as the layout stood before they stood again.
+ */
+function layoutHash(older = false): string {
+  const full = generateCity();
+  const { firstQuaySignal, ...before } = full;
+  const L = older ? { ...before, props: full.props.slice(0, firstQuaySignal) } : full;
   const buildings = L.buildings.map((b) => {
     const r: Record<string, unknown> = { ...b };
     delete r.special;
@@ -290,6 +295,8 @@ describe('round 2 city: layout', () => {
     // signals that drowning the four bays had taken off their corners stood again, appended after every other prop (and
     // `firstQuaySignal` with them).
     expect(layoutHash()).toBe('f766a47f06025425cb258777fee32a051b74efe888080c83daabfaa366407c43');
+    // And everything older than those 18 as at 28dfbee, before they stood again.
+    expect(layoutHash(true)).toBe('8ac5ef2ec419abcbe0b330d2a4f0e2823c1304735ca335b806e5ac1e5bd8aca0');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

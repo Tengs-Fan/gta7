@@ -837,9 +837,11 @@ describe('Las Lomas County at night', () => {
     r.props.group.traverse((o) => {
       if (o instanceof THREE.Mesh && o.name !== 'lighthouseBeam') meshes.push(o);
     });
-    // A batch of the county's own props alone (from country.firstProp on); a batch that mixes them with the city's is the city's.
+    // A batch of the county's own props alone (from country.firstProp up to the city's signals on the drowned cells'
+    // corners, layout.firstQuaySignal on); a batch that mixes them with the city's is the city's.
     const first = W.layout.country.firstProp;
-    const county = (m: THREE.Mesh) => (m.userData.propIndices as number[] | undefined)?.every((i) => i >= first) ?? false;
+    const end = W.layout.firstQuaySignal;
+    const county = (m: THREE.Mesh) => (m.userData.propIndices as number[] | undefined)?.every((i) => i >= first && i < end) ?? false;
     const at = (x: number, z: number) => {
       sim.player.pos.x = x;
       sim.player.pos.z = z;

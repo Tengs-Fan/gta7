@@ -661,7 +661,10 @@ function posterTexture(): THREE.CanvasTexture {
 
 export class PropsView {
   readonly group = new THREE.Group();
-  /** The batches holding any of the city's props, and those of Las Lomas County's alone (from country.firstProp on). */
+  /**
+   * The batches holding any of the city's props, and those of Las Lomas County's alone (from country.firstProp up to
+   * layout.firstQuaySignal, where the city's signals on the drowned cells' corners follow them).
+   */
   private readonly visibility = new StaticVisibility();
   private readonly countyVisibility = new StaticVisibility();
   private readonly refs = new Map<number, InstanceRef[]>();
@@ -780,9 +783,10 @@ export class PropsView {
     });
     // Also cover unique signs/landmarks, which are not created by makeInstanced.
     const first = world.layout.country.firstProp;
+    const end = world.layout.firstQuaySignal;
     this.group.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
-      const county = (o.userData.propIndices as number[] | undefined)?.every((i) => i >= first) ?? false;
+      const county = (o.userData.propIndices as number[] | undefined)?.every((i) => i >= first && i < end) ?? false;
       (county ? this.countyVisibility : this.visibility).add(o, 8);
     });
   }
