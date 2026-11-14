@@ -61,10 +61,11 @@ const FRAME_SLACK_MS = 1;
  */
 const BAIL_SPEED = 11;
 const BAIL_DAMAGE = 6;
-/** Keys are named by their QWERTY binding: the HUD draws them for the player's layout or pad. */
-const WELCOME = 'Welcome to San Azura. Mama Lou has work for you: follow the <b class="lou">pink route</b> to the <b class="lou">L</b> on your radar. Steal a ride with <kbd>F</kbd>.';
-/** With her call coming in, the route to her is no longer the thing to read. */
-const WELCOME_CALL = 'Welcome to San Azura. Mama Lou has work for you. Steal a ride with <kbd>F</kbd>.';
+/**
+ * The first words of a game that starts without Lou's call; the next-step line says where she is. With the call she
+ * says it herself. Keys are named by their QWERTY binding: the HUD draws them for the player's layout or pad.
+ */
+const WELCOME = 'Welcome to San Azura. Steal a ride with <kbd>F</kbd>.';
 
 /** Whether the page URL turns the opening call off (?intro=0, used by tests and playtests). */
 function introOffByUrl(): boolean {
@@ -432,12 +433,7 @@ export class Game {
         if (e.character === sim.player) this.lastExit = { vehicle: e.vehicle, press: this.input.exitKeyPress, bailed: e.character.state === 'knocked' && !sim.cheats.godMode };
       }),
     );
-    this.unsub.push(
-      ev.on('respawn', (e) => isLocal(e) && this.showNextStep()),
-      ev.on('missionEnded', (e) => {
-        if (isLocal(e) && e.passed) this.showNextStep();
-      }),
-    );
+    this.unsub.push(ev.on('respawn', (e) => isLocal(e) && this.showNextStep()));
     this.hints.bind(this.localPlayerId);
     this.mode = 'game';
     this.renderer.cameraCtl.mode = 'play';
@@ -451,7 +447,7 @@ export class Game {
     // A fresh game gets Lou's call a moment in; the radar's pink route leads to her without it.
     this.introTimer = !save && intro ? INTRO_DELAY : -1;
     if (!save || sim.progress.missionsDone.length === 0) {
-      this.hud.help(this.introTimer > 0 ? WELCOME_CALL : WELCOME, 9);
+      if (this.introTimer <= 0) this.hud.help(WELCOME, 9);
     } else {
       this.hud.help('Welcome back. Your game was loaded.', 4);
     }
@@ -485,7 +481,7 @@ export class Game {
     this.noteEvent('session', `street run: ${course.id}`);
   }
 
-  /** The 'Next: ...' line, unless Lou's call is about to tell the player anyway. */
+  /** A new player's next-step line (see Hud.showNextStep), unless Lou's call is about to tell him anyway. */
   private showNextStep(): void {
     if (this.mode === 'game' && this.introTimer <= 0 && !this.netView) this.hud.showNextStep(this.sim);
   }
@@ -570,7 +566,6 @@ export class Game {
     this.menus.closeAll();
     this.openAudio();
     if (this.mode === 'game') this.input.requestPointerLock();
-    this.showNextStep();
   }
 
   /** Opens the world's sound stage, unless the wait after QUIT TO TITLE (see TITLE_UNMUTE_DELAY) is still on. */

@@ -1527,7 +1527,7 @@ describe('key names follow the keyboard layout', () => {
     await flush();
     game.menus.showControls();
     expect((game.menus.top!.el as unknown as FakeElement).all().find((c) => c.classList.contains('panel'))!.innerHTML).toContain('<span>Move / Drive</span><span>W A R S</span>');
-    game.newGame();
+    game.newGame({ intro: false });
     expect(uiRoot.all().find((e) => e.dataset.el === 'help')!.innerHTML).toContain('Steal a ride with <kbd>T</kbd>.');
   });
 
@@ -3810,37 +3810,43 @@ describe('R2 onboarding: Mama Lou calls on New Game', () => {
     seconds(0.6);
     expect(game.sim.missions.active).toBe(null);
     expect(showing('objective')).toBe(true);
-    expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+    expect(el('objective').textContent).toBe('Mama Lou has work: follow the route to the L on your radar');
     // Once only: losing the stars later does not bring the call back.
     game.sim.wanted.clear();
     seconds(3);
     expect(game.sim.missions.active).toBe(null);
   });
 
-  it('the welcome text matches the opening: the pink route without the call, the call itself with it', async () => {
+  it('without the call the welcome text says hello and names F, leaving Lou to the next-step line', async () => {
     const a = onboardingGame();
     a.game.newGame({ intro: false });
-    expect(a.el('help').innerHTML).toContain('follow the <b class="lou">pink route</b> to the <b class="lou">L</b> on your radar');
-    expect(a.el('help').innerHTML).toContain('Steal a ride with <kbd>F</kbd>.');
-    const b = onboardingGame();
-    b.game.newGame();
-    expect(b.el('help').innerHTML).toContain('Mama Lou has work for you.');
-    expect(b.el('help').innerHTML).not.toContain('route');
-    expect(b.el('help').innerHTML).toContain('Steal a ride with <kbd>F</kbd>.');
+    expect(a.showing('help')).toBe(true);
+    expect(a.el('help').innerHTML).toContain('Welcome to San Azura. Steal a ride with <kbd>F</kbd>.');
+    expect(a.el('help').innerHTML).not.toContain('Lou');
+    expect(a.el('help').innerHTML).not.toContain('route');
   });
 
-  it('continueGame() never calls; the next-step line names the contact who has work', async () => {
+  it('with the call there is no welcome text: Lou says who she is and what she wants herself', async () => {
+    const b = onboardingGame();
+    b.game.newGame();
+    await flush();
+    expect(b.showing('help')).toBe(false);
+    b.seconds(3);
+    expect(b.game.sim.missions.active?.def.id).toBe('wheels');
+    expect(b.el('help').innerHTML).not.toContain('Welcome');
+  });
+
+  it('continueGame() never calls; the card over the radar names the contact who has work, and only a new player gets the line too', async () => {
     saveWithDone('wheels');
     const a = onboardingGame();
     a.game.continueGame();
     await flush();
     a.seconds(3);
     expect(a.game.sim.missions.active).toBe(null);
-    expect(a.showing('objective')).toBe(true);
-    expect(a.el('objective').classList.contains('next')).toBe(true);
-    expect(a.el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
-    a.seconds(5.5);
     expect(a.showing('objective')).toBe(false);
+    expect(a.el('navigation').classList.contains('hidden')).toBe(false);
+    expect(a.el('navLabel').textContent).toBe('NEXT CONTACT');
+    expect(a.el('navName').textContent).toBe('Mama Lou');
 
     saveWithDone('wheels', 'delivery', 'repo');
     const b = onboardingGame();
@@ -3848,16 +3854,37 @@ describe('R2 onboarding: Mama Lou calls on New Game', () => {
     await flush();
     b.seconds(1);
     expect(b.game.sim.missions.active).toBe(null);
-    expect(b.el('objective').textContent).toBe('Next: Dex Moreau has work - D on your radar');
+    expect(b.showing('objective')).toBe(false);
+    expect(b.el('navName').textContent).toBe('Dex Moreau');
+
+    // A save from before the first mission passed is a new player's: the welcome, and the line says where to start.
+    saveWithDone();
+    const c = onboardingGame();
+    c.game.continueGame();
+    await flush();
+    expect(c.el('help').innerHTML).toContain('Welcome to San Azura');
+    c.seconds(3);
+    expect(c.showing('objective')).toBe(true);
+    expect(c.el('objective').classList.contains('next')).toBe(true);
+    expect(c.el('objective').textContent).toBe('Mama Lou has work: follow the route to the L on your radar');
+    // The card steps aside while the line says it, and comes back once it is gone.
+    expect(c.el('navigation').classList.contains('hidden')).toBe(true);
+    c.seconds(5.5);
+    expect(c.showing('objective')).toBe(false);
+    expect(c.el('navigation').classList.contains('hidden')).toBe(false);
   });
 
-  it('the line returns after respawning and after a passed mission (once its cards are gone), and leaves when a mission starts', async () => {
-    saveWithDone('wheels');
+  it("a new player's line returns after respawning, not after a resume, and leaves when a mission starts", async () => {
     const { game, seconds, el, showing } = onboardingGame();
-    game.continueGame();
+    game.newGame({ intro: false });
     await flush();
     const sim = game.sim;
     seconds(9);
+    expect(showing('objective')).toBe(false);
+    // Pausing and resuming in free roam brings nothing back.
+    game.pause();
+    game.resume();
+    seconds(1);
     expect(showing('objective')).toBe(false);
     sim.playerDied();
     seconds(5.2);
@@ -3865,21 +3892,38 @@ describe('R2 onboarding: Mama Lou calls on New Game', () => {
     expect(showing('objective')).toBe(true);
     expect(el('objective').textContent).toContain('Mama Lou');
     // Starting a mission takes the line off at once.
-    expect(sim.missions.start('delivery')).toBe(true);
+    expect(sim.missions.start('wheels')).toBe(true);
     seconds(1 / 60);
     expect(showing('objective')).toBe(false);
     expect(el('objective').classList.contains('next')).toBe(false);
-    // Pass it: no line while DELIVERY / MISSION PASSED are up, then the next contact.
+  });
+
+  it("a returning player gets no line after respawning or a passed mission: the card names the next contact", async () => {
+    saveWithDone('wheels');
+    const { game, seconds, el, showing } = onboardingGame();
+    game.continueGame();
+    await flush();
+    const sim = game.sim;
+    sim.playerDied();
+    seconds(5.2);
+    expect(sim.playerDown).toBe(false);
+    seconds(1);
+    expect(showing('objective')).toBe(false);
+    expect(el('navName').textContent).toBe('Mama Lou');
+    expect(el('navigation').classList.contains('hidden')).toBe(false);
+    // Pass Hot Delivery: DELIVERY / MISSION PASSED, then the card for Lou's next job, and no line.
+    expect(sim.missions.start('delivery')).toBe(true);
+    seconds(1 / 60);
     sim.missions.active!.done = true;
     seconds(0.5);
     expect(el('bigT').textContent).toBe('HOT DELIVERY');
-    expect(showing('objective')).toBe(false);
     seconds(3.5);
     expect(el('bigT').textContent).toBe('MISSION PASSED');
-    expect(showing('objective')).toBe(false);
     seconds(5);
-    expect(showing('objective')).toBe(true);
-    expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+    expect(showing('objective')).toBe(false);
+    expect(el('navLabel').textContent).toBe('NEXT CONTACT');
+    expect(el('navName').textContent).toBe('Mama Lou');
+    expect(el('navigation').classList.contains('hidden')).toBe(false);
   });
 
   it('debug newGame(opts) forwards to the game', async () => {
@@ -4555,7 +4599,7 @@ describe('R2 fixes: banners, lines and the hitmarker on the HUD', () => {
 });
 
 describe('R2 fixes: the next step and the route at a contact marker', () => {
-  it("standing on Lou's marker after Wheels: the offer card alone, no 'Next' line and no route stub", async () => {
+  it("standing on Lou's marker after Wheels: the offer card alone, no line and no route stub", async () => {
     const { game, seconds, el, showing } = onboardingGame();
     game.newGame({ intro: false });
     await flush();
@@ -4582,23 +4626,29 @@ describe('R2 fixes: the next step and the route at a contact marker', () => {
     seconds(1.2);
     expect(route().length).toBeGreaterThan(1);
     expect((game.hud as unknown as { routeColor: string }).routeColor).toBe('#ff4fa3');
+    expect(el('navName').textContent).toBe('Mama Lou');
     game.pause();
     game.resume();
     seconds(0.1);
-    expect(showing('objective')).toBe(true);
-    expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
-    // Stepping onto her marker while it shows: the card takes over at once, and a resume there brings no line.
-    sim.player.pos.x = lou.x;
-    sim.player.pos.z = lou.z;
-    sim.player.pos.y = sim.world.groundHeight(lou.x, lou.z);
-    seconds(0.2);
-    expect(el('prompt').classList.contains('card')).toBe(true);
     expect(showing('objective')).toBe(false);
-    expect(el('objective').classList.contains('next')).toBe(false);
-    game.pause();
-    game.resume();
-    seconds(1);
-    expect(showing('objective')).toBe(false);
+  });
+
+  it("a new player's line, up as he steps onto Lou's marker: the offer card takes over at once", async () => {
+    const b = onboardingGame();
+    b.game.newGame({ intro: false });
+    await flush();
+    b.seconds(1);
+    expect(b.showing('objective')).toBe(true);
+    expect(b.el('objective').classList.contains('next')).toBe(true);
+    const bp = b.game.sim.player;
+    const lou = b.game.sim.world.layout.pois.find((p) => p.id === 'lou')!;
+    bp.pos.x = lou.x;
+    bp.pos.z = lou.z;
+    bp.pos.y = b.game.sim.world.groundHeight(lou.x, lou.z);
+    b.seconds(0.2);
+    expect(b.el('prompt').classList.contains('card')).toBe(true);
+    expect(b.showing('objective')).toBe(false);
+    expect(b.el('objective').classList.contains('next')).toBe(false);
   });
 });
 
@@ -4943,6 +4993,68 @@ describe('San Azura driving HUD', () => {
     expect(faded()).toBe(false);
   });
 
+  it('a swimmer is offered neither Sprint nor a car, and the line keeps its time going into the water and out', () => {
+    const { el, sim, update } = rig();
+    const faded = () => el.quickControls!.classList.contains('faded');
+    update();
+    expect(el.quickControls!.innerHTML).toContain('Enter car');
+    update(3);
+    sim.player.state = 'swimming';
+    update();
+    expect(el.quickControls!.innerHTML).not.toContain('Enter car');
+    expect(el.quickControls!.innerHTML).not.toContain('Sprint');
+    expect(el.quickControls!.innerHTML).toContain('Map');
+    expect(faded()).toBe(false);
+    update(5.1);
+    expect(faded()).toBe(true);
+    sim.player.state = 'normal';
+    update();
+    expect(el.quickControls!.innerHTML).toContain('Enter car');
+    expect(faded()).toBe(true);
+  });
+
+  it("the district's name comes up at the top left as he enters it and fades; nothing flashes at the bottom right", () => {
+    const { el, sim, update } = rig();
+    const place = () => el.place!.classList.contains('show');
+    update();
+    const first = el.district!.textContent;
+    expect(first).not.toBe('');
+    expect(place()).toBe(true);
+    update(5.1);
+    expect(place()).toBe(false);
+    const w = sim.world;
+    const other = w.layout.pois.find((q) => w.zoneName(q.x, q.z) !== first)!;
+    sim.player.pos.x = other.x;
+    sim.player.pos.z = other.z;
+    update();
+    expect(el.district!.textContent).toBe(w.zoneName(other.x, other.z));
+    expect(place()).toBe(true);
+    expect(el.zone!.classList.contains('show')).toBe(false);
+  });
+
+  it("on a mission the card leaves the place to the objective line: the way and the distance", () => {
+    const { hud, el, sim, update } = rig();
+    const unnamed = () => el.navigation!.classList.contains('unnamed');
+    expect(sim.missions.start('wheels')).toBe(true);
+    for (let i = 0; i < 60 * 20 && sim.missions.active?.objectiveText !== 'Steal a car'; i++) step(sim, 1 / 60);
+    const rp = roadPoint(sim);
+    placeInCar(sim, sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading));
+    step(sim, 0.2);
+    update();
+    expect(el.objective!.textContent).toBe("Drive it into Lou's garage");
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect(el.navLabel!.textContent).toBe('MISSION ROUTE');
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    expect(unnamed()).toBe(true);
+    expect(el.navDistance!.textContent).toMatch(/ k?m$/);
+    // His own waypoint is not what the line names: the card names it.
+    const p = sim.playerPos();
+    hud.waypoint = { x: p.x + 300, z: p.z };
+    update();
+    expect(el.navName!.textContent).toBe('Your waypoint');
+    expect(unnamed()).toBe(false);
+  });
+
   it('the drive panel leaves the car name to the flash on getting in', () => {
     const { el, sim, update } = rig();
     const rp = roadPoint(sim);
@@ -4982,7 +5094,7 @@ describe('San Azura driving HUD', () => {
     expect(el.status!.classList.contains('timer')).toBe(false);
   });
 
-  it('the next contact is a quiet card, and none while the next-step line names her', () => {
+  it("the next contact is a quiet card, and none while a new player's next-step line names her", () => {
     const { hud, el, sim, update } = rig();
     update();
     expect(el.navLabel!.textContent).toBe('NEXT CONTACT');
@@ -4990,12 +5102,21 @@ describe('San Azura driving HUD', () => {
     expect(el.navigation!.classList.contains('quiet')).toBe(true);
     hud.showNextStep(sim);
     update();
-    expect(el.objective!.textContent).toBe('Next: Mama Lou has work - L on your radar');
+    expect(el.objective!.textContent).toBe('Mama Lou has work: follow the route to the L on your radar');
     expect(el.navigation!.classList.contains('hidden')).toBe(true);
     update(8.1);
     update();
     expect(el.objective!.classList.contains('show')).toBe(false);
     expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    // Once he has passed a mission the card says it alone.
+    sim.progress.markDone('wheels');
+    sim.missions.refreshMarkers();
+    hud.showNextStep(sim);
+    update();
+    update(1);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    expect(el.navName!.textContent).toBe('Mama Lou');
     // A waypoint is the player's own errand: a full card.
     const p = sim.playerPos();
     hud.waypoint = { x: p.x, z: p.z + 300 };
@@ -5288,7 +5409,7 @@ describe('mission retry HUD recovery', () => {
     if (wanted) sim.wanted.setLevel(2);
     sim.missions.active!.fail('The deal fell through.');
     step(sim, 0.1);
-    hud.showNextStep(sim); // Resume and respawn both request this line.
+    hud.showNextStep(sim); // Respawning requests this line (a new player's: Wheels is not done).
     for (let i = 0; i < 12; i++) update(1);
     return { hud, el, sim, update };
   }

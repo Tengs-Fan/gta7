@@ -362,10 +362,6 @@ body {
   border-left-color: var(--accent2);
 }
 
-.help .lou {
-  color: var(--accent);
-}
-
 .prompt {
   position: absolute;
   left: 50%;
@@ -1883,6 +1879,13 @@ body {
   align-items: baseline;
   gap: 12px;
   text-shadow: 0 2px 5px #142024;
+  /* Up for a few seconds as he enters a district (hud.ts DISTRICT_SECONDS); the map names them all. */
+  opacity: 0;
+  transition: opacity 0.6s;
+}
+
+.district.show {
+  opacity: 1;
 }
 
 .district span {
@@ -1969,6 +1972,15 @@ body {
 
 .navigation.quiet .nav-arrow svg {
   filter: drop-shadow(0 0 1.5px #000);
+}
+
+/* A mission's or a job's next stop while the objective line names it: the way and the distance, no name. */
+.navigation.unnamed {
+  width: auto;
+}
+
+.navigation.unnamed .nav-copy b {
+  display: none;
 }
 
 .navigation.race {

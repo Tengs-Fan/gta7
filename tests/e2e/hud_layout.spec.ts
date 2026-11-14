@@ -107,3 +107,40 @@ for (const [w, h] of [
     expect(errors).toEqual([]);
   });
 }
+
+// Once a player has passed a mission the card over the radar is all that names the contact who has work: it must stay
+// readable, inside the window and clear of the radar, down to small windows.
+test('the next contact card stays visible and inside the window at every size', async ({ page }) => {
+  const errors = await boot(page);
+  await newGame(page);
+  await page.evaluate(() => {
+    const g = (window as Api).__gta7;
+    g.godMode(true);
+    g.markDone('wheels');
+  });
+  // The new game's opening line (the card steps aside for it) runs out first.
+  await expect(page.locator('.objective.next.show')).toHaveCount(0, { timeout: 12_000 });
+  for (const [w, h] of [
+    [1920, 1080],
+    [1600, 900],
+    [1024, 600],
+    [800, 500],
+    [740, 800],
+    [700, 450],
+    [640, 480],
+  ] as const) {
+    const at = `${w}x${h}`;
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(300);
+    const card = page.locator('.navigation');
+    await expect(card, at).toBeVisible();
+    await expect(card, at).toContainText('Mama Lou');
+    const [c, r] = await Promise.all([card.boundingBox(), page.locator('.radar').boundingBox()]);
+    expect(c!.x, at).toBeGreaterThanOrEqual(0);
+    expect(c!.y, at).toBeGreaterThanOrEqual(0);
+    expect(c!.x + c!.width, at).toBeLessThanOrEqual(w);
+    expect(c!.y + c!.height, at).toBeLessThanOrEqual(r!.y);
+    expect(await page.locator('.navigation .nav-copy b').evaluate((e) => e.scrollWidth <= e.clientWidth), `${at}: name not cut off`).toBe(true);
+  }
+  expect(errors).toEqual([]);
+});
