@@ -118,6 +118,18 @@ function shell(rings: ReadonlyArray<{ z: number; sx: number; top: number }>, hw:
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx);
+  // Along a nose the shell narrows and falls: its normals from the surface itself, so they lean forward (the profile's
+  // alone face up there, and the sky's sheen at that grazing angle lit the windscreen light grey). Where the tip's
+  // squeezed rows leave a vertex no area round it, the profile's normal stays.
+  if (rings.length > 2) {
+    const own = g.getAttribute('normal').clone();
+    g.computeVertexNormals();
+    const n = g.getAttribute('normal');
+    for (let i = 0; i < n.count; i++) {
+      const l = Math.hypot(n.getX(i), n.getY(i), n.getZ(i));
+      if (!(l > 0.5)) n.setXYZ(i, own.getX(i), own.getY(i), own.getZ(i));
+    }
+  }
   return g;
 }
 
