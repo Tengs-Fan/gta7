@@ -35,6 +35,8 @@ const TEAL: RGB = [0.02, 0.55, 0.6];
 const SKIRT: RGB = [0.16, 0.18, 0.2];
 const ROOF: RGB = [0.62, 0.65, 0.68];
 const GLASS_DARK: RGB = [0.08, 0.1, 0.12];
+/** The nose's windscreen, painted on its shell: near black, as the shell's sheen lifts it (0.08 read light grey). */
+const WINDSCREEN: RGB = [0.008, 0.01, 0.014];
 /** The concrete's tints: the beam and towers, the pylons, a door's dark opening, the platform's yellow line. */
 const BEAM: RGB = [0.86, 0.86, 0.84];
 const PIER: RGB = [0.74, 0.74, 0.72];
@@ -419,7 +421,7 @@ export class MonorailView {
         // The nose: the shell drawn on 2.2 m, narrowing a little and its roof falling in a quarter ellipse to the
         // headlamps' panel, the windscreen dark across its upper half; a flat panel closes its tip.
         const rings = [0, 0.3, 0.55, 0.75, 0.9, 1].map((t) => ({ z: zBody + d * 2.2 * t, sx: 1 - 0.12 * t * t, top: 1.3 + (CAR_HEIGHT - 1.3) * Math.sqrt(Math.max(0, 1 - t * t)) }));
-        shells.push(shell(rings, hw, y, (x, yy, ri) => (ri >= 1 && ri <= 4 && yy > 1.5 && Math.abs(x) < hw - 0.25 ? GLASS_DARK : yy > 2.62 ? ROOF : WHITE)));
+        shells.push(shell(rings, hw, y, (x, yy, ri) => (ri >= 1 && ri <= 4 && yy > 1.5 && Math.abs(x) < hw - 0.25 ? WINDSCREEN : yy > 2.62 ? ROOF : WHITE)));
         endCap(body, zEnd, d, 1 - 0.12, 1.3);
         for (const s of [-1, 1]) box(lamps, s * 0.6, y + 0.6, zEnd, s * 1.15, y + 0.85, zEnd + d * 0.05);
         box(lamps, -0.35, y + 1.05, zEnd, 0.35, y + 1.2, zEnd + d * 0.05);
