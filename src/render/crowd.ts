@@ -152,6 +152,23 @@ function shapeByInstance(shader: THREE.WebGLProgramParametersWithUniforms): void
 }
 
 /**
+ * The hands, one geometry for both: the right one is drawn mirrored (a negative scale across), which turns its faces
+ * inside out to the rasteriser. Drawn from both sides, a mirrored instance's faces count as its front, its normals
+ * the right way out (three's instanced normal transform mirrors them with the hand).
+ */
+function mirroredHand(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vMirror;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMirror = sign( determinant( mat3( instanceMatrix ) ) );');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying float vMirror;')
+    .replace(
+      '#include <normal_fragment_begin>',
+      THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = ( gl_FrontFacing ? 1.0 : - 1.0 ) * vMirror;'),
+    );
+}
+
+/**
  * The characters' shadow: three's depth material with the same per-instance fade (dithered in the shadow map), and no
  * lens fade, so a player dissolved by the camera keeps his shadow. `shaped`: for a part with two shapes.
  */
@@ -400,6 +417,19 @@ const SHOES: ReadonlyArray<readonly [number, number, number]> = [
 /** Pants colours drawn as denim, which takes the stitching of jeans on some (sim/appearance.ts PANTS). */
 const DENIM = new Set([0x2c3e50, 0x34495e, 0x2e4053, 0x154360]);
 
+/** The player's jacket hem: its lower edge 10 cm over the hip joints, above the belt, and 0.55 of a hem's height. */
+const PLAYER_HEM = { y: 0.1, k: 0.55 } as const;
+
+/**
+ * A man's beard, by his id (characterPaint's FACE, vStyle.x): none for most, stubble, a moustache, a short beard or
+ * a goatee. The player has stubble.
+ */
+function beardOf(id: number, local: boolean): number {
+  if (local) return 1;
+  const b = seeded(id, 59);
+  return b < 0.55 ? 0 : b < 0.7 ? 1 : b < 0.8 ? 2 : b < 0.92 ? 3 : 4;
+}
+
 function dressOf(c: Character, local: boolean, out: Dress): Dress {
   const id = c.id;
   if (local) {
@@ -479,6 +509,8 @@ export class CrowdView {
   private drawTrim = 0;
   private readonly drawStyle = [0, 0, 0, 0];
   /** What the character being posed wears (dressOf, in torso(), which every pose draws first). */
+  /** The player's shortened jacket hem (torso()). */
+  private readonly hemMatrix = new THREE.Matrix4();
   private readonly dress: Dress = { top: 0, inner: 0, zip: false, untucked: false, collar: false, belt: 0, jeans: false, shoe: 0, sole: 0 };
   /**
    * The latest characters drawn for the first time (on foot): id, place, and the fade of that first frame. For checks
@@ -499,6 +531,14 @@ export class CrowdView {
         : fadeNearLens;
       // Three keys a program on the text of onBeforeCompile, which is one closure for every painted part.
       if (paint) m.customProgramCacheKey = () => `crowd-paint:${paint.name}:${shaped}`;
+      if (paint?.name === 'hand') {
+        m.side = THREE.DoubleSide;
+        const base = m.onBeforeCompile;
+        m.onBeforeCompile = (shader, renderer) => {
+          base.call(m, shader, renderer);
+          mirroredHand(shader);
+        };
+      }
       m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
@@ -814,7 +854,8 @@ export class CrowdView {
       this.bone(this.parts.upperArm, shoulder, elbow, side, s, a.shirt, g);
       this.bone(this.parts.forearm, elbow, wrist, side, s, a.shirt, g);
     }
-    S.inst.makeBasis(S.bx, S.by, S.bz).scale(S.sc.set(s * g, s, s * g)).setPosition(hand);
+    // The right hand is the left one mirrored (mirroredHand), its palm to the body as the left's is.
+    S.inst.makeBasis(S.bx, S.by, S.bz).scale(S.sc.set(out * s * g, s, s * g)).setPosition(hand);
     this.put(this.parts.hand, S.inst, a.skin);
   }
 
@@ -890,7 +931,11 @@ export class CrowdView {
     this.drawShape = she ? 1 : 0;
     this.paint(d.inner, d.top, d.zip ? 1 : 0);
     this.put(this.parts.torso, S.inst, a.shirt);
-    if (d.untucked) this.put(this.parts.hem, S.inst, a.shirt);
+    if (d.untucked && local) {
+      // The player's jacket ends at a ribbed band over his belt, which shows under it from the camera behind him.
+      this.hemMatrix.copy(S.inst).multiply(S.rot.makeTranslation(0, PLAYER_HEM.y - 0.035 * PLAYER_HEM.k, 0)).multiply(S.rot2.makeScale(1, PLAYER_HEM.k, 1));
+      this.put(this.parts.hem, this.hemMatrix, a.shirt);
+    } else if (d.untucked) this.put(this.parts.hem, S.inst, a.shirt);
     if (d.collar) this.put(this.parts.collar, S.inst, a.shirt);
     this.paint(d.belt, d.belt ? 1 : 0, d.jeans ? 1 : 0);
     this.put(this.parts.hips, S.inst, a.pants);
@@ -903,15 +948,22 @@ export class CrowdView {
     }
     S.neck.set(0, 1, 0).transformDirection(S.body).multiplyScalar(SKELETON.neckY * s).add(pelvis);
     S.e.set(headPitch, headYaw, 0, 'YXZ');
-    S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(s, s, s)).setPosition(S.neck);
+    // Faces of their own width, a woman's a little narrower; everything worn on the head goes with it.
+    const wide = (she ? 0.95 : 1) * (0.95 + 0.1 * seeded(c.id, 57));
+    S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(s * wide, s, s)).setPosition(S.neck);
+    // Brows in the hair's colour, heavier or lighter by his id, and a beard on some men (characterPaint's FACE).
+    this.drawShape = she ? 1 : 0;
+    this.paint(a.hair, she ? 0 : beardOf(c.id, local), she ? 1 : 0, seeded(c.id, 58));
     this.put(this.parts.head, S.inst, a.skin);
+    this.drawShape = 0;
     this.put(this.parts.face, S.inst, 0xffffff);
-    // How the hair is worn, by his or her id: cropped (the cap alone), swept, long, tied back or full.
+    // How the hair is worn, by his or her id: cropped (the cap alone), swept, long, tied back or full; the cap shows
+    // under a hat at the sides and the nape.
     const h = seeded(c.id, 23);
     if (a.hat) {
       this.put(this.parts.hat, S.inst, a.hat);
-      // Long hair shows under a cap.
-      if (she && h < 0.7) this.put(this.parts.hairLong, S.inst, a.hair);
+      // Long hair shows under a cap; or the cap of hair does.
+      this.put(she && h < 0.7 ? this.parts.hairLong : this.parts.hair, S.inst, a.hair);
     } else {
       this.put(this.parts.hair, S.inst, a.hair);
       if (local) {

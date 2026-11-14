@@ -251,14 +251,9 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
       n.setXYZ(i, n.getX(i) * out, ny, n.getZ(i) * out);
     }
   }
-  const skull: readonly Ring[] = [
-    [.025, .057, .062, .012, .88], [.045, .078, .088, .008], [.085, .099, .104, .003],
-    [.145, .112, .112], [.205, .11, .112, -.004], [.255, .103, .102, -.008],
-    [.285, .075, .077, -.01], [.297, .025, .032, -.01],
-  ];
-  // The head inside the skull's envelope above (which the hair, caps and roof clearances are fitted to), ring by ring
-  // no wider, deeper or higher: a cranium rounded as a squircle (the skull's squared rings left a box from behind and a
-  // ridge down each side), the back of it fuller than the face, and the cheeks narrowing to a jaw and a chin forward
+  // The head, inside the envelope of the squared skull it replaces (which the caps, the longer hair and the roof
+  // clearances are fitted to): a cranium rounded as a squircle (the squared rings left a box from behind and a ridge
+  // down each side), the back of it fuller than the face, and the cheeks narrowing to a jaw and a chin forward
   // of the neck. Height, half width, half depth in front, offset, shade, half depth behind.
   const cranium: readonly Ring[] = [
     [.03, .03, .022, .05, .9, .02], [.045, .054, .05, .036, .95, .05], [.065, .072, .074, .022, 1, .07],
@@ -268,45 +263,85 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   ];
   const head = merge([
     profile(cranium, 14, 2.3),
-    // Ears standing a little off the side of the head, turned to face forward, their rims a shade lighter.
-    paint(new THREE.SphereGeometry(1, 6, 4).scale(.011, .032, .021).rotateY(-.4).translate(-.11, .15, -.008), 0xeee4da),
-    paint(new THREE.SphereGeometry(1, 6, 4).scale(.011, .032, .021).rotateY(.4).translate(.11, .15, -.008), 0xeee4da),
+    // Ears standing off the side of the head, turned to face forward, their rims a shade lighter than the hollow.
+    paint(new THREE.SphereGeometry(1, 6, 4).scale(.013, .034, .022).rotateY(-.45).translate(-.112, .15, -.008), 0xeee4da),
+    paint(new THREE.SphereGeometry(1, 6, 4).scale(.013, .034, .022).rotateY(.45).translate(.112, .15, -.008), 0xeee4da),
     // The nose: a wedge from the bridge between the eyes to its tip, its wings either side of the base.
     profile([[.118, .013, .01, .104, .86], [.124, .02, .016, .111], [.135, .015, .02, .119], [.15, .01, .016, .117], [.17, .008, .012, .11], [.19, .007, .006, .103]], 6),
     ellipsoid(.029, .006, .007, 0, .083, .101, 0xc7aaa0, 8, 4),
   ]);
+  // A woman's head, vertex for vertex: a narrower jaw and a smaller chin, a nose standing less far out.
+  {
+    const b = head.clone();
+    const q = b.getAttribute('position');
+    for (let i = 0; i < q.count; i++) {
+      const y = q.getY(i);
+      const jaw = THREE.MathUtils.lerp(.88, 1, THREE.MathUtils.smoothstep(y, .04, .15));
+      let z = q.getZ(i);
+      if (z > .104 && Math.abs(q.getX(i)) < .025 && y > .112 && y < .2) z = .104 + (z - .104) * .78;
+      q.setXYZ(i, q.getX(i) * jaw, y, z * THREE.MathUtils.lerp(.95, 1, THREE.MathUtils.smoothstep(y, .04, .12)));
+    }
+    b.computeVertexNormals();
+    // (A sphere's poles touch no triangle: they keep the man's normal rather than one of no length.)
+    const nb = b.getAttribute('normal');
+    const na = head.getAttribute('normal');
+    for (let i = 0; i < nb.count; i++) if (Math.hypot(nb.getX(i), nb.getY(i), nb.getZ(i)) < .5) nb.setXYZ(i, na.getX(i), na.getY(i), na.getZ(i));
+    head.setAttribute('positionB', q);
+    head.setAttribute('normalB', nb);
+  }
   const face = merge([
     // Small, recessed eyes with lids; whites are intentionally subtle rather than toy-like disks.
-    ellipsoid(.022, .009, .006, -.046, .177, .102, 0xd4cabb, 8, 4),
-    ellipsoid(.022, .009, .006, .046, .177, .102, 0xd4cabb, 8, 4),
+    ellipsoid(.022, .009, .006, -.046, .177, .102, 0xd4cabb, 6, 4),
+    ellipsoid(.022, .009, .006, .046, .177, .102, 0xd4cabb, 6, 4),
     ellipsoid(.008, .008, .004, -.046, .177, .108, 0x201e1b, 6, 3),
     ellipsoid(.008, .008, .004, .046, .177, .108, 0x201e1b, 6, 3),
-    box(.04, .008, .009, -.046, .199, .102, 0x382c26),
-    box(.04, .008, .009, .046, .199, .102, 0x382c26),
-    box(.036, .003, .006, 0, .09, .106, 0x6a4032),
+    // Upper lids, a dark line of lashes over each eye (brows and lips are painted: characterPaint's FACE).
+    box(.044, .0045, .007, -.046, .1855, .104, 0x2a221e),
+    box(.044, .0045, .007, .046, .1855, .104, 0x2a221e),
   ]);
-  // Hair follows the skull, with a lower back edge and an open face; no rectangular helmet.
-  const hair = profile([[.2, .11, .11], [.23, .11, .11], [.26, .1, .1], [.29, .07, .07], [.31, .04, .04], [.319, .008, .01, -.01]], 12, .82, true);
-  const hp = hair.getAttribute('position');
-  for (let row = 0; row < 6; row++) for (let i = 0; i <= 12; i++) {
-    const angle = i / 12 * Math.PI * 2;
-    const front = Math.cos(angle);
-    const side = Math.sin(angle);
-    const hairline = .205 + front * .047;
-    const y = THREE.MathUtils.lerp(hairline, .319, row / 5);
-    // Sample the skull at each point's actual height. Merely lowering a cap's back ring leaves
-    // skin poking through the back of the head when the player is seen from the chase camera.
+  // The hair worn close, a cap standing off the cranium by 6 mm at its edge and 16 at the crown: its hairline across
+  // the forehead and back at the temples, down in front of the ears and over them, and down to the nape behind
+  // (the hairline's heights every 22.5 degrees from the front, round to the back).
+  const HAIRLINE = [.234, .229, .214, .19, .174, .14, .112, .104, .1];
+  const crSurface = (a: number, y: number): [number, number, number] => {
     let j = 1;
-    while (j < skull.length - 1 && skull[j]![0] < y) j++;
-    const a = skull[j - 1]!; const b = skull[j]!;
-    const t = THREE.MathUtils.clamp((y - a[0]) / (b[0] - a[0]), 0, 1);
-    const crown = y > .285 ? THREE.MathUtils.clamp((.324 - y) / .039, 0, 1) : 1;
-    const width = y > .285 ? .081 * crown : THREE.MathUtils.lerp(a[1], b[1], t) + .007;
-    const depth = y > .285 ? .084 * crown : THREE.MathUtils.lerp(a[2], b[2], t) + .008;
-    const z = THREE.MathUtils.lerp(a[3] ?? 0, b[3] ?? 0, t);
-    hp.setXYZ(row * 13 + i, Math.sign(side) * Math.abs(side) ** .82 * width, y, Math.sign(front) * Math.abs(front) ** .82 * depth + z);
+    while (j < cranium.length - 1 && cranium[j]![0] < y) j++;
+    const r0 = cranium[j - 1]!;
+    const r1 = cranium[j]!;
+    const t = THREE.MathUtils.clamp((y - r0[0]) / (r1[0] - r0[0]), 0, 1);
+    const w = THREE.MathUtils.lerp(r0[1], r1[1], t);
+    const f = THREE.MathUtils.lerp(r0[2], r1[2], t);
+    const bk = THREE.MathUtils.lerp(r0[5] ?? r0[2], r1[5] ?? r1[2], t);
+    const z0 = THREE.MathUtils.lerp(r0[3] ?? 0, r1[3] ?? 0, t);
+    const sx = Math.sin(a);
+    const cz = Math.cos(a);
+    const k = (Math.abs(sx) ** 2.3 + Math.abs(cz) ** 2.3) ** (-1 / 2.3);
+    return [sx * k * w, cz * k * (cz < 0 ? bk : f) + z0, z0];
+  };
+  const HAIR_ROWS = 5;
+  const HAIR_SEGS = 16;
+  const hair = profile(Array.from({ length: HAIR_ROWS }, (_, r): Ring => [.2 + r * .01, .1, .1]), HAIR_SEGS, 1, true);
+  {
+    const hp = hair.getAttribute('position');
+    const top = cranium[cranium.length - 1]![0];
+    for (let row = 0; row < HAIR_ROWS; row++) for (let i = 0; i <= HAIR_SEGS; i++) {
+      const a = i / HAIR_SEGS * Math.PI * 2;
+      const u = Math.min(i, HAIR_SEGS - i);
+      const edge = HAIRLINE[u]!;
+      const r = row / (HAIR_ROWS - 1);
+      const y = THREE.MathUtils.lerp(edge, top, Math.sin(r * Math.PI / 2));
+      const [x, z, z0] = crSurface(a, y);
+      const thick = .006 + .01 * THREE.MathUtils.smoothstep(r, 0, .55);
+      const up = THREE.MathUtils.smoothstep(y, .22, top);
+      const h = Math.hypot(x, z - z0) || 1;
+      const out = thick * (1 - up * .6) / h;
+      hp.setXYZ(row * (HAIR_SEGS + 1) + i, x + x * out, y + thick * up, z + (z - z0) * out);
+    }
+    // Its crown, closing the cap over the top of the head.
+    const c = hp.count - 1;
+    hp.setXYZ(c, 0, top + .016, cranium[cranium.length - 1]![3] ?? 0);
+    hair.computeVertexNormals();
   }
-  hair.computeVertexNormals();
   const hairSweep = merge([
     profile([[.242, .106, .105, -.005], [.282, .107, .106, -.005], [.32, .081, .085], [.335, .035, .044]], 12),
     ellipsoid(.028, .072, .055, -.091, .21, -.033),
@@ -314,7 +349,7 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   // Worn over the cap of hair every bare head has: what falls from it behind the ears to the shoulders, one mass
   // turning with the head; a tail tied back from the crown down the nape; or a full head of it, standing off the skull
   // all round (and under the roof a rider's head is fitted to).
-  const hairLong = profile([[-.075, .094, .058, -.056, .78], [-.02, .11, .07, -.05, .9], [.06, .12, .082, -.04], [.15, .121, .09, -.03], [.225, .112, .096, -.018]], 12, .9);
+  const hairLong = profile([[-.075, .094, .058, -.056, .78], [-.02, .11, .07, -.05, .9], [.06, .12, .082, -.04], [.15, .121, .09, -.03], [.225, .112, .096, -.018], [.27, .09, .086, -.012]], 12, .9);
   const hairTail = merge([
     paint(new THREE.SphereGeometry(1, 8, 5).scale(.03, .105, .036).rotateX(-.3).translate(0, .14, -.128), 0xffffff),
     ellipsoid(.034, .03, .034, 0, .245, -.112),
@@ -332,7 +367,7 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   const hat = merge([
     profile([[.267, .123, .128, 0, .62], [.285, .124, .129], [.323, .116, .122], [.35, .083, .091], [.36, .032, .036]], 12),
     // A thin curved bill remains below the roof-clearance envelope used by seated riders.
-    ellipsoid(.12, .012, .102, 0, .274, .129, 0xd0d0d0),
+    ellipsoid(.12, .012, .102, 0, .274, .129, 0xd0d0d0, 8, 4),
     box(.055, .028, .006, 0, .316, .123, 0xc9c9c9),
   ]);
   const neck = profile([[.585, .06, .058, 0, .8], [.64, .051, .052], [.69, .047, .048]], 10);
@@ -352,9 +387,15 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     [-.135, .06, .064, .003, .7], [-.118, .061, .066, .003], [-.06, .06, .065, .003], [0, .056, .06],
   ], 8, 1, 0, .014);
   // The hand hangs with its palm to the thigh: thin across the body, broad fore and aft, the thumb in front.
+  // The left hand, its palm to the body (-x): the fingers a row curled towards the palm below the knuckles (the grooves
+  // between them are painted: characterPaint's HAND), the thumb on its own in front. Built along y with the curl as a
+  // depth offset, then turned so the depth is across the hand. CrowdView draws the right hand mirrored.
   const hand = merge([
-    limb([[-.088, .013, .026, .002], [-.058, .017, .037, .002], [-.02, .02, .041, .001], [.02, .022, .036], [.05, .027, .03]], 6, .8, .012, 0),
-    paint(new THREE.SphereGeometry(1, 5, 3).scale(.013, .034, .015).rotateX(.5).translate(0, -.012, .044), 0xf2e7dd),
+    limb([
+      [-.072, .033, .009, .016], [-.056, .037, .011, .008], [-.035, .04, .014, .002], [-.018, .04, .017, .001],
+      [.02, .036, .019, 0], [.05, .029, .02, 0],
+    ], 6, .85, .008, 0).rotateY(-Math.PI / 2),
+    paint(limb([[-.045, .0085, .0095], [0, .012, .013]], 4, 1, .008, 0).rotateX(-.55).rotateZ(-.25).translate(-.004, .014, .03), 0xf2e7dd),
   ]);
   // Legs, as trouser legs: the hip's ball and the knee's on the thigh, the knee's on the shin, the calf behind it.
   const KNEE = .064;
@@ -395,13 +436,13 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     const p: number[] = [];
     const idx: number[] = [];
     const steps = 14;
-    const open = .42;
+    const open = .36;
     const section = (r: number, tip: number): Array<[number, number]> => [
-      [r, .628], [r - .003, .668], [r + .004, .676], [r + .02 + .012 * tip, .64 - .045 * tip], [r + .028 + .016 * tip, .628 - .05 * tip],
+      [r, .628], [r - .003, .668], [r + .004, .676], [r + .022 + .022 * tip, .64 - .068 * tip], [r + .032 + .03 * tip, .626 - .074 * tip],
     ];
     for (let i = 0; i <= steps; i++) {
       const a = open + (Math.PI * 2 - 2 * open) * i / steps;
-      const end = Math.max(0, 1 - Math.min(i, steps - i) / 2);
+      const end = Math.max(0, 1 - Math.min(i, steps - i) / 2.5) ** 1.5;
       const ring = section(.062, end);
       for (const [r, y] of ring) p.push(Math.sin(a) * r, y - NECKLINE * .8 * Math.max(0, Math.cos(a)), Math.cos(a) * r * .95);
       if (i) {
@@ -445,8 +486,8 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
     box(.052, .036, .026, .07, .078, -.142, 0x1d2025),
   ]);
   const glasses = merge([
-    ellipsoid(.043, .024, .009, -.052, .179, .118, 0x182830),
-    ellipsoid(.043, .024, .009, .052, .179, .118, 0x182830),
+    ellipsoid(.043, .024, .009, -.052, .179, .118, 0x182830, 8, 3),
+    ellipsoid(.043, .024, .009, .052, .179, .118, 0x182830, 8, 3),
     box(.033, .007, .008, 0, .187, .124, 0x73766d),
     box(.007, .009, .1, -.102, .188, .065, 0x24282c),
     box(.007, .009, .1, .102, .188, .065, 0x24282c),
