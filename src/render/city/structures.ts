@@ -1,4 +1,4 @@
-// Garages, ramps, helipads.
+// Garages, ramps, helipads, and the set pieces drawn as city geometry (setPieces.ts: the dock cranes, the Azura Bowl).
 
 import * as THREE from 'three';
 import { attractionOf } from '../../world/attractions';
@@ -8,6 +8,7 @@ import { groundTexture, helipadTexture } from '../textures';
 import { addSign } from './buildings';
 import { DECOR_PROGRAM, PLAIN_FOG, withBuildingFog } from './facadeShader';
 import type { CityView } from './index';
+import { buildSetPieces } from './setPieces';
 
 export function buildStructures(view: CityView): void {
   const layout = view.world.layout;
@@ -61,6 +62,8 @@ export function buildStructures(view: CityView): void {
   // comes into view under the night lights.
   const sideMat = withBuildingFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }), DECOR_PROGRAM, PLAIN_FOG);
   view.add(sides.build(), sideMat, { shadow: true, name: 'ramp-sides', split: false });
+
+  buildSetPieces(view);
 
   // Helipads on rooftops.
   const pads = layout.buildings.flatMap((b) => b.roofProps.filter((p) => p.kind === 'helipad'));

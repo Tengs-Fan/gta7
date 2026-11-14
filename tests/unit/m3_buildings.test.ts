@@ -224,6 +224,8 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     let qualifying = 0;
     const failures: string[] = [];
     for (const b of W.layout.buildings) {
+      // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), not as a block with fronts, signs and parapets.
+      if (b.special === 'stadium') continue;
       if (storeys(b) < 3) continue;
       qualifying++;
       if (b.roof === 'gable') continue;

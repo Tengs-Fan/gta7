@@ -306,6 +306,8 @@ describe('round 2 city: layout', () => {
     // The city's buildings: Las Lomas County's farmhouses and Dry Creek's stores stand on no block and have no ground
     // floor.
     for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
+      // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), not as a block with fronts, signs and parapets.
+      if (b.special === 'stadium') continue;
       const f = front.get(b)!;
       expect(f, `building ${b.id} has a block`).toBeTruthy();
       expect(b.groundSides).toEqual(f.sides);
@@ -382,7 +384,8 @@ describe('round 2 city: ground-floor geometry', () => {
   it('covers the band of every street-facing wall with frontage quads, and no facade window sits in it', () => {
     const fr = verticalTris(front);
     const fa = facades.flatMap(verticalTris);
-    const walls = W.layout.buildings.flatMap((b) => b.groundSides.map((s) => wallOf(b, s)));
+    // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), its podium clad as a concourse.
+    const walls = W.layout.buildings.filter((b) => b.special !== 'stadium').flatMap((b) => b.groundSides.map((s) => wallOf(b, s)));
     // Every 10 m wall is among them (plus walls that look across open ground to the street).
     expect(walls.length).toBeGreaterThanOrEqual(streetWalls(W).length);
     let checked = 0;
@@ -410,13 +413,16 @@ describe('round 2 city: ground-floor geometry', () => {
       for (const t of upper) expect(t.minY, label).toBeGreaterThanOrEqual(top - 1e-3);
       checked++;
     }
-    // 85 blocks and 876 street-facing walls since four bays were drowned (91 blocks and 961 walls before them; docs/map.md).
-    expect(checked).toBeGreaterThan(850);
+    // 85 blocks and 876 street-facing walls since four bays were drowned (91 blocks and 961 walls before them; docs/map.md),
+    // 847 of them with fronts now the stadium's four are its concourse.
+    expect(checked).toBeGreaterThan(845);
   });
 
   it('hangs the big signs above the ground floor', () => {
     let checked = 0;
     for (const b of W.layout.buildings) {
+      // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), not as a block with fronts, signs and parapets.
+      if (b.special === 'stadium') continue;
       if (!b.sign || b.ground === 'none') continue;
       const sign = signOf(city, b)!;
       expect(sign, `sign of ${b.sign.text}`).toBeTruthy();
@@ -425,7 +431,8 @@ describe('round 2 city: ground-floor geometry', () => {
       expect(sign.position.y + h / 2, b.sign.text).toBeLessThan(b.height);
       checked++;
     }
-    expect(checked).toBe(8);
+    // Seven: the stadium's name is on its cornice, drawn with it (render/city/setPieces.ts).
+    expect(checked).toBe(7);
   });
 
   it('keeps every atlas cell inside its own slot, clear of its neighbours', () => {
@@ -449,6 +456,8 @@ describe('round 2 city: ground-floor geometry', () => {
   it('gives every building with a ground floor at least one frontage quad', () => {
     const fr = verticalTris(front);
     for (const b of W.layout.buildings) {
+      // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), not as a block with fronts, signs and parapets.
+      if (b.special === 'stadium') continue;
       if (b.ground === 'none') continue;
       const sides = (['N', 'E', 'S', 'W'] as const).map((s) => wallOf(b, s));
       expect(sides.some((w) => onWall(fr, w).length > 0), `building ${b.id}`).toBe(true);
@@ -545,6 +554,8 @@ describe('round 2 fix: entrances where the sim puts them', () => {
   it("hangs each sign over its building's door, centred on it unless that runs it off the wall", () => {
     let checked = 0;
     for (const b of W.layout.buildings) {
+      // The Azura Bowl is drawn as a stadium (render/city/setPieces.ts), not as a block with fronts, signs and parapets.
+      if (b.special === 'stadium') continue;
       if (!b.sign || b.ground === 'none') continue;
       const sign = signOf(city, b)!;
       const w = wallOf(b, b.sign.side);
@@ -562,8 +573,8 @@ describe('round 2 fix: entrances where the sim puts them', () => {
       expect(Math.abs(c - d) < 0.05 || atEnd, `${b.sign.text}: sign ${c.toFixed(2)}, door ${d.toFixed(2)}`).toBe(true);
       checked++;
     }
-    // The bank, SAPD, the hospital, Moreau Tower, Hotel Salgado, both gun shops and the stadium.
-    expect(checked).toBe(8);
+    // The bank, SAPD, the hospital, Moreau Tower, Hotel Salgado and both gun shops (the stadium's name is on its cornice).
+    expect(checked).toBe(7);
   });
 
   it('centres the door of every ordinary lobby on its wall', () => {

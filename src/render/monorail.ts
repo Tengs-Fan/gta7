@@ -4,6 +4,7 @@
 // stands at a station. A dozen draws in all; the light pool the train throws on the canal is the tier's (railGlow).
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { formatTime, smoothstep } from '../core/math';
 import { SEABED_Y, WATER_Y } from '../world/constants';
 import { BEAM_OVERRUN, CAR_GAP, CAR_HEIGHT, CAR_LENGTH, CAR_WIDTH, nextDeparture, PLATFORM_SLAB, TOWER_H, TRAIN_DWELL, TRAIN_LENGTH, trainAt, type Monorail, type MonorailStation } from '../world/monorail';
@@ -60,6 +61,63 @@ function prism(g: GeoBuilder, cx: number, cz: number, r: number, y0: number, y1:
 
 const box = (g: GeoBuilder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: RGB = WHITE, bottom = false) =>
   g.box(Math.min(x0, x1), y0, Math.min(z0, z1), Math.max(x0, x1), y1, Math.max(z0, z1), { uv: { kind: 'world', scale: 3 }, color, bottom });
+
+/** The car body's half-section from the skirt's top round to the roof's crown (x out from the middle, y up from the beam). */
+function bodySection(hw: number): Array<[number, number]> {
+  return [[hw - 0.12, 0.05], [hw - 0.02, 0.14], [hw, 0.3], [hw, 2.5], [hw - 0.05, 2.68], [hw - 0.2, 2.86], [hw - 0.45, 2.99], [hw - 0.85, CAR_HEIGHT - 0.02], [0, CAR_HEIGHT]];
+}
+
+/**
+ * The car's shell lofted along z through `rings` (each a z, a scale across, and a height the section's top is squeezed
+ * to): the half-section mirrored, smooth across its curve, with a vertex colour from `paint(x, y, ring)`. The shell is
+ * open at its ends; the noses close themselves and the gangways cover the rest.
+ */
+function shell(rings: ReadonlyArray<{ z: number; sx: number; top: number }>, hw: number, y0: number, paint: (x: number, y: number, ring: number) => RGB): THREE.BufferGeometry {
+  const half = bodySection(hw);
+  // Turn round: from the left skirt up over the roof and down to the right skirt.
+  const pts: Array<[number, number]> = [...half.map(([x, y]) => [-x, y] as [number, number]), ...half.slice(0, -1).reverse()];
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const col: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const n = pts.length;
+  rings.forEach((r, ri) => {
+    const squeeze = (y: number) => (y <= 1.3 ? y : 1.3 + (y - 1.3) * ((r.top - 1.3) / (CAR_HEIGHT - 1.3)));
+    for (let k = 0; k < n; k++) {
+      const [x, y] = pts[k]!;
+      const [xp, yp] = pts[Math.max(0, k - 1)]!;
+      const [xn, yn] = pts[Math.min(n - 1, k + 1)]!;
+      // The profile's outward normal: its tangent turned a quarter (the profile runs over the top from -x to +x).
+      let nx = -(yn - yp);
+      let ny = xn - xp;
+      const l = Math.hypot(nx, ny) || 1;
+      nx /= l;
+      ny /= l;
+      const yy = squeeze(y);
+      pos.push(x * r.sx, y0 + yy, r.z);
+      nrm.push(nx, ny, 0);
+      const c = paint(x, yy, ri);
+      col.push(c[0], c[1], c[2]);
+      uv.push(0, 0);
+    }
+    if (ri === 0) return;
+    const a = (ri - 1) * n;
+    const b = ri * n;
+    const forward = r.z > rings[ri - 1]!.z;
+    for (let k = 0; k + 1 < n; k++) {
+      if (forward) idx.push(a + k, b + k, a + k + 1, a + k + 1, b + k, b + k + 1);
+      else idx.push(a + k, a + k + 1, b + k, a + k + 1, b + k + 1, b + k);
+    }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  return g;
+}
 
 /** What a station's sign says at sim time `t`. */
 export function signLine(m: Monorail, station: number, t: number): string {
@@ -175,13 +233,30 @@ export class MonorailView {
     const z0 = m.z0 - TRAIN_LENGTH / 2 - BEAM_OVERRUN;
     const z1 = m.z1 + TRAIN_LENGTH / 2 + BEAM_OVERRUN;
     box(g, m.x - BEAM_W / 2, top - BEAM_D, z0, m.x + BEAM_W / 2, top, z1, BEAM, true);
+    // The running surface the train's tyres have darkened, and the expansion joints over the pylons.
+    box(g, m.x - BEAM_W / 2 + 0.06, top, z0, m.x + BEAM_W / 2 - 0.06, top + 0.01, z1, [0.42, 0.42, 0.41]);
+    for (const p of m.pylons) box(g, m.x - BEAM_W / 2 - 0.01, top - BEAM_D, p.z - 0.03, m.x + BEAM_W / 2 + 0.01, top + 0.012, p.z + 0.03, [0.3, 0.3, 0.3]);
     const under = top - BEAM_D;
     for (const p of m.pylons) {
       prism(g, p.x, p.z, PYLON_R, SEABED_Y, under - HEAD_D, 10, PIER);
       // Under a platform the head reaches out beneath it, a post holding the platform's slab.
       const s = m.stations.find((st) => p.z > st.platform[0]!.minZ && p.z < st.platform[0]!.maxZ);
       const reach = s ? s.side * (CAR_WIDTH / 2 + 2.6) : 0;
-      box(g, p.x - 1.3 + Math.min(0, reach), under - HEAD_D, p.z - 0.6, p.x + 1.3 + Math.max(0, reach), under, p.z + 0.6, PIER, true);
+      // A hammerhead: the slab the beam bears on over a haunch tapering down into the column, two dark bearing pads.
+      const x0 = p.x - 1.3 + Math.min(0, reach);
+      const x1 = p.x + 1.3 + Math.max(0, reach);
+      box(g, x0, under - HEAD_D * 0.45, p.z - 0.7, x1, under, p.z + 0.7, PIER, true);
+      const hy = under - HEAD_D * 0.45;
+      const ly = under - HEAD_D * 1.4;
+      const c = (x: number, yy: number, z: number) => [x, yy, z] as const;
+      const haunch: Array<[readonly [number, number, number], readonly [number, number, number], readonly [number, number, number], readonly [number, number, number]]> = [
+        [c(x0, hy, p.z - 0.7), c(x1, hy, p.z - 0.7), c(p.x + PYLON_R, ly, p.z - 0.6), c(p.x - PYLON_R, ly, p.z - 0.6)],
+        [c(x1, hy, p.z + 0.7), c(x0, hy, p.z + 0.7), c(p.x - PYLON_R, ly, p.z + 0.6), c(p.x + PYLON_R, ly, p.z + 0.6)],
+        [c(x1, hy, p.z - 0.7), c(x1, hy, p.z + 0.7), c(p.x + PYLON_R, ly, p.z + 0.6), c(p.x + PYLON_R, ly, p.z - 0.6)],
+        [c(x0, hy, p.z + 0.7), c(x0, hy, p.z - 0.7), c(p.x - PYLON_R, ly, p.z - 0.6), c(p.x - PYLON_R, ly, p.z + 0.6)],
+      ];
+      for (const [a, b, d, e] of haunch) g.quad(...a, ...b, ...d, ...e, [0, 0, 1, 0, 1, 1, 0, 1], PIER);
+      for (const dz of [-0.35, 0.35]) box(g, m.x - BEAM_W / 2 - 0.05, under - 0.12, p.z + dz - 0.2, m.x + BEAM_W / 2 + 0.05, under + 0.001, p.z + dz + 0.2, SKIRT);
       if (s) box(g, p.x + reach - 0.4, under, p.z - 0.4, p.x + reach + 0.4, top - PLATFORM_SLAB, p.z + 0.4, PIER);
     }
     return g.build();
@@ -298,19 +373,36 @@ export class MonorailView {
     const glow = new GeoBuilder(false);
     const hw = CAR_WIDTH / 2;
     const top = y + CAR_HEIGHT;
+    const shells: THREE.BufferGeometry[] = [];
+    /** A flat panel closing the shell's section at z, facing `d` (squeezed to `squash` across and `roof` tall at a nose's tip). */
+    const endCap = (g: GeoBuilder, z: number, d: number, squash = 1, roof = CAR_HEIGHT) => {
+      const half = bodySection(hw).map(([x, yy]) => [x * squash, yy <= 1.3 ? yy : 1.3 + (yy - 1.3) * ((roof - 1.3) / (CAR_HEIGHT - 1.3))] as const);
+      const pts = [...half.map(([x, yy]) => [-x, yy] as const), ...half.slice(0, -1).reverse()];
+      const cy = y + 0.7;
+      for (let k = 0; k + 1 < pts.length; k++) {
+        const [ax, ay] = pts[k]!;
+        const [bx, by] = pts[k + 1]!;
+        // Where the nose's tip squeezes the section flat, its triangles have no area (and no normal): left out.
+        if (Math.abs(ax * (by - 0.7) - bx * (ay - 0.7)) < 1e-6) continue;
+        if (d > 0) g.tri(0, cy, z, bx, y + by, z, ax, y + ay, z, [0, 0, 0, 0, 0, 0], WHITE);
+        else g.tri(0, cy, z, ax, y + ay, z, bx, y + by, z, [0, 0, 0, 0, 0, 0], WHITE);
+      }
+    };
     const wy0 = y + 1.15;
     const wy1 = y + 2.35;
     for (let k = 0; k < 3; k++) {
       const cz = (k - 1) * (CAR_LENGTH + CAR_GAP);
       const za = cz - CAR_LENGTH / 2;
       const zb = cz + CAR_LENGTH / 2;
-      // A nose on the outer end of either end car: a low bonnet and a raked windscreen.
+      // A nose on the outer end of either end car.
       const noseA = k === 0;
       const noseB = k === 2;
       const ba = noseA ? za + 2.2 : za;
       const bb = noseB ? zb - 2.2 : zb;
-      box(body, -hw, y + 0.05, ba, hw, top - 0.2, bb, WHITE, true);
-      box(body, -hw + 0.12, top - 0.2, ba + 0.3, hw - 0.12, top, bb - 0.3, ROOF);
+      // The shell along the car, its roof's curve grey, closed flat where a gangway meets it.
+      shells.push(shell([{ z: ba, sx: 1, top: CAR_HEIGHT }, { z: bb, sx: 1, top: CAR_HEIGHT }], hw, y, (_x, yy) => (yy > 2.62 ? ROOF : WHITE)));
+      if (!noseA) endCap(body, za, -1);
+      if (!noseB) endCap(body, zb, 1);
       box(body, -0.7, top, cz - 1.6, 0.7, top + 0.32, cz + 1.6, ROOF);
       for (const s of [-1, 1]) {
         // Skirts down either side of the beam, the livery's stripe, and the window band between the doors.
@@ -324,24 +416,20 @@ export class MonorailView {
       for (const [nose, zEnd, zBody, lamps] of [[noseA, za, ba, north], [noseB, zb, bb, south]] as const) {
         if (!nose) continue;
         const d = Math.sign(zEnd - zBody);
-        // The bonnet, the windscreen raked back from it to the roof, and its sides.
-        box(body, -hw, y + 0.05, zBody, hw, y + 1.3, zEnd, WHITE, true);
-        const ze = zEnd - d * 0.3;
-        const glassUv = [0, 0, 1, 0, 1, 1, 0, 1];
-        if (d < 0) win.quad(hw, y + 1.3, ze, -hw, y + 1.3, ze, -hw, top - 0.2, zBody, hw, top - 0.2, zBody, glassUv);
-        else win.quad(-hw, y + 1.3, ze, hw, y + 1.3, ze, hw, top - 0.2, zBody, -hw, top - 0.2, zBody, glassUv);
-        for (const s of [-1, 1]) {
-          const x = s * hw;
-          if (s * d < 0) body.tri(x, y + 1.3, ze, x, top - 0.2, zBody, x, y + 1.3, zBody, [0, 0, 1, 1, 1, 0], WHITE);
-          else body.tri(x, y + 1.3, ze, x, y + 1.3, zBody, x, top - 0.2, zBody, [0, 0, 1, 0, 1, 1], WHITE);
-          box(lamps, s * 0.6, y + 0.6, zEnd, s * 1.15, y + 0.85, zEnd + d * 0.05);
-        }
+        // The nose: the shell drawn on 2.2 m, narrowing a little and its roof falling in a quarter ellipse to the
+        // headlamps' panel, the windscreen dark across its upper half; a flat panel closes its tip.
+        const rings = [0, 0.3, 0.55, 0.75, 0.9, 1].map((t) => ({ z: zBody + d * 2.2 * t, sx: 1 - 0.12 * t * t, top: 1.3 + (CAR_HEIGHT - 1.3) * Math.sqrt(Math.max(0, 1 - t * t)) }));
+        shells.push(shell(rings, hw, y, (x, yy, ri) => (ri >= 1 && ri <= 4 && yy > 1.5 && Math.abs(x) < hw - 0.25 ? GLASS_DARK : yy > 2.62 ? ROOF : WHITE)));
+        endCap(body, zEnd, d, 1 - 0.12, 1.3);
+        for (const s of [-1, 1]) box(lamps, s * 0.6, y + 0.6, zEnd, s * 1.15, y + 0.85, zEnd + d * 0.05);
         box(lamps, -0.35, y + 1.05, zEnd, 0.35, y + 1.2, zEnd + d * 0.05);
       }
       // The gangway to the next car.
       if (k < 2) box(body, -1, y + 0.2, zb, 1, y + 2.6, zb + CAR_GAP, SKIRT);
     }
-    return { body: body.build(), windows: win.build(), north: north.build(), south: south.build(), glow: glow.build() };
+    const merged = mergeGeometries([body.build(), ...shells], false);
+    if (!merged) throw new Error('mergeGeometries failed');
+    return { body: merged, windows: win.build(), north: north.build(), south: south.build(), glow: glow.build() };
   }
 
   private poolTexture(): THREE.CanvasTexture {

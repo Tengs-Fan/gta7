@@ -26,7 +26,7 @@ import {
 import { dressingItems, type DressingItem, type DressingKind } from './dressing';
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
-import { ferrisLegsGeometry, ferrisWheelGeometry, gondolaGeometry } from './setPieceModels';
+import { CONTAINER, containerGeometry, containerTexture, ferrisLegsGeometry, ferrisWheelGeometry, gondolaGeometry } from './setPieceModels';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
 import { speakerGeometry } from './country/driveIn';
 import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
@@ -776,7 +776,6 @@ export class PropsView {
     // one place: one batch each, not one per cell, as the farms' props are.
     this.makeInstanced(stopSignGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('stopSign'), PropsView.standard, { chunked: true });
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
-    for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);
     for (const i of get('ferris')) this.buildFerris(world.layout.props[i]!);
     for (const i of get('boat')) this.buildBoat(world.layout.props[i]!);
@@ -1358,10 +1357,21 @@ export class PropsView {
     return { at, color: this.litColors[mesh.geometry.getAttribute('aLit').getY(q)]!.clone() };
   }
 
+  /**
+   * The docks' containers: the framed, corrugated model (setPieceModels.ts), its length turned along the prop's long side
+   * and scaled to its box, one instanced batch per cell as the plain boxes were.
+   */
   private buildContainers(list: number[]): void {
-    const geo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-    const mat = new THREE.MeshStandardMaterial({ map: groundTexture('metal', 9), roughness: 0.7, metalness: 0.3 });
-    this.makeInstanced(geo, mat, list, (p, m) => m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion(), new THREE.Vector3(p.w, p.h, p.d)), { color: (p, c) => c.setHex(p.color) });
+    const mat = new THREE.MeshStandardMaterial({ map: containerTexture(), vertexColors: true, roughness: 0.65, metalness: 0.3 });
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    this.makeInstanced(containerGeometry(), mat, list, (p, m) => {
+      const alongX = p.w > p.d;
+      q.setFromAxisAngle(up, alongX ? Math.PI / 2 : 0);
+      const len = Math.max(p.w, p.d);
+      const wid = Math.min(p.w, p.d);
+      m.compose(new THREE.Vector3(p.x, p.y, p.z), q, new THREE.Vector3(wid / CONTAINER.wid, p.h / CONTAINER.h, len / CONTAINER.len));
+    }, { color: (p, c) => c.setHex(p.color) });
   }
 
   private buildFountain(p: Prop): void {
@@ -1387,19 +1397,6 @@ export class PropsView {
       }
     });
     this.group.add(g);
-  }
-
-  private buildCrane(p: Prop): void {
-    const mat = new THREE.MeshStandardMaterial({ color: 0xe0a21a, roughness: 0.6, metalness: 0.3 });
-    const parts: THREE.BufferGeometry[] = [];
-    for (const [lx, lz] of [[-6, -5], [6, -5], [-6, 5], [6, 5]] as const) parts.push(box(1.0, 30, 1.0, lx, 15, lz));
-    parts.push(box(13.2, 1.6, 1.4, 0, 29, -5), box(13.2, 1.6, 1.4, 0, 29, 5), box(1.4, 1.6, 11.4, -6, 29, 0), box(1.4, 1.6, 11.4, 6, 29, 0));
-    parts.push(box(2.2, 2.0, 46, 0, 31.6, 12), box(3, 3, 3, 0, 27.5, 3.5));
-    const mesh = new THREE.Mesh(merged(parts), mat);
-    mesh.position.set(p.x, 0, p.z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    this.group.add(mesh);
   }
 
   private buildLighthouse(p: Prop): void {

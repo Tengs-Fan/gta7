@@ -1,10 +1,172 @@
-// The Ferris wheel's models for PropsView (props.ts buildFerris): its cabins, its braced rims and hub, and its A-frames.
-// Geometry only; PropsView places and turns them. The wheel's parts keep their meshes (rim, cabins, legs), so none adds
-// a draw.
+// The set pieces' models: the Ferris wheel's cabins, braced rims and A-frames and the docks' shipping containers, which
+// PropsView places, turns and instances (props.ts buildFerris, buildContainers), and the kit of flat-shaded blocks and
+// struts the city's set pieces are built from (city/setPieces.ts: the dock cranes and the Azura Bowl). Geometry and
+// textures only. The wheel keeps its meshes and the containers their instanced batches, so neither adds a draw.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { Rng } from '../core/rng';
 import { bar, ModelBuilder } from './furniture';
+import { GeoBuilder, type RGB } from './geo';
+import { canvas, toTexture } from './textures/misc';
+
+// ---------------------------------------------------------------------------
+// The kit: quads wound to face a way, axis-aligned blocks and square struts, every face sampling one texel
+
+export type V = readonly [number, number, number];
+
+/** A quad a, b, c, d (in order round it) wound to face `toward`. */
+export function face(g: GeoBuilder, a: V, b: V, c: V, d: V, toward: V, color: RGB, uv: readonly number[]): void {
+  const n = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
+  if (n[0]! * toward[0] + n[1]! * toward[1] + n[2]! * toward[2] >= 0) g.quad(...a, ...b, ...c, ...d, uv, color);
+  else g.quad(...d, ...c, ...b, ...a, [uv[6]!, uv[7]!, uv[4]!, uv[5]!, uv[2]!, uv[3]!, uv[0]!, uv[1]!], color);
+}
+
+/** The same (u, v) at a quad's four corners. */
+export const texel = (u: number, v: number): number[] => [u, v, u, v, u, v, u, v];
+
+/** An axis-aligned block, every face outward and sampling `uv`; `skip` names the faces left off (x X y Y z Z: min and max). */
+export function block(g: GeoBuilder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: RGB, uv: readonly number[], skip = ''): void {
+  if (!skip.includes('x')) face(g, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], color, uv);
+  if (!skip.includes('X')) face(g, [x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [1, 0, 0], color, uv);
+  if (!skip.includes('z')) face(g, [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], [0, 0, -1], color, uv);
+  if (!skip.includes('Z')) face(g, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], color, uv);
+  if (!skip.includes('Y')) face(g, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], [0, 1, 0], color, uv);
+  if (!skip.includes('y')) face(g, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], color, uv);
+}
+
+/** A square strut `w` thick from a to b (its sides and ends), sampling `uv`. */
+export function strut(g: GeoBuilder, a: V, b: V, w: number, color: RGB, uv: readonly number[], ends = true): void {
+  const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
+  const up = Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const s = new THREE.Vector3().crossVectors(d, up).normalize().multiplyScalar(w / 2);
+  const t = new THREE.Vector3().crossVectors(d, s).normalize().multiplyScalar(w / 2);
+  const corner = (p: V, i: number): V => {
+    const ks = i === 0 || i === 3 ? -1 : 1;
+    const kt = i < 2 ? -1 : 1;
+    return [p[0] + s.x * ks + t.x * kt, p[1] + s.y * ks + t.y * kt, p[2] + s.z * ks + t.z * kt];
+  };
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    const mid = corner(a, i).map((v, k) => (v + corner(a, j)[k]!) / 2 - a[k]!) as unknown as V;
+    face(g, corner(a, i), corner(a, j), corner(b, j), corner(b, i), mid, color, uv);
+  }
+  if (ends) {
+    face(g, corner(a, 0), corner(a, 1), corner(a, 2), corner(a, 3), [-d.x, -d.y, -d.z], color, uv);
+    face(g, corner(b, 0), corner(b, 1), corner(b, 2), corner(b, 3), [d.x, d.y, d.z], color, uv);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shipping containers
+
+/** The container the model is built at (m): its length along local z, width along x, height; the yard's are all this size. */
+export const CONTAINER = { len: 12.2, wid: 2.45, h: 2.6 } as const;
+/** Metres of wall one repeat of the corrugation texture covers (eight ribs of 0.28 m). */
+const RIB_REPEAT = 2.24;
+/** The texture's rows: the corrugation below WALL_V, a flat band above it that the frame samples. */
+const WALL_V = 0.88;
+const FLAT_UV = texel(0.5, 0.95);
+/** Vertex tones the instance colour is multiplied by: the walls, the frame's posts and rails, the locking bars, the seam. */
+const WALL: RGB = [1, 1, 1];
+const FRAME: RGB = [0.72, 0.72, 0.72];
+const BARS: RGB = [0.5, 0.5, 0.5];
+const SEAM: RGB = [0.18, 0.18, 0.18];
+
+/**
+ * A 40 ft container, its foot's middle at the origin and its length along z: corrugated walls set 5 cm into a frame of
+ * corner posts and top and bottom rails, the doors at +z with their seam and four locking bars and handles, a roof. The
+ * instance colour paints it, the frame a shade darker. 182 triangles (the plain box's 12), inside its collider's box.
+ */
+export function containerGeometry(): THREE.BufferGeometry {
+  const g = new GeoBuilder(true);
+  const { len, wid, h } = CONTAINER;
+  const hx = wid / 2;
+  const hz = len / 2;
+  const t = 0.05;
+  const post = 0.16;
+  const ru = len / RIB_REPEAT;
+  const eu = wid / RIB_REPEAT;
+  const wv = (y: number) => (y / h) * WALL_V;
+  const wallUv = (u: number) => [0, wv(0.16), u, wv(0.16), u, wv(h - 0.12), 0, wv(h - 0.12)];
+  // The walls: the long sides and the closed end ribbed across, the roof ribbed along.
+  for (const s of [-1, 1]) {
+    const x = s * (hx - t);
+    face(g, [x, 0.16, -hz + post], [x, 0.16, hz - post], [x, h - 0.12, hz - post], [x, h - 0.12, -hz + post], [s, 0, 0], WALL, wallUv(ru));
+  }
+  face(g, [-hx + post, 0.16, -hz + t], [hx - post, 0.16, -hz + t], [hx - post, h - 0.12, -hz + t], [-hx + post, h - 0.12, -hz + t], [0, 0, -1], WALL, wallUv(eu));
+  face(g, [-hx + post, h - 0.03, -hz + post], [hx - post, h - 0.03, -hz + post], [hx - post, h - 0.03, hz - post], [-hx + post, h - 0.03, hz - post], [0, 1, 0], [0.92, 0.92, 0.92], [0, 0, eu, 0, eu, WALL_V * 0.5, 0, WALL_V * 0.5]);
+  // The doors: two leaves ribbed like the walls, the seam between them and the locking bars with their handles.
+  const dz = hz - t;
+  face(g, [-hx + post, 0.16, dz], [hx - post, 0.16, dz], [hx - post, h - 0.12, dz], [-hx + post, h - 0.12, dz], [0, 0, 1], WALL, wallUv(eu));
+  face(g, [-0.015, 0.16, dz + 0.004], [0.015, 0.16, dz + 0.004], [0.015, h - 0.12, dz + 0.004], [-0.015, h - 0.12, dz + 0.004], [0, 0, 1], SEAM, FLAT_UV);
+  for (const x of [-0.85, -0.3, 0.3, 0.85]) {
+    block(g, x - 0.025, 0.22, dz, x + 0.025, h - 0.18, dz + 0.05, BARS, FLAT_UV, 'zy');
+    const hx0 = Math.min(x - 0.03 * Math.sign(x), x + 0.11 * Math.sign(x));
+    const hx1 = Math.max(x - 0.03 * Math.sign(x), x + 0.11 * Math.sign(x));
+    block(g, hx0, 1.05, dz, hx1, 1.13, dz + 0.05, BARS, FLAT_UV, 'z');
+  }
+  // The frame: corner posts, top and bottom rails along the sides and across the ends (no faces that only meet others).
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) block(g, sx > 0 ? hx - post : -hx, 0, sz > 0 ? hz - post : -hz, sx > 0 ? hx : -hx + post, h, sz > 0 ? hz : -hz + post, FRAME, FLAT_UV, 'y');
+    const x0 = sx > 0 ? hx - 0.1 : -hx;
+    const x1 = sx > 0 ? hx : -hx + 0.1;
+    block(g, x0, h - 0.12, -hz + post, x1, h, hz - post, FRAME, FLAT_UV, 'zZy');
+    block(g, x0, 0, -hz + post, x1, 0.16, hz - post, FRAME, FLAT_UV, 'zZy');
+  }
+  for (const sz of [-1, 1]) {
+    const z0 = sz > 0 ? hz - 0.1 : -hz;
+    const z1 = sz > 0 ? hz : -hz + 0.1;
+    block(g, -hx + post, h - 0.14, z0, hx - post, h, z1, FRAME, FLAT_UV, 'xXy');
+    block(g, -hx + post, 0, z0, hx - post, 0.16, z1, FRAME, FLAT_UV, 'xXy');
+  }
+  const geo = g.build();
+  geo.name = 'container';
+  return geo;
+}
+
+let containerTex: THREE.CanvasTexture | null = null;
+
+/**
+ * The containers' corrugated steel, grey for the instance colour to paint: across u eight trapezoidal ribs (a lit face,
+ * the crest, a shaded face, the trough), down v the weather (rust run from the top rail, grime at the foot); a flat band
+ * at the top for the frame.
+ */
+export function containerTexture(): THREE.Texture {
+  if (containerTex) return containerTex;
+  const W = 128;
+  const H = 128;
+  const [c, ctx] = canvas(W, H);
+  const rng = new Rng(4040);
+  const wallH = Math.round(H * WALL_V);
+  const rib = W / 8;
+  for (let k = 0; k < 8; k++) {
+    const x = k * rib;
+    for (const [from, w, col] of [[0, 1, '#d2d2d2'], [0.1, 0.18, '#f2f2f2'], [0.28, 0.3, '#e2e2e2'], [0.58, 0.14, '#a5a5a5'], [0.72, 0.28, '#bababa']] as const) {
+      ctx.fillStyle = col;
+      ctx.fillRect(x + rib * from, H - wallH, rib * w, wallH);
+    }
+  }
+  for (let i = 0; i < 14; i++) {
+    const x = rng.range(0, W);
+    const len = rng.range(0.15, 0.6) * wallH;
+    const gr = ctx.createLinearGradient(0, H - wallH, 0, H - wallH + len);
+    gr.addColorStop(0, `rgba(96,52,26,${rng.range(0.25, 0.5).toFixed(2)})`);
+    gr.addColorStop(1, 'rgba(96,52,26,0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(x, H - wallH, rng.range(1, 3), len);
+  }
+  const foot = ctx.createLinearGradient(0, H, 0, H - wallH * 0.3);
+  foot.addColorStop(0, 'rgba(40,34,28,0.45)');
+  foot.addColorStop(1, 'rgba(40,34,28,0)');
+  ctx.fillStyle = foot;
+  ctx.fillRect(0, H - wallH * 0.3, W, wallH * 0.3);
+  ctx.fillStyle = '#c4c4c4';
+  ctx.fillRect(0, 0, W, H - wallH);
+  containerTex = toTexture(c, true, true);
+  containerTex.anisotropy = 4;
+  return containerTex;
+}
 
 // ---------------------------------------------------------------------------
 // The Ferris wheel
@@ -28,8 +190,11 @@ export function gondolaGeometry(): THREE.BufferGeometry {
   }
   // The yoke: a short arm on either side of the pivot down to the roof.
   b.add('hanger', bar(new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(0, -0.62, 0), 0.07, 6), 0xd8d8d8);
-  b.add('yoke', new THREE.BoxGeometry(0.16, 0.12, 0.9).translate(0, 0, 0), 0xd8d8d8);
-  return b.build('gondola');
+  b.add('yoke', new THREE.BoxGeometry(0.16, 0.12, 0.9), 0xd8d8d8);
+  // The lathes' normals on their axis come out short (0.46 long at the floor's middle): unit length, or they shade wrong.
+  const g = b.build('gondola');
+  g.normalizeNormals();
+  return g;
 }
 
 /** The wheel's two rims sit this far (m) either side of its middle plane, and the hub's flanges this far out. */

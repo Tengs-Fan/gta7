@@ -3,11 +3,11 @@
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import { BEACH_W, CURB_H, DECK_SLAB, SEABED_Y, WATER_Y } from '../../world/constants';
-import { PARAPET_H, rectContains, sandHeight } from '../../world/layout';
+import { PARAPET_H, rectContains, sandHeight, type Rect } from '../../world/layout';
 import { foreshoreReach, shores, type Shore } from '../../world/shore';
 import { bluffRise, lookoutRail, type Rise } from '../../world/terrain';
 import type { StaticWorld } from '../../world/staticWorld';
-import { GeoBuilder } from '../geo';
+import { GeoBuilder, type RGB } from '../geo';
 import { pilingCentres, PILING_RADIUS } from '../sea';
 import type { CityView } from './index';
 import { setGroundAttribute } from './surfaces';
@@ -47,19 +47,31 @@ export function buildCoast(view: CityView): void {
   view.add(setGroundAttribute(sand.build(), []), sandMat, { name: 'beach' });
   view.add(walls.build(), view.surface('concrete', 1, 3), { name: 'quay' });
 
-  // The bridges over the canal and the bays: concrete slabs (the road's asphalt is drawn on the carriageway), parapets on
-  // the footways.
-  const bridges = new GeoBuilder(false);
-  const concrete = { uv: { kind: 'world', scale: 3 }, bottom: true } as const;
+  // The bridges over the canal and the bays: concrete slabs (the road's asphalt is drawn on the carriageway), each
+  // footway's parapet a balustrade on its collider (bridgeParapet), the lookout's rail the same. A mesh to each stretch
+  // of water (the canal's 8,700 triangles, the north bays', Pelican Harbor's, the lookout's), each drawn only where it is
+  // in view: as one mesh their 21,000 triangles went with every view of the city, and the city's 256 m cells gave the
+  // canal alone four draws.
+  const groups = new Map<string, GeoBuilder>();
+  const group = (r: Rect) => {
+    const key = r.minX >= CANAL_X0 && r.maxX <= CANAL_X1 ? 'canal' : r.maxZ < -400 ? 'north' : r.maxX < -400 ? 'west' : 'other';
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = new GeoBuilder(true)));
+    return g;
+  };
+  const concrete = { uv: { kind: 'world', scale: 3 }, bottom: true, color: [1, 1, 1] } as const;
   for (const d of view.world.layout.decks) {
     if (!d.bridge) continue;
     // The carriageway's top stays just under the asphalt; a footway's top is its paving.
-    bridges.box(d.rect.minX, d.y - 0.7, d.rect.minZ, d.rect.maxX, d.y > 0 ? d.y : d.y - 0.02, d.rect.maxZ, concrete);
+    group(d.rect).box(d.rect.minX, d.y - 0.7, d.rect.minZ, d.rect.maxX, d.y > 0 ? d.y : d.y - 0.02, d.rect.maxZ, concrete);
   }
-  for (const r of view.world.layout.parapets) bridges.box(r.minX, CURB_H, r.minZ, r.maxX, CURB_H + PARAPET_H, r.maxZ, concrete);
+  for (const r of view.world.layout.parapets) bridgeParapet(group(r), r, CURB_H);
   const rail = lookoutRail(view.world.layout);
-  bridges.box(rail.minX, rail.y, rail.minZ, rail.maxX, rail.y + PARAPET_H, rail.maxZ, concrete);
-  view.add(bridges.build(), view.wet.patch(view.surface('concrete', 1, 3)), { shadow: true, name: 'bridges', split: false });
+  bridgeParapet(group(rail), rail, rail.y);
+  const bridgeMat = view.surface('concrete', 1, 3);
+  bridgeMat.vertexColors = true;
+  const wetBridges = view.wet.patch(bridgeMat);
+  for (const g of groups.values()) view.add(g.build(), wetBridges, { shadow: true, name: 'bridges', split: false });
 
   // Piers.
   const deck = new GeoBuilder(false);
@@ -84,6 +96,48 @@ export function buildCoast(view: CityView): void {
     pm.instanceMatrix.needsUpdate = true;
     pm.computeBoundingSphere();
     view.group.add(pm);
+  }
+}
+
+/** Cortez Canal's bridges lie between these x (m): the canal's 32 m between its quays. */
+const CANAL_X0 = -192;
+const CANAL_X1 = -158;
+
+/** A balustrade's piers stand at most this far apart (m), and its parts' heights over its foot. */
+export const BALUSTRADE = { pierGap: 5, plinth: 0.6, coping: 0.7, pier: 1.2, rail: [0.84, 0.99] } as const;
+const RAIL_PAINT: RGB = [0.16, 0.26, 0.3];
+const COPING: RGB = [0.9, 0.9, 0.88];
+
+/**
+ * A parapet on its collider `r` (PARAPET_H tall from `y`, its length along its long side): a concrete plinth under a
+ * coping 5 cm proud of it, square piers with caps at both ends and at most BALUSTRADE.pierGap apart, and between them two
+ * painted steel rails up to the collider's height, so the water shows through over the plinth. About 10 triangles a
+ * metre, all within 5 cm of the collider and no higher than it.
+ */
+export function bridgeParapet(g: GeoBuilder, r: Rect, y: number): void {
+  const uv = { kind: 'world', scale: 3 } as const;
+  const alongX = r.maxX - r.minX >= r.maxZ - r.minZ;
+  const len = alongX ? r.maxX - r.minX : r.maxZ - r.minZ;
+  const a0 = alongX ? r.minX : r.minZ;
+  const c0 = alongX ? r.minZ : r.minX;
+  const c1 = alongX ? r.maxZ : r.maxX;
+  const cm = (c0 + c1) / 2;
+  /** A box from (a, c) to (b, d) along and across the parapet, y0 to y1. */
+  const box = (a: number, c: number, b: number, d: number, y0: number, y1: number, color: RGB, opts: { top?: boolean; bottom?: boolean } = {}) =>
+    alongX ? g.box(a, y0, c, b, y1, d, { uv, color, ...opts }) : g.box(c, y0, a, d, y1, b, { uv, color, ...opts });
+  box(a0, c0, a0 + len, c1, y, y + BALUSTRADE.plinth, [1, 1, 1], { top: false });
+  box(a0 - 0.02, c0 - 0.05, a0 + len + 0.02, c1 + 0.05, y + BALUSTRADE.plinth, y + BALUSTRADE.coping, COPING, { bottom: true });
+  const bays = Math.max(1, Math.ceil(len / BALUSTRADE.pierGap - 1e-6));
+  const top = y + PARAPET_H;
+  for (let i = 0; i <= bays; i++) {
+    const at = a0 + (len * i) / bays;
+    const p0 = Math.max(a0, at - 0.25);
+    const p1 = Math.min(a0 + len, at + 0.25);
+    box(p0, c0, p1, c1, y + BALUSTRADE.coping, top - 0.06, [1, 1, 1], { top: false });
+    box(p0 - 0.03, c0 - 0.03, p1 + 0.03, c1 + 0.03, top - 0.06, top, COPING, { bottom: true });
+    if (i === bays) continue;
+    const next = a0 + (len * (i + 1)) / bays;
+    for (const h of BALUSTRADE.rail) box(p1, cm - 0.04, Math.max(a0, next - 0.25), cm + 0.04, y + h - 0.04, y + h + 0.04, RAIL_PAINT, { bottom: true, top: h === BALUSTRADE.rail[1] });
   }
 }
 
