@@ -148,8 +148,9 @@ const CLOSE_SIDE = 0.2;
 const RAISE_DEPTH = 1.2;
 const RAISE_KEEP = 0.5;
 /**
- * The aim's narrower field of view (16 degrees less) leaves less of his body below his head in the frame at the same
- * depth, so in step with it his head rises toward the frame's middle by this fraction of RAISE_KEEP.
+ * The aim's narrower field of view (FOOT_FOV_AIM, 8 degrees under the foot lens) leaves less of his body below his head
+ * in the frame at the same depth, so in step with it his head rises toward the frame's middle by this fraction of
+ * RAISE_KEEP.
  */
 const RAISE_KEEP_AIM_CUT = 0.8;
 const RAISE_BOTTOM = 0.05;

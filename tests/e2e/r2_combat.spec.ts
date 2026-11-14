@@ -194,11 +194,12 @@ test.describe('combat feedback', () => {
       return { settled, hip, aimed, shots, baseFov: cam.baseFov };
     });
     expect(result.shots).toBe(1);
-    expect(result.settled.boom).toBeGreaterThan(4.2);
+    // The foot boom at rest is 3.2 m (FOOT_BOOM) on a lens 8 degrees under the setting (FOOT_FOV_REST); it was 4.3 m on the setting.
+    expect(result.settled.boom).toBeGreaterThan(3.1);
     for (const v of result.hip) {
-      expect(v.boom).toBeGreaterThanOrEqual(3.8);
-      expect(v.eye).toBeGreaterThanOrEqual(3.8);
-      expect(v.fov).toBeGreaterThanOrEqual(result.baseFov - 2);
+      expect(v.boom).toBeGreaterThanOrEqual(result.settled.boom - 0.05);
+      expect(v.eye).toBeGreaterThanOrEqual(3);
+      expect(v.fov).toBeGreaterThanOrEqual(result.baseFov - 8 - 2);
     }
     const last = result.aimed[result.aimed.length - 1]!;
     expect(last.boom).toBeLessThanOrEqual(2.6);
