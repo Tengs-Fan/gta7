@@ -194,12 +194,12 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
       [-.1, .03, .1, 0, 1, .06], [-.075, .085, .106, 0, 1, .09], [-.045, .15, .11, 0, 1, .108],
       [-.01, .182, .112, 0, 1, .124], [.03, .181, .116, 0, 1, .122], [.064, .174, .12],
       [.068, .177, .125], [.094, .175, .124], [.098, .166, .117],
-    ], 14, .84),
+    ], 12, .84),
     profile([
       [-.1, .03, .1, 0, 1, .062], [-.075, .09, .106, 0, 1, .096], [-.045, .158, .11, 0, 1, .114],
       [-.01, .19, .11, 0, 1, .128], [.03, .184, .112, 0, 1, .122], [.064, .168, .114, 0, 1, .116],
       [.068, .171, .118], [.094, .165, .117], [.098, .157, .11],
-    ], 14, .88),
+    ], 12, .88),
   );
   // Under the hip joints the front of the trousers narrows to the fly between the legs, and the legs take over: a full
   // seat in front, as wide as both thighs, read from the street as a pair of briefs worn over the trousers (round 9).
@@ -359,8 +359,8 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   ]);
   // An untucked top's hem, hanging over the waistband: on the torso's frame, a man's and a woman's shape.
   const hem = second(
-    profile([[.035, .186, .131, 0, .7], [.045, .187, .132], [.1, .181, .128], [.15, .165, .12], [.205, .152, .108]], 14, TORSO_ROUND, true),
-    profile([[.035, .182, .127, 0, .7], [.045, .183, .128], [.1, .17, .121], [.15, .146, .109], [.205, .13, .1]], 14, .88, true),
+    profile([[.035, .186, .131, 0, .7], [.045, .187, .132], [.1, .181, .128], [.15, .165, .12], [.205, .152, .108]], 12, TORSO_ROUND, true),
+    profile([[.035, .182, .127, 0, .7], [.045, .183, .128], [.1, .17, .121], [.15, .146, .109], [.205, .13, .1]], 12, .88, true),
   );
   // A shirt's or a jacket's collar: a band standing round the neck, folded down over itself, open in front where its
   // points lie on the chest. Its cross-section, as it goes round, from the inside foot to the outside edge.
@@ -402,7 +402,7 @@ export function characterGeometries(): Record<CharacterPartName, THREE.BufferGeo
   // dome met the torso's side in a crease and read as a sleeve stuck on.
   const shoulder = profile([
     [-.07, .04, .045], [-.04, .053, .058], [-.015, .06, .064], [0, .056, .061], [.01, .044, .05], [.016, .016, .02],
-  ], 10, .9, true);
+  ], 8, .9, true);
   const badge = merge([
     ellipsoid(.026, .033, .007, .1, .455, torsoZ(.1, .455) + .003, 0xd5b564),
     box(.061, .014, .009, -.1, .455, torsoZ(.1, .455) + .003, 0xb2bfca),

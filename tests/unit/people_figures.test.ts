@@ -21,6 +21,8 @@ interface Part {
   mesh: THREE.InstancedMesh;
   n: number;
   shape?: Float32Array;
+  trim?: Float32Array;
+  style?: Float32Array;
 }
 
 const parts = (cv: CrowdView): Record<string, Part> => (cv as unknown as { parts: Record<string, Part> }).parts;
@@ -144,7 +146,7 @@ describe('the figure', () => {
     // It ends inside the waistband, which is the hips' and wider than it.
     g.torso.computeBoundingBox();
     expect(g.torso.boundingBox!.min.y).toBeGreaterThan(0);
-    expect(girthAt(g.hips, 0.076).x).toBeGreaterThan(girthAt(g.torso, 0.06).x + 0.008);
+    expect(girthAt(g.hips, 0.094).x).toBeGreaterThan(girthAt(g.torso, 0.06).x + 0.008);
   });
 
   it("the torso and the hips carry a woman's shape too, vertex for vertex: narrower shoulders and waist, fuller chest and hip", () => {
@@ -165,7 +167,9 @@ describe('the figure', () => {
     expect(girthAt(tf, 0.17).x).toBeLessThan(girthAt(g.torso, 0.17).x - 0.015);
     expect(girthAt(second('hips'), -0.01).x).toBeGreaterThan(girthAt(g.hips, -0.01).x);
     // No other part has a second shape.
-    for (const [name, geo] of Object.entries(g)) if (name !== 'torso' && name !== 'hips') expect(geo.hasAttribute('positionB'), name).toBe(false);
+    // Nor do the parts that lie on them, the collar and an untucked hem, lack one; no other part has a second shape.
+    for (const name of ['collar', 'hem'] as const) expect(g[name].getAttribute('positionB').count, name).toBe(g[name].getAttribute('position').count);
+    for (const [name, geo] of Object.entries(g)) if (!['torso', 'hips', 'collar', 'hem'].includes(name)) expect(geo.hasAttribute('positionB'), name).toBe(false);
   });
 
   it('every way of wearing hair stays under the roof a rider is fitted to (vehicleView HEAD_TOPS: 0.34 up, 0.14 back)', () => {
@@ -178,13 +182,13 @@ describe('the figure', () => {
     }
   });
 
-  it('a person costs about what he did: under 3,400 triangles dressed plainly, 4,000 at most', () => {
+  it('a person costs about what he did: under 3,600 triangles dressed plainly, 4,600 at most (no distance level draws him cheaper)', () => {
     const t = (name: keyof typeof g): number => tris(g[name]);
-    const plain = t('torso') + t('hips') + t('head') + t('face') + t('hair') + t('neck') + 2 * (t('upperArm') + t('forearm') + t('hand') + t('thigh') + t('shin') + t('shoe'));
-    const most = plain + 2 * (t('sleeve') + t('shortLeg')) + Math.max(t('hairLong'), t('hairTail'), t('hairFull'), t('hairSweep'));
-    console.log(`[people] ${plain} triangles dressed plainly, ${most} at most (2,884 before round 9)`);
-    expect(plain).toBeLessThan(3400);
-    expect(most).toBeLessThanOrEqual(4000);
+    const plain = t('torso') + t('hips') + t('head') + t('face') + t('hair') + t('neck') + 2 * (t('upperArm') + t('forearm') + t('hand') + t('thigh') + t('shin') + t('shoe') + t('shoulder'));
+    const most = plain + 2 * (t('sleeve') + t('shortLeg')) + Math.max(t('hairLong'), t('hairTail'), t('hairFull'), t('hairSweep')) + t('collar') + t('hem') + t('glasses');
+    console.log(`[people] ${plain} triangles dressed plainly, ${most} at most (2,884 before round 9, 3,308 and 3,900 after its first pass)`);
+    expect(plain).toBeLessThan(3600);
+    expect(most).toBeLessThanOrEqual(4600);
   });
 });
 
@@ -241,8 +245,6 @@ describe('the figure in the crowd', () => {
       expect(parts(cv).hips!.shape![0]).toBe(shape);
       if (shape === 1) {
         women++;
-        // Cut to the man's torso, a jacket's panels are not put on hers.
-        expect(d.jacketTrim).toBe(0);
         // Her shoulders are drawn narrower.
         const sh = [0, 1].map((i) => origin(matrixAt(parts(cv).upperArm!, i)));
         expect(sh[0]!.distanceTo(sh[1]!) / 2).toBeCloseTo((DRAWN_SHOULDER.x * c.appearance.build + DRAWN_SHOULDER.pad) * WOMAN.shoulders, 4);
@@ -253,8 +255,20 @@ describe('the figure in the crowd', () => {
         expect(colourAt(arm, 0)).toBe(c.appearance.skin);
         expect(colourAt(parts(cv).sleeve!, 0)).toBe(c.appearance.shirt);
         expect(new THREE.Vector3().setFromMatrixColumn(matrixAt(arm, 0), 0).length()).toBeCloseTo(BARE_ARM * (shape === 1 ? WOMAN.arm : 1), 4);
-        expect(d.jacketTrim).toBe(0);
+        // No jacket (top 4) over short sleeves.
+        expect(parts(cv).torso!.style![0]).not.toBe(4);
       } else expect(colourAt(arm, 0)).toBe(c.appearance.shirt);
+      // A collar goes with a shirt or a jacket, and a hem worn over the belt has the top's colour and its woman's shape.
+      expect(d.collar).toBe([2, 4].includes(parts(cv).torso!.style![0]!) ? 1 : 0);
+      if (d.hem) {
+        expect(colourAt(parts(cv).hem!, 0)).toBe(c.appearance.shirt);
+        expect(parts(cv).hem!.shape![0]).toBe(shape);
+      }
+      // Two deltoids, in the shirt's colour.
+      expect(d.shoulder).toBe(2);
+      expect(colourAt(parts(cv).shoulder!, 0)).toBe(c.appearance.shirt);
+      // Each sits on its arm's shoulder joint, whatever his build or hers.
+      for (const i of [0, 1]) expect(origin(matrixAt(parts(cv).shoulder!, i)).distanceTo(origin(matrixAt(arm, i)))).toBeLessThan(1e-6);
       if (d.shortLeg) expect(colourAt(parts(cv).shin!, 0)).toBe(c.appearance.skin);
       else expect(colourAt(parts(cv).shin!, 0)).toBe(c.appearance.pants);
     }
@@ -271,10 +285,16 @@ describe('the figure in the crowd', () => {
   it('the player and the law are covered: his jacket and jeans, their uniforms with trousers, a riot squad in long sleeves', () => {
     const sim = makeSim({ world: world() });
     const me = drawn(sim.player, sim.player.id);
-    expect([me.sleeve, me.shortLeg, me.jacketTrim, me.shirtInset]).toEqual([0, 0, 1, 1]);
+    expect([me.sleeve, me.shortLeg, me.collar, me.hem]).toEqual([0, 0, 1, 1]);
     const cv = new CrowdView();
     cv.sync([sim.player], sim.player.pos.x, sim.player.pos.z, 1 / 60, sim.player.id);
     expect(parts(cv).torso!.shape![0]).toBe(0);
+    {
+      // His jacket (top 4) is zipped over the pale shirt; his jeans are stitched and belted.
+      const p = parts(cv);
+      expect(Array.from(p.torso!.style!.slice(0, 2))).toEqual([4, 1]);
+      expect(Array.from(p.hips!.style!.slice(0, 2))).toEqual([1, 1]);
+    }
     for (const c of row(120, 'cop').people) {
       const d = drawn(c);
       // Man or woman, an officer wears the badge.
@@ -346,8 +366,20 @@ describe('the figure in the crowd', () => {
     const depth = compile(torso.customDepthMaterial as THREE.Material, THREE.ShaderLib.depth);
     expect(depth.vertexShader).toContain('transformed = mix( transformed, positionB, instanceShape );');
     expect(compile(arm.customDepthMaterial as THREE.Material, THREE.ShaderLib.depth).vertexShader).not.toContain('instanceShape');
-    // Two programs, not one: three keys a program on the text of its patch.
-    expect(String((torso.material as THREE.Material).onBeforeCompile)).not.toBe(String((arm.material as THREE.Material).onBeforeCompile));
+    // Every painted part's paint lands, on the Standard program and on the software tier's Lambert one.
+    for (const lib of [THREE.ShaderLib.standard, THREE.ShaderLib.lambert]) {
+      for (const [name, p] of Object.entries(parts(cv))) {
+        if (!p.trim) continue;
+        const sh = compile(p.mesh.material as THREE.Material, lib);
+        expect(sh.vertexShader, name).toContain('vObj = transformed;');
+        expect(sh.fragmentShader, name).toContain('diffuseColor.rgb = col;');
+        expect(sh.fragmentShader, name).toContain('float pxFill(');
+      }
+    }
+    // Two programs, not one: three keys a program on the text of its patch, or on the key a painted part names.
+    const key = (m: THREE.Material) => m.customProgramCacheKey();
+    expect(key(torso.material as THREE.Material)).not.toBe(key(arm.material as THREE.Material));
+    expect(key(parts(cv).hips!.mesh.material as THREE.Material)).not.toBe(key(torso.material as THREE.Material));
   });
 
   it('someone standing idle breathes and looks about, to his own time, with his feet where they were; with a gun up he is still', () => {
