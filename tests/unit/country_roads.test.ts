@@ -335,7 +335,7 @@ describe('Las Lomas County: the Magnolia Causeway, the Southgate Bridge and thei
   });
 
   it('stands signal heads for the gateways\' eastbound approaches and every approach of the county\'s junctions', () => {
-    const heads = L.props.slice(L.country.firstProp).filter((p) => p.kind === 'signal');
+    const heads = L.props.slice(L.country.firstProp, L.firstQuaySignal).filter((p) => p.kind === 'signal');
     const at = (node: number, dir: number) => heads.filter((p) => p.node === node && p.dir === dir).length;
     expect(at(roads.node(0, 2).id, 1)).toBe(1);
     expect(at(roads.node(0, 8).id, 1)).toBe(1);

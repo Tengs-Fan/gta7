@@ -80,6 +80,8 @@ Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, 
 - **Coral Bay** (one cell) cuts into the south shore west of the beach.
 
 These bodies are drowned rather than left out: their blocks are generated as land, and once the street furniture stands, `drown()` removes the blocks and everything on them, closes the roads that bordered only them, keeps a signal only where three roads still meet on a live approach, and lets the water in.
+A signal stands on the corner at its approach's right, inside the block there, so the bays' blocks took 18 with them, though their corners stay dry (the quay keeps a sidewalk's width round every junction) and their approaches still run on a cycle.
+Those 18 stand again on their corners, appended after every other prop and their colliders after every other collider, so no older index or id moves.
 The shared generator therefore makes exactly the draws it made while they were land, so every other lamp, tree, hydrant and bench, building and parked car stays where it was; only what stood in the bays moved.
 Building ids keep their gaps, so facades and rooftops elsewhere keep their looks.
 The ring road is not closed with them: it crosses each bay's mouth on a bridge (a carriageway deck at road height, a footway deck either side and a parapet along each, like the canal's), so the coast road runs on.

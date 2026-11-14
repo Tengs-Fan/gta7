@@ -262,6 +262,11 @@ export interface CityLayout {
   monorail: Monorail;
   /** Las Lomas County across Lomas Sound (world/country): set by buildCountry, the last pass. */
   country: Country;
+  /**
+   * The signals on the drowned cells' corners stand last in `props`, from this index on, after the county's (see drown),
+   * so every older prop keeps its index.
+   */
+  firstQuaySignal: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -601,6 +606,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     bounds,
     monorail: noMonorail(),
     country: noCountry(),
+    firstQuaySignal: 0,
   };
 
   // Blocks: one per cell, one per superblock, none on a sea cell.
@@ -664,7 +670,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   }
 
   buildStreetFurniture(layout, rng, reserved);
-  drown(layout, SEA_BODIES.filter((w) => w.drowned));
+  const quaySignals = drown(layout, SEA_BODIES.filter((w) => w.drowned));
   // The coast draws from its own generator, so changes to the city's blocks leave the beach and promenade as they are.
   buildCoast(layout, new Rng(seed === CITY_SEED ? COAST_STATE : hashInts(seed, 6151)));
   buildRamps(layout);
@@ -678,6 +684,8 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   buildMonorail(layout);
   settleTerrain(layout);
   buildCountry(layout);
+  layout.firstQuaySignal = layout.props.length;
+  layout.props.push(...quaySignals);
 
   // Final sanity: never leave NaN in generated data.
   for (const b of layout.buildings) {
@@ -729,9 +737,12 @@ function layoutRoads(layout: CityLayout): void {
  * Gives the drowned bodies' cells to the sea once the city round them stands: their blocks and everything on them go,
  * the roads that bordered only them close, except the ring road, which crosses the bay's mouth on a bridge so the coast
  * road runs on and no junction on it is left with a single way out; a signal stays only where three roads still meet
- * on a live approach, and the water comes in.
+ * on a live approach, and the water comes in. A signal on a drowned cell's corner (PROP_INSET past both kerbs, inside
+ * the cell) goes with the cell's furniture, but its corner stays dry: the quay round the live roads keeps a sidewalk's
+ * width round each junction. Those whose approach still runs, 18 of them, are returned to stand last, after the
+ * county's props, so every older prop keeps its index and every older collider its id.
  */
-function drown(layout: CityLayout, bodies: readonly SeaBody[]): void {
+function drown(layout: CityLayout, bodies: readonly SeaBody[]): Prop[] {
   const { n } = layout;
   const gone: Rect[] = [];
   for (const body of bodies) {
@@ -745,6 +756,7 @@ function drown(layout: CityLayout, bodies: readonly SeaBody[]): void {
   layout.buildings = layout.buildings.filter((b) => dry(rectCX(b.rect), rectCZ(b.rect)));
   layout.ground = layout.ground.filter((g) => dry(rectCX(g.rect), rectCZ(g.rect)));
   layout.garages = layout.garages.filter((g) => dry(rectCX(g.rect), rectCZ(g.rect)));
+  const corners = layout.props.filter((p) => p.kind === 'signal' && !dry(p.x, p.z));
   layout.props = layout.props.filter((p) => dry(p.x, p.z));
   layout.parking = layout.parking.filter((p) => dry(p.x, p.z));
   layout.openSpots = layout.openSpots.filter((p) => dry(p.x, p.z));
@@ -765,14 +777,15 @@ function drown(layout: CityLayout, bodies: readonly SeaBody[]): void {
     if (key[0] === 'h') layout.roadH[j * n + i] = true;
     else layout.roadV[j * (n + 1) + i] = true;
   }
-  layout.props = layout.props.filter((p) => {
-    if (p.kind !== 'signal') return true;
-    const i = p.node! % (n + 1);
-    const j = Math.floor(p.node! / (n + 1));
+  const live = (p: Prop) => {
+    const i = p.node % (n + 1);
+    const j = Math.floor(p.node / (n + 1));
     const roads = [0, 1, 2, 3].filter((d) => roadFrom(layout, i, j, d));
-    return roads.length >= 3 && roads.includes((p.dir! + 2) % 4);
-  });
+    return roads.length >= 3 && roads.includes((p.dir + 2) % 4);
+  };
+  layout.props = layout.props.filter((p) => p.kind !== 'signal' || live(p));
   buildWater(layout, bodies, bridged);
+  return corners.filter(live);
 }
 
 /**

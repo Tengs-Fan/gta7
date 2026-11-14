@@ -109,8 +109,9 @@ describe('the telephone poles', () => {
     const poles = odd.solids.filter((s) => s.tag === 'rock' && s.round && s.y1 - s.y0 === POLE.h);
     expect(poles.length).toBe(odd.poles.length);
     const cs = W.grid.colliders;
-    // The oddities' colliders are the last of the grid's, in order, and none of them breaks.
-    const first = cs.length - odd.solids.length;
+    // The oddities' colliders are the last of the grid's but the drowned corners' signals' (layout.firstQuaySignal on), in
+    // order, and none of them breaks.
+    const first = cs.length - (L.props.length - L.firstQuaySignal) - odd.solids.length;
     expect(first).toBeGreaterThan(4000);
     for (const [k, s] of odd.solids.entries()) {
       const c = cs[first + k]!;
