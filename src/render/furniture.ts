@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AVENUE_W, LANE_W, PROP_INSET, STREET_W } from '../world/constants';
+import { sweep } from './shapeKit';
 
 /** A street lamp's luminaire point (props.ts LAMP_HEAD). */
 interface Head { readonly y: number; readonly reach: number }
@@ -135,49 +136,66 @@ function turned(profile: ReadonlyArray<readonly [number, number]>, seg: number, 
 /** The lamp's cast base: its height (m), its foot's radius and the pole's radius where it leaves it. */
 export const LAMP_BASE = { h: 0.92, r: 0.21, neck: 0.1 } as const;
 
-/**
- * The lamp standard: a cast base in a darker paint (a chamfered foot, a fluted bell with an access door, a moulded
- * ring), a smooth pole tapering from 0.1 to 0.06 m with a collar, and the arm, thick at the pole and thinner out to
- * the head (LAMP_HEAD), under a curled brace.
- */
-export function lampPoleGeometry(head: Head): THREE.BufferGeometry {
-  const { y, reach } = head;
-  const b = new ModelBuilder();
-  const { h, r, neck } = LAMP_BASE;
-  // Foot, chamfer, the fluted bell (twelve flutes on its waist), the moulding, the neck into the pole.
-  const profile = [[r, 0], [r, 0.05], [0.165, 0.1], [0.132, 0.68], [0.145, 0.72], [0.145, 0.79], [neck, h]] as const;
-  b.add('base', turned(profile, 10, (j, k) => (k >= 2 && k <= 3 && j % 2 === 1 ? 0.9 : 1)), 0xffffff, 0.5);
-  // The access door on the street side of the bell, a raised panel.
-  b.add('door', box(0.1, 0.2, 0.02, 0, 0.36, -0.148).rotateX(-0.06), 0xffffff, 0.44);
-  b.add('pole', cyl(0.06, neck, 6.36 - h, 12, 0, h, 0, true));
-  b.add('collar', cyl(0.082, 0.082, 0.06, 10, 0, 3.0, 0, true), 0xffffff, 0.8);
-  b.add('cap', new THREE.SphereGeometry(0.066, 8, 2, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 6.36, 0), 0xffffff, 0.85);
-  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.25, 0), v3(0, 6.78, 0.3), v3(0, y + 0.12, reach - 0.42));
-  b.add('arm', new THREE.TubeGeometry(curve, 8, 0.048, 6));
-  // A curved brace under the arm, from the pole up to it.
-  const brace = new THREE.CatmullRomCurve3([v3(0, 5.72, 0.04), v3(0, 5.9, 0.36), v3(0, 6.25, 0.56), v3(0, 6.58, 0.66)]);
-  b.add('arm', new THREE.TubeGeometry(brace, 6, 0.02, 4), 0xffffff, 0.85);
-  return b.build('lamp-pole');
+/** The arm: from the pole's top up and over to the luminaire's clamp (LAMP_HEAD), and its radius along it. */
+function lampArm(head: Head): { curve: THREE.QuadraticBezierCurve3; r: (t: number) => number } {
+  return { curve: new THREE.QuadraticBezierCurve3(v3(0, 6.25, 0), v3(0, 6.8, 0.3), v3(0, head.y + 0.12, head.reach - 0.42)), r: (t) => 0.062 - 0.018 * t };
 }
 
 /**
- * The luminaire: a housing that swells from where the arm enters to its widest over the lens and narrows to a rounded
- * nose, a light skirt round the lens, the arm's clamp and a photocell on top.
+ * The lamp standard: a cast base in a darker paint (a chamfered foot, a fluted bell with an access door, a moulded
+ * ring), a smooth pole tapering from 0.1 to 0.06 m with a collar, and the arm, 12 cm thick at the pole and 9 cm at the
+ * head (LAMP_HEAD), over a brace with a ring in its curve: from a car the arm and the luminaire are what reads.
+ * `far`: the lamp a far batch draws (PropsView's distance level), a tapered shaft and the arm, 56 triangles.
  */
-export function lampHeadGeometry(head: Head): THREE.BufferGeometry {
+export function lampPoleGeometry(head: Head, far = false): THREE.BufferGeometry {
+  const b = new ModelBuilder();
+  const { h, r, neck } = LAMP_BASE;
+  const arm = lampArm(head);
+  const armPath = Array.from({ length: 9 }, (_, k) => arm.curve.getPoint(k / 8));
+  if (far) {
+    b.add('base', cyl(0.15, r, h, 6, 0, 0, 0, true), 0xffffff, 0.5);
+    b.add('pole', cyl(0.06, neck, 6.36 - h, 6, 0, h, 0, true));
+    b.add('arm', sweep(armPath, arm.r, 4, { segments: 4, caps: false }));
+    return b.build('lamp-pole-far');
+  }
+  // Foot, chamfer, the fluted bell (ten flutes on its waist), the moulding, the neck into the pole.
+  const profile = [[r, 0], [r, 0.05], [0.165, 0.1], [0.132, 0.68], [0.145, 0.72], [0.145, 0.79], [neck, h]] as const;
+  b.add('base', turned(profile, 10, (j, k) => (k >= 2 && k <= 3 && j % 2 === 1 ? 0.9 : 1)), 0xffffff, 0.5);
+  // The access door on the pavement side of the bell, a raised panel.
+  b.add('door', box(0.1, 0.2, 0.02, 0, 0.36, -0.148).rotateX(-0.06), 0xffffff, 0.44);
+  b.add('pole', cyl(0.06, neck, 6.36 - h, 12, 0, h, 0, true));
+  b.add('collar', cyl(0.082, 0.082, 0.06, 10, 0, 3.0, 0, true), 0xffffff, 0.8);
+  b.add('collar', cyl(0.075, 0.075, 0.05, 10, 0, 5.62, 0, true), 0xffffff, 0.8);
+  b.add('cap', new THREE.SphereGeometry(0.066, 8, 2, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 6.36, 0), 0xffffff, 0.85);
+  b.add('arm', sweep(armPath, arm.r, 7, { segments: 10, caps: false }));
+  // The brace, from the collar under the arm up to it, and a ring standing in its curve.
+  const brace = [v3(0, 5.66, 0.06), v3(0, 5.86, 0.38), v3(0, 6.22, 0.6), v3(0, 6.6, 0.72)];
+  b.add('arm', sweep(brace, 0.024, 4, { segments: 6, caps: false }), 0xffffff, 0.85);
+  b.add('arm', new THREE.TorusGeometry(0.085, 0.017, 4, 10).rotateY(Math.PI / 2).translate(0, 6.08, 0.24), 0xffffff, 0.85);
+  return b.build('lamp-pole');
+}
+
+/** The luminaire's plan and section along z: [z from the head point, half width, rise above the skirt]. */
+const LAMP_SHELL: ReadonlyArray<readonly [number, number, number]> = [[-0.45, 0.09, 0.085], [-0.28, 0.18, 0.185], [0.02, 0.225, 0.2], [0.3, 0.18, 0.13], [0.45, 0.07, 0.05]];
+
+/**
+ * The luminaire: a housing that swells from where the arm enters to its widest over the lens and narrows to a rounded
+ * nose, a raised spine down its top that catches the light, a light skirt round the lens, the arm's clamp and a
+ * photocell on top. `far`: the housing alone on four sides a section and three sections, 24 triangles.
+ */
+export function lampHeadGeometry(head: Head, far = false): THREE.BufferGeometry {
   const { y, reach } = head;
   const b = new ModelBuilder();
-  // Along z: [z from the head point, half width, rise above the skirt]; the shell's centre is the head point.
-  const shell: ReadonlyArray<readonly [number, number, number]> = [[-0.45, 0.085, 0.075], [-0.28, 0.17, 0.16], [0.02, 0.205, 0.165], [0.3, 0.165, 0.105], [0.45, 0.065, 0.04]];
-  const seg = 10;
+  const shell = far ? [LAMP_SHELL[0]!, LAMP_SHELL[2]!, LAMP_SHELL[4]!] : LAMP_SHELL;
+  const seg = far ? 4 : 12;
   const pos: number[] = [];
   const idx: number[] = [];
   for (const [z, w, up] of shell) {
     for (let j = 0; j <= seg; j++) {
-      // Half a superellipse over the skirt, from one side round the top to the other.
+      // Half a superellipse over the skirt, from one side round the top to the other, with the spine's crest on top.
       const a = (j / seg) * Math.PI;
       const c = Math.cos(a), s = Math.sin(a);
-      pos.push(w * Math.sign(c) * Math.abs(c) ** 0.7, y + 0.045 + up * Math.abs(s) ** 0.8, reach + z);
+      pos.push(w * Math.sign(c) * Math.abs(c) ** 0.7, y + 0.045 + up * (0.9 * Math.abs(s) ** 0.8 + 0.1 * Math.abs(s) ** 16), reach + z);
     }
   }
   for (let i = 0; i < shell.length - 1; i++) {
@@ -201,14 +219,15 @@ export function lampHeadGeometry(head: Head): THREE.BufferGeometry {
   dome.setIndex(idx);
   dome.computeVertexNormals();
   b.add('head', dome);
+  if (far) return b.build('lamp-head-far');
   // The skirt: a flat band round the lens at the housing's foot, outline in the shell's plan.
   const rim: THREE.Vector2[] = [];
   for (const [z, w] of shell) rim.push(new THREE.Vector2(w, z));
   for (const [z, w] of [...shell].reverse()) rim.push(new THREE.Vector2(-w, z));
   const skirt = new THREE.ExtrudeGeometry(new THREE.Shape(rim), { depth: 0.02, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, y + 0.045, reach);
   b.add('skirt', skirt, 0xd8dcdf, 1);
-  b.add('clamp', new THREE.CylinderGeometry(0.058, 0.066, 0.14, 6).rotateX(Math.PI / 2).translate(0, y + 0.12, reach - 0.38), 0xffffff, 0.75);
-  b.add('photocell', cyl(0.032, 0.038, 0.05, 6, 0, y + 0.2, reach - 0.1), 0x6a6e72);
+  b.add('clamp', new THREE.CylinderGeometry(0.062, 0.07, 0.14, 6).rotateX(Math.PI / 2).translate(0, y + 0.12, reach - 0.38), 0xffffff, 0.75);
+  b.add('photocell', cyl(0.032, 0.038, 0.05, 6, 0, y + 0.235, reach - 0.1), 0x6a6e72);
   return b.build('lamp-head');
 }
 
@@ -221,10 +240,10 @@ export function lampShadowGeometry(head: Head): THREE.BufferGeometry {
   const b = new ModelBuilder();
   b.add('base', box(0.3, LAMP_BASE.h, 0.3, 0, LAMP_BASE.h / 2, 0));
   b.add('pole', cyl(0.06, LAMP_BASE.neck, 6.36 - LAMP_BASE.h, 6, 0, LAMP_BASE.h, 0, true));
-  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.25, 0), v3(0, 6.78, 0.3), v3(0, y + 0.12, reach - 0.42));
+  const { curve } = lampArm(head);
   const pts = [0, 1 / 3, 2 / 3, 1].map((t) => curve.getPoint(t));
   for (let k = 0; k < 3; k++) b.add('arm', beam(pts[k]!, pts[k + 1]!, 0.09));
-  b.add('head', box(0.4, 0.16, 0.9, 0, y + 0.11, reach));
+  b.add('head', box(0.44, 0.19, 0.9, 0, y + 0.125, reach));
   return b.build('shadow-lamp');
 }
 
@@ -503,7 +522,8 @@ export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
 /** A fire hydrant: base flange, barrel, top ring, bonnet with its operating nut, two hose nozzles with caps and a pumper. */
 export function hydrantGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
-  const red = 0xffffff;
+  // Red paint; the caps and the nut bare metal, a second tone (the material is white, so these are the colours).
+  const red = 0xc0281c;
   b.add('base', cyl(0.19, 0.2, 0.07, 12, 0, 0, 0, true), red, 0.8);
   b.add('body', cyl(0.15, 0.16, 0.5, 12, 0, 0.07, 0, true), red);
   b.add('ring', cyl(0.175, 0.175, 0.045, 12, 0, 0.55, 0), red, 0.85);
@@ -521,20 +541,41 @@ export function hydrantGeometry(): THREE.BufferGeometry {
 const WOOD = 0x9a6a3e;
 const IRON = 0x2b2d31;
 
-/** A park bench: seven wooden slats (four in the seat, three in the back) on two cast-iron side frames with armrests. */
+/** The bench's seat: the top of its slats (m) and their front and back edges (local z), where a sitter's weight goes. */
+export const BENCH_SEAT = { top: 0.4625, front: 0.145, back: -0.205 } as const;
+
+/**
+ * A park bench: five seat slats and three back slats, each a wooden board with the edges of its face taken off and a
+ * tone of its own, on two cast-iron sides (a front leg that curls up into the armrest's support, a back leg that sweeps
+ * up the back), joined by the seat rail, with a stretcher between the sides. The seat is where BENCH_SEAT says, as the
+ * d98da7b bench's was.
+ */
 export function benchGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
-  [-0.165, -0.075, 0.015, 0.105].forEach((z, i) => b.add('slat', box(1.8, 0.035, 0.08, 0, 0.445, z), WOOD, 0.92 + (i % 2) * 0.08));
-  // The back leans 14 degrees.
+  const { top, front, back } = BENCH_SEAT;
+  const t = 0.035;
+  const gap = 0.012;
+  const n = 5;
+  const deep = (front - back - gap * (n - 1)) / n;
+  const tones = [0.88, 1.0, 0.93, 1.05, 0.9];
+  // A board 1.8 m long, the two edges of its face (+y of the shape) taken off 7 mm.
+  const board = (w: number, h: number) => {
+    const c = 0.007;
+    const shape = new THREE.Shape([new THREE.Vector2(-w / 2, -h / 2), new THREE.Vector2(w / 2, -h / 2), new THREE.Vector2(w / 2, h / 2 - c), new THREE.Vector2(w / 2 - c, h / 2), new THREE.Vector2(-w / 2 + c, h / 2), new THREE.Vector2(-w / 2, h / 2 - c)]);
+    return new THREE.ExtrudeGeometry(shape, { depth: 1.8, bevelEnabled: false }).translate(0, 0, -0.9).rotateY(Math.PI / 2);
+  };
+  for (let k = 0; k < n; k++) b.add('slat', board(deep, t).translate(0, top - t / 2, back + deep / 2 + k * (deep + gap)), WOOD, tones[k]!);
+  // The back leans 14 degrees, its slats' faces to the sitter.
   const lean = 0.25;
-  [0.6, 0.73, 0.86].forEach((y, i) => b.add('slat', box(1.8, 0.085, 0.028, 0, y, -0.19 - (y - 0.5) * lean).rotateX(0), WOOD, 0.95 + (i % 2) * 0.06));
+  [0.6, 0.73, 0.86].forEach((y, i) => b.add('slat', board(0.085, 0.028).rotateX(Math.PI / 2 - 0.24).translate(0, y, -0.19 - (y - 0.5) * lean), WOOD, tones[(i + 2) % n]! * 0.97));
   for (const x of [-0.78, 0.78]) {
-    b.add('leg', beam(v3(x, 0, 0.15), v3(x, 0.66, 0.12), 0.045), IRON);
-    b.add('leg', beam(v3(x, 0, -0.16), v3(x, 0.94, -0.24), 0.045), IRON);
+    const frontLeg = [v3(x, 0, 0.16), v3(x, 0.3, 0.13), v3(x, 0.52, 0.11), v3(x, 0.66, 0.15)];
+    const backLeg = [v3(x, 0, -0.2), v3(x, 0.32, -0.16), v3(x, 0.6, -0.21), v3(x, 0.95, -0.285)];
+    for (const path of [frontLeg, backLeg]) b.add('leg', sweep(path, 0.024, 4, { segments: 4, caps: false }), IRON);
+    b.add('foot', box(0.06, 0.02, 0.09, x, 0.01, 0.16), IRON);
+    b.add('foot', box(0.06, 0.02, 0.09, x, 0.01, -0.2), IRON);
     b.add('frame', box(0.045, 0.04, 0.4, x, 0.415, -0.02), IRON);
     b.add('armrest', box(0.06, 0.035, 0.42, x, 0.665, -0.01), IRON);
-    b.add('foot', box(0.07, 0.02, 0.1, x, 0.01, 0.15), IRON);
-    b.add('foot', box(0.07, 0.02, 0.1, x, 0.01, -0.16), IRON);
   }
   b.add('frame', box(1.56, 0.03, 0.03, 0, 0.12, -0.02), IRON);
   return b.build('bench');
@@ -543,14 +584,18 @@ export function benchGeometry(): THREE.BufferGeometry {
 /** A litter bin: base ring, ribbed body, rolled rim and a domed lid with its slot. */
 export function binGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
-  b.add('base', cyl(0.25, 0.26, 0.06, 12, 0, 0, 0, true), 0xffffff, 0.7);
-  b.add('body', cyl(0.27, 0.25, 0.82, 12, 0, 0.06, 0, true));
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    b.add('rib', box(0.04, 0.78, 0.025, Math.sin(a) * 0.268, 0.47, Math.cos(a) * 0.268).rotateY(0), 0xffffff, 0.82);
+  // A green body in vertical slats; the base, rim and lid a charcoal casting (the material is white).
+  const green = 0x1e4d2b;
+  const cast = 0x2a2d31;
+  b.add('base', cyl(0.25, 0.26, 0.06, 12, 0, 0, 0, true), cast, 0.9);
+  b.add('body', cyl(0.27, 0.25, 0.82, 12, 0, 0.06, 0, true), green, 0.8);
+  for (let i = 0; i < 12; i++) {
+    const a = ((i + 0.5) / 12) * Math.PI * 2;
+    b.add('rib', box(0.07, 0.76, 0.02).rotateY(a).translate(Math.sin(a) * 0.268, 0.47, Math.cos(a) * 0.268), green, 1.05);
   }
-  b.add('rim', new THREE.TorusGeometry(0.278, 0.025, 3, 12).rotateX(Math.PI / 2).translate(0, 0.885, 0), 0xffffff, 0.8);
-  b.add('lid', new THREE.SphereGeometry(0.27, 12, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.4, 1).translate(0, 0.89, 0), 0xffffff, 0.92);
+  b.add('band', cyl(0.275, 0.275, 0.04, 12, 0, 0.14, 0, true), cast);
+  b.add('rim', new THREE.TorusGeometry(0.278, 0.025, 3, 12).rotateX(Math.PI / 2).translate(0, 0.885, 0), cast, 1.1);
+  b.add('lid', new THREE.SphereGeometry(0.27, 12, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.4, 1).translate(0, 0.89, 0), cast, 1.2);
   b.add('slot', box(0.24, 0.05, 0.04, 0, 0.93, 0.21), 0x111111);
   return b.build('bin');
 }
@@ -673,17 +718,14 @@ export function surfboardGeometry(): THREE.BufferGeometry {
   return b.build('surfboard');
 }
 
-/** A 2 m run of white picket fence along local x: a post, two rails and eight pointed pickets, flat boards seen from both sides. */
+/** A 2 m run of white picket fence along local x: a post with a capped top, two rails and eight pointed pickets 2 cm thick. */
 export const FENCE_RUN = 2;
 export function fenceGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
   const white = 0xf3f1ea;
-  const board = (part: string, g: THREE.BufferGeometry, shade: number) => {
-    b.add(part, g.clone(), white, shade);
-    b.add(part, flipped(g), white, shade * 0.9);
-  };
-  b.add('post', box(0.08, 1.05, 0.08, -FENCE_RUN / 2 + 0.04, 0.525, 0), white, 0.92);
-  for (const y of [0.32, 0.78]) board('rail', new THREE.PlaneGeometry(FENCE_RUN, 0.07).translate(0, y, -0.025), 0.86);
+  b.add('post', box(0.08, 1.0, 0.08, -FENCE_RUN / 2 + 0.04, 0.5, 0), white, 0.92);
+  b.add('post', new THREE.ConeGeometry(0.065, 0.06, 4, 1).rotateY(Math.PI / 4).translate(-FENCE_RUN / 2 + 0.04, 1.03, 0), white, 0.88);
+  for (const y of [0.32, 0.78]) b.add('rail', box(FENCE_RUN, 0.07, 0.022, 0, y, -0.03), white, 0.86);
   const picket = new THREE.Shape();
   picket.moveTo(-0.0375, 0);
   picket.lineTo(0.0375, 0);
@@ -691,20 +733,34 @@ export function fenceGeometry(): THREE.BufferGeometry {
   picket.lineTo(0, 0.95);
   picket.lineTo(-0.0375, 0.86);
   picket.closePath();
-  for (let k = 0; k < 8; k++) board('picket', new THREE.ShapeGeometry(picket).translate(-FENCE_RUN / 2 + 0.17 + k * 0.235, 0, 0), 1);
+  const board = new THREE.ExtrudeGeometry(picket, { depth: 0.02, bevelEnabled: false }).translate(0, 0, -0.01);
+  for (let k = 0; k < 8; k++) b.add('picket', board.clone().translate(-FENCE_RUN / 2 + 0.17 + k * 0.235, 0, 0), white, k % 3 === 1 ? 0.96 : 1);
+  board.dispose();
   return b.build('fence');
 }
 
+/** A kerbside mailbox: a post on a foot, an arm under the box, the rounded box with its door at the front (+z) and the flag. */
 export function mailboxGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
   b.add('post', box(0.08, 1.0, 0.08, 0, 0.5, 0), 0x6b4a2b);
+  b.add('post', box(0.14, 0.04, 0.14, 0, 0.02, 0), 0x5a3e24);
+  b.add('post', box(0.06, 0.05, 0.4, 0, 0.975, 0), 0x6b4a2b, 0.9);
   b.add('box', box(0.2, 0.16, 0.46, 0, 1.08, 0), 0xffffff);
   b.add('box', new THREE.CylinderGeometry(0.1, 0.1, 0.46, 10, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(0, 1.16, 0), 0xffffff);
+  // The door, a little proud of the box and darker, with its latch.
+  const door = new THREE.Shape();
+  door.moveTo(-0.105, 0);
+  door.lineTo(0.105, 0);
+  door.lineTo(0.105, 0.08);
+  door.absarc(0, 0.08, 0.105, 0, Math.PI, false);
+  door.closePath();
+  b.add('door', new THREE.ExtrudeGeometry(door, { depth: 0.012, bevelEnabled: false, curveSegments: 5 }).translate(0, 0.998, 0.23), 0xffffff, 0.78);
+  b.add('door', box(0.03, 0.02, 0.02, 0, 1.14, 0.25), 0x2a2a2a);
   b.add('flag', box(0.015, 0.2, 0.05, 0.11, 1.2, -0.12), 0xd03a2a);
   return b.build('mailbox');
 }
 
-/** A clipped garden shrub: a lumpy low mass. */
+/** A clipped garden shrub (the fallback when there is no leaf material to draw the yards' shrubs with): a lumpy low mass. */
 export function shrubGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
   const lumps: Array<[number, number, number, number]> = [[0, 0.32, 0, 0.42], [0.3, 0.26, 0.08, 0.3], [-0.28, 0.24, -0.06, 0.3], [0.05, 0.5, -0.05, 0.28]];
@@ -721,16 +777,41 @@ export function shrubGeometry(): THREE.BufferGeometry {
   return b.build('shrub');
 }
 
+/**
+ * A terracotta planter by the door: a tapered pot with a rolled rim, dark soil, a fan of strap leaves (each a folded blade
+ * seen from both sides) and six flower heads, pentagons of colour round a yellow eye.
+ */
 export function planterGeometry(): THREE.BufferGeometry {
   const b = new ModelBuilder();
-  b.add('pot', cyl(0.3, 0.24, 0.42, 10, 0, 0, 0, true), 0xb4643c);
-  b.add('soil', new THREE.CircleGeometry(0.28, 10).rotateX(-Math.PI / 2).translate(0, 0.4, 0), 0x3b2a1d);
+  b.add('pot', turned([[0.24, 0], [0.29, 0.36], [0.325, 0.38], [0.33, 0.42], [0.3, 0.43]], 12), 0xb4643c);
+  b.add('soil', new THREE.CircleGeometry(0.3, 12).rotateX(-Math.PI / 2).translate(0, 0.41, 0), 0x3b2a1d);
+  const blade = (a: number, len: number, lean: number): THREE.BufferGeometry => {
+    const out = v3(Math.sin(a), 0, Math.cos(a));
+    const side = v3(Math.cos(a), 0, -Math.sin(a));
+    const root = v3(0, 0.41, 0).addScaledVector(out, 0.04);
+    const tip = root.clone().addScaledVector(out, len * lean).add(v3(0, len, 0));
+    const mid = root.clone().lerp(tip, 0.5).addScaledVector(out, 0.03);
+    const pts = [root, mid.clone().addScaledVector(side, 0.035), tip, mid.clone().addScaledVector(side, -0.035), mid.clone().add(v3(0, 0.012, 0))];
+    const pos: number[] = [];
+    for (const [i, j, k] of [[0, 1, 4], [4, 1, 2], [0, 4, 3], [4, 2, 3]]) pos.push(...pts[i]!.toArray(), ...pts[j]!.toArray(), ...pts[k]!.toArray());
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    return g;
+  };
+  for (let k = 0; k < 9; k++) {
+    const g = blade(k * 2.4, 0.2 + (k % 3) * 0.05, 0.5 + (k % 2) * 0.3);
+    b.add('leaves', g.clone(), 0x3e6e2e, 0.9 + (k % 3) * 0.08);
+    b.add('leaves', flipped(g), 0x3e6e2e, 0.8);
+  }
   const colors = [0xe0425b, 0xf2c14e, 0xffffff, 0xd96bd6];
   for (let k = 0; k < 6; k++) {
     const a = k * 2.4;
     const r = 0.05 + (k % 3) * 0.07;
-    b.add('leaves', new THREE.OctahedronGeometry(0.11, 0).translate(Math.sin(a) * r, 0.47 + (k % 2) * 0.05, Math.cos(a) * r), 0x3e6e2e);
-    b.add('flower', new THREE.OctahedronGeometry(0.055, 0).translate(Math.sin(a) * r, 0.58 + (k % 2) * 0.05, Math.cos(a) * r), colors[k % colors.length]!);
+    const flower = new THREE.CircleGeometry(0.055, 5).rotateX(-Math.PI / 2 + 0.3).rotateY(a).translate(Math.sin(a) * r, 0.6 + (k % 2) * 0.05, Math.cos(a) * r);
+    b.add('flower', flower.clone(), colors[k % colors.length]!);
+    b.add('flower', flipped(flower), colors[k % colors.length]!, 0.7);
+    b.add('flower', new THREE.OctahedronGeometry(0.015, 0).translate(Math.sin(a) * r, 0.61 + (k % 2) * 0.05, Math.cos(a) * r), 0xf2c14e);
   }
   return b.build('planter');
 }

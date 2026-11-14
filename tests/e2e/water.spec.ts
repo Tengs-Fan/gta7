@@ -23,7 +23,9 @@ test.describe('the sea', () => {
       g.setTime(12);
       g.teleport(-509, -100);
       g.give('rocket', 4);
-      g.setCamera(-Math.PI / 2, -0.5);
+      // Looking out over the rocks: from the camera 3.2 m behind him, a view pitched further down meets the promenade
+      // a few metres ahead, short of the sea.
+      g.setCamera(-Math.PI / 2, -0.12);
       const w = window as unknown as { __waterEvents: Array<{ kind: string; y: number }> };
       w.__waterEvents = [];
       g.sim.events.on('explosion', (e: { y: number }) => w.__waterEvents.push({ kind: 'explosion', y: e.y }));

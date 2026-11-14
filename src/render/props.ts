@@ -16,7 +16,7 @@ import { adTexture, AD_COUNT, barkTextures, glowTexture, groundTexture, radialTe
 import { DARK_SIGNAL, hasOpposite, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, PINE_REACH, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
-import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, cypressTrunkGeometry, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
+import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, cypressTrunkGeometry, LEAF_CARDS_FAR, palmFrondsGeometry, palmTrunkGeometry, treeTrunkFarGeometry, treeTrunkGeometry } from './foliage';
 import {
   benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
   lampPoleGeometry, lampTubeGeometry, lifeguardGeometry, loungerGeometry, mailboxGeometry, planterGeometry, posterGeometry, railGeometry, shelvingGeometry, shrubGeometry,
@@ -65,6 +65,31 @@ function cyl(rt: number, rb: number, h: number, seg: number, x = 0, y = 0, z = 0
 
 /** Foliage dissolves within this distance (m) of the camera, completely nearer than FADE_NEAR. */
 export const FOLIAGE_FADE_FAR = 2.5;
+/** Past this distance (m, in plan) from every instance of a tree or lamp batch, the batch draws its far model (PropsView.pickLods). */
+export const LOD_FAR = 60;
+
+/** A view of `g` (its own attributes, shared) that draws only its first `vertices`, with g's bounds. */
+function firstOf(g: THREE.BufferGeometry, vertices: number): THREE.BufferGeometry {
+  const f = new THREE.BufferGeometry();
+  for (const [name, a] of Object.entries(g.attributes)) f.setAttribute(name, a);
+  f.setDrawRange(0, vertices);
+  f.name = `${g.name}-far`;
+  f.userData = { ...g.userData };
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  if (!g.boundingBox) g.computeBoundingBox();
+  f.boundingSphere = g.boundingSphere!.clone();
+  f.boundingBox = g.boundingBox!.clone();
+  return f;
+}
+
+/** `far` with `near`'s bounds, so the batch's frustum bounds hold for either. */
+function boundedAs(far: THREE.BufferGeometry, near: THREE.BufferGeometry): THREE.BufferGeometry {
+  if (!near.boundingSphere) near.computeBoundingSphere();
+  if (!near.boundingBox) near.computeBoundingBox();
+  far.boundingSphere = near.boundingSphere!.clone();
+  far.boundingBox = near.boundingBox!.clone();
+  return far;
+}
 const FADE_NEAR = 1.2;
 
 /** Share of foliage fragments at `d` m from the camera that the dissolve keeps (see fadeNearCamera). */
@@ -130,6 +155,7 @@ vFadeWorld = ( modelMatrix * fadeWorld ).xyz;`,
         '#include <common>',
         `#include <common>
 varying vec3 vFadeWorld;
+uniform float uFoliageCoverage;
 float fadeBayer4( vec2 frag ) {
   const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
   ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
@@ -145,8 +171,12 @@ float fadeBayer4( vec2 frag ) {
 }`,
       )
       .replace('#include <alphatest_fragment>', `${FOLIAGE_COVERAGE}\n#include <alphatest_fragment>`);
+    shader.uniforms.uFoliageCoverage = foliageCoverage;
   };
 }
+
+/** The coverage boost per mip level (FOLIAGE_COVERAGE): a quarter on High, none on the lower tiers (PropsView.setDetail). */
+const foliageCoverage = { value: 0.25 };
 
 /**
  * Keeps alpha-tested leaves as full far away as near: a mip level averages a spray's leaves with the gaps between them,
@@ -159,7 +189,7 @@ export const FOLIAGE_COVERAGE = /* glsl */ `
   vec2 coverageTexel = vMapUv * vec2( textureSize( map, 0 ) );
   vec2 coverageX = dFdx( coverageTexel ), coverageY = dFdy( coverageTexel );
   float coverageLod = max( 0.0, 0.5 * log2( max( dot( coverageX, coverageX ), dot( coverageY, coverageY ) ) ) );
-  diffuseColor.a *= 1.0 + 0.25 * coverageLod;
+  diffuseColor.a *= 1.0 + uFoliageCoverage * coverageLod;
 }
 #endif`;
 
@@ -724,6 +754,10 @@ export class PropsView {
     uOccFade: { value: new THREE.Vector4(...OCCLUDER_OFF) },
   };
   private readonly occluders: Occluder[] = [];
+  /** Batches with a far model (pickLods): the near and far geometry and the plan box (min x, min z, max x, max z) of their instances. */
+  private readonly lods: Array<{ mesh: THREE.InstancedMesh; near: THREE.BufferGeometry; far: THREE.BufferGeometry; box: [number, number, number, number]; trunk: boolean }> = [];
+  /** Full detail (High): see setDetail. */
+  private detail = true;
   private readonly occByProp = new Map<number, Occluder>();
   /** Standing occluders by OCC_CELL cell of their foot; fallen ones (a knocked-over signal) are looked at separately. */
   private readonly occCells = new Map<string, Occluder[]>();
@@ -761,9 +795,9 @@ export class PropsView {
     this.buildPalms(get('palm'));
     this.buildLamps(get('lamp'));
     this.buildSignals(get('signal'));
-    this.buildSimple(get('hydrant'), hydrantGeometry(), new THREE.MeshStandardMaterial({ color: 0xc0281c, vertexColors: true, roughness: 0.45, metalness: 0.1 }));
+    this.buildSimple(get('hydrant'), hydrantGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45, metalness: 0.1 }));
     this.buildSimple(get('bench'), benchGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.15 }));
-    this.buildSimple(get('bin'), binGeometry(), new THREE.MeshStandardMaterial({ color: 0x1e4d2b, vertexColors: true, roughness: 0.6, metalness: 0.3 }));
+    this.buildSimple(get('bin'), binGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.3 }));
     this.buildContainers(get('container'));
     this.buildCorn(get('corn'));
     this.makeInstanced(pumpkinGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.55 }), get('pumpkin'), PropsView.standard, {
@@ -815,6 +849,37 @@ export class PropsView {
     this.visibility.update(x, z, city);
     this.countyVisibility.update(x, z, county);
     this.cullSignalQuads();
+    this.pickLods(x, z);
+  }
+
+  /**
+   * The distance level: a tree or lamp batch whose every instance stands more than LOD_FAR m from the camera (in plan)
+   * draws its far model, the same batch with a cheaper geometry, so no draw is added. A city view's frustum takes 250 to
+   * 700 trees and 250 to 1,000 lamps in whole 256 m cells, most of them far.
+   */
+  private pickLods(x: number, z: number): void {
+    for (const l of this.lods) {
+      const dx = Math.max(l.box[0] - x, 0, x - l.box[2]);
+      const dz = Math.max(l.box[1] - z, 0, z - l.box[3]);
+      const geo = (l.trunk && !this.detail) || dx * dx + dz * dz > LOD_FAR * LOD_FAR ? l.far : l.near;
+      if (l.mesh.geometry !== geo) l.mesh.geometry = geo;
+    }
+  }
+
+  /**
+   * High draws the trees in full; Medium, Low and the software tier draw every trunk with its far model (54 triangles,
+   * 84 before the trees' pass) and keep the leaves' alpha as the atlas has it, so their trees cost no more than before it:
+   * on the integrated GPU at Medium the full trees cost 2 to 6 fps in the county's tree-heavy scenes. Uniforms and
+   * geometry only: no program changes.
+   */
+  setDetail(full: boolean): void {
+    this.detail = full;
+    foliageCoverage.value = full ? 0.25 : 0;
+  }
+
+  /** Whether the batch holding prop `index`'s instance draws its far model now (tests). */
+  drawnFar(index: number): boolean {
+    return (this.refs.get(index) ?? []).some((r) => this.lods.some((l) => l.mesh === r.mesh && l.mesh.geometry === l.far));
   }
 
   /**
@@ -838,7 +903,7 @@ export class PropsView {
     if (changed) size.needsUpdate = true;
   }
 
-  private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean; depth?: THREE.Material } = {}): THREE.InstancedMesh | null {
+  private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean; depth?: THREE.Material; far?: THREE.BufferGeometry } = {}): THREE.InstancedMesh | null {
     if (props.length === 0) return null;
     if (!opts.chunked) {
       const buckets = new Map<string, number[]>();
@@ -898,6 +963,17 @@ export class PropsView {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
     this.group.add(mesh);
+    if (opts.far) {
+      const box = [Infinity, Infinity, -Infinity, -Infinity] as [number, number, number, number];
+      for (const pi of props) {
+        const p = this.world.layout.props[pi]!;
+        box[0] = Math.min(box[0], p.x);
+        box[1] = Math.min(box[1], p.z);
+        box[2] = Math.max(box[2], p.x);
+        box[3] = Math.max(box[3], p.z);
+      }
+      this.lods.push({ mesh, near: geo, far: opts.far, box, trunk: opts.far.name === 'tree-trunk-far' });
+    }
     return mesh;
   }
 
@@ -958,7 +1034,10 @@ export class PropsView {
     const { map, normalMap } = barkTextures();
     const trunk = new THREE.MeshStandardMaterial({ color: 0xffffff, map, normalMap, vertexColors: true, roughness: 0.94 });
     dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
-    this.makeInstanced(treeTrunkGeometry(), trunk, trees, PropsView.standard);
+    // Far batches (pickLods) draw a 54-triangle trunk and the canopies' first cards.
+    const trunkGeo = treeTrunkGeometry();
+    const trunkFar = boundedAs(treeTrunkFarGeometry(), trunkGeo);
+    this.makeInstanced(trunkGeo, trunk, trees, PropsView.standard, { far: trunkFar });
     this.makeInstanced(cypressTrunkGeometry(), trunk, cypresses, (p, m) => {
       PropsView.standard(p, m);
       m.multiply(this.tmpM.makeScale(0.6, 0.4, 0.6));
@@ -973,13 +1052,18 @@ export class PropsView {
     };
     const tint = new THREE.Color();
     const canopy = broadleafGeometry('tree');
+    const canopyFar = firstOf(canopy, LEAF_CARDS_FAR.tree * 12);
     const canopyMat = leafMaterial('broadleaf-canopy');
     this.makeInstanced(canopy, canopyMat, trees, PropsView.standard, {
+      far: canopyFar,
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.24 + rng.range(-0.04, 0.04), rng.range(0.34, 0.52), rng.range(0.42, 0.55)), 0.45),
     });
     const shrub = broadleafGeometry('bush');
+    const shrubFar = firstOf(shrub, LEAF_CARDS_FAR.bush * 12);
     const shrubMat = leafMaterial('broadleaf-shrub');
+    this.shrubMat = shrubMat;
     this.makeInstanced(shrub, shrubMat, bushes, PropsView.standard, {
+      far: shrubFar,
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
       shadow: false,
     });
@@ -996,25 +1080,28 @@ export class PropsView {
     this.makeInstanced(treeTrunkGeometry(), trunk, orchard, (p, m) => {
       apple(p, m);
       m.multiply(this.tmpM.makeScale(0.5, 0.42, 0.5));
-    }, { chunked: true });
+    }, { chunked: true, far: trunkFar });
     this.makeInstanced(shrub, shrubMat, orchard, (p, m) => {
       apple(p, m);
       m.multiply(this.tmpM.makeTranslation(0, 1.55, 0)).multiply(this.tmpM.makeScale(1.85, 2.1, 1.85));
     }, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.26 + rng.range(-0.03, 0.03), 0.5, rng.range(0.36, 0.44)), 0.5),
       chunked: true,
+      far: shrubFar,
     });
     this.makeInstanced(applesGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 }), orchard, apple, { shadow: false, track: false, chunked: true });
     // The valley's farms' oaks and bushes: the same trunk and leaves, drawn after everything above so no older tree's tint moves.
-    this.makeInstanced(treeTrunkGeometry(), trunk, valleyTrees, PropsView.standard, { chunked: true });
+    this.makeInstanced(treeTrunkGeometry(), trunk, valleyTrees, PropsView.standard, { chunked: true, far: trunkFar });
     this.makeInstanced(canopy, canopyMat, valleyTrees, PropsView.standard, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.24 + rng.range(-0.04, 0.04), rng.range(0.34, 0.52), rng.range(0.42, 0.55)), 0.45),
       chunked: true,
+      far: canopyFar,
     });
     this.makeInstanced(shrub, shrubMat, valleyBushes, PropsView.standard, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
       shadow: false,
       chunked: true,
+      far: shrubFar,
     });
   }
 
@@ -1189,17 +1276,18 @@ export class PropsView {
   private buildLamps(lamps: number[]): void {
     // Cast base, tapered pole with collars and an arm curving up and out to the back of the head (furniture.ts).
     const pole = lampPoleGeometry(LAMP_HEAD);
+    const poleFar = boundedAs(lampPoleGeometry(LAMP_HEAD, true), pole);
     // The pole, its head and its lens dissolve together, all by the pole's axis.
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b9199, vertexColors: true, roughness: 0.42, metalness: 0.55 });
     dissolveOccluder(poleMat, OCCLUDER_AXIS.lamp, this.occUniforms);
     // The drawn pole and head cast no shadow: a low-poly stand-in does (shadowProxies), one draw per cell.
-    this.makeInstanced(pole, poleMat, lamps, PropsView.standard, { shadow: false });
+    this.makeInstanced(pole, poleMat, lamps, PropsView.standard, { shadow: false, far: poleFar });
     this.shadowProxies(lampShadowGeometry(LAMP_HEAD), poleMat, lamps, PropsView.standard);
     // The cobra head: a low dome 0.78 m long and 0.36 m wide on a closed rim, the lens set into its underside.
     const head = lampHeadGeometry(LAMP_HEAD);
     const headMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ab, vertexColors: true, roughness: 0.38, metalness: 0.5 });
     dissolveOccluder(headMat, OCCLUDER_AXIS.lamp, this.occUniforms);
-    this.makeInstanced(head, headMat, lamps, PropsView.standard, { shadow: false });
+    this.makeInstanced(head, headMat, lamps, PropsView.standard, { shadow: false, far: boundedAs(lampHeadGeometry(LAMP_HEAD, true), head) });
     const lens = lampLensGeometry(LAMP_HEAD);
     dissolveOccluder(this.bulbMat, OCCLUDER_AXIS.lamp, this.occUniforms);
     this.makeInstanced(lens, this.bulbMat, lamps, PropsView.standard, { shadow: false });
@@ -1638,9 +1726,13 @@ export class PropsView {
     const up = new THREE.Vector3(0, 1, 0);
     const one = new THREE.Vector3(1, 1, 1);
     const c = new THREE.Color();
+    const c2 = new THREE.Color();
+    // The yards' shrubs are the parks' bushes, leaf cards on the bushes' material, 1.2 m across and 0.9 m tall, as the lumps they replace.
+    const leafy = (k: DressingKind): boolean => k === 'shrub' && this.shrubMat !== null;
     for (const [kind, list] of byKind) {
-      const geo = builders[kind]();
-      const mat = kind === 'poster' ? this.posterMat : kind === 'lamptube' ? this.tubeMat : this.dressMat;
+      const geo = leafy(kind) ? broadleafGeometry('bush').scale(0.55, 0.75, 0.55) : builders[kind]();
+      if (leafy(kind)) geo.name = 'shrub';
+      const mat = leafy(kind) ? this.shrubMat! : kind === 'poster' ? this.posterMat : kind === 'lamptube' ? this.tubeMat : this.dressMat;
       const cells = new Map<string, DressingItem[]>();
       for (const it of list) {
         const key = spatialKey(it.x, it.z, this.chunk);
@@ -1659,7 +1751,10 @@ export class PropsView {
         cell.forEach((it, k) => {
           m.compose(new THREE.Vector3(it.x, it.y, it.z), q.setFromAxisAngle(up, it.rot), one);
           mesh.setMatrixAt(k, m);
-          mesh.setColorAt(k, c.setHex(it.color));
+          // Each shrub's green its own, by a hash of where it stands.
+          if (leafy(kind)) c.setRGB(1, 1, 1).lerp(c2.setHSL(0.26 + (hashInts(Math.round(it.x * 10), Math.round(it.z * 10)) % 60) / 1000, 0.45, 0.36 + (hashInts(Math.round(it.z * 10), 7) % 10) / 100), 0.5);
+          else c.setHex(it.color);
+          mesh.setColorAt(k, c);
         });
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -1671,6 +1766,8 @@ export class PropsView {
     }
   }
 
+  /** The bushes' leaf material, which the yards' shrubs share (buildDressing). */
+  private shrubMat: THREE.Material | null = null;
   private readonly dressMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.05 });
   private readonly posterMat = new THREE.MeshStandardMaterial({ map: posterTexture(), roughness: 0.7 });
   /** Garage strip lights: always on, a soft white just under the bloom threshold. */
@@ -1864,7 +1961,8 @@ export class PropsView {
     this.windUniforms.uWindTime.value = time;
     // Lamps: the bulb, its halo added on top and the pool under it (see LAMP_HALO).
     const k = night;
-    this.bulbMat.color.setRGB(0.25 + k * 1.35, 0.24 + k * 1.1, 0.22 + k * 0.7);
+    // By day the lens is frosted glass, a pale grey under the dark housing that shows from a car below; lit at night as before.
+    this.bulbMat.color.setRGB(0.5 + k * 1.1, 0.5 + k * 0.84, 0.49 + k * 0.43);
     this.poolMat.opacity = k * LAMP_POOL_GAIN;
     if (this.lampHalos) {
       this.lampHalos.material.color.copy(LAMP_HALO_COLOR).multiplyScalar(k);

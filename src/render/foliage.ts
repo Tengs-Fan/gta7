@@ -52,6 +52,12 @@ export function leafMargin(y: number): number {
 
 /** Leaf cards per canopy (each a spray of the atlas, drawn from both sides). */
 export const LEAF_CARDS: Readonly<Record<BroadleafKind, number>> = { tree: 140, bush: 72 };
+/**
+ * The cards a canopy keeps when its batch is far from the camera (PropsView's distance level): the first of the list,
+ * which mixes rim and body cards. Past 60 m a card is a few pixels, and the coverage boost (FOLIAGE_COVERAGE) keeps
+ * the crown as full as the near one.
+ */
+export const LEAF_CARDS_FAR: Readonly<Record<BroadleafKind, number>> = { tree: 96, bush: 50 };
 
 /** The atlas: three open sprays (tiles 0-2) and a dense round clump (tile 3) in a 2x2 grid; [u0, v0, u1, v1] with v up. */
 const PAD = 0.004;
@@ -116,12 +122,11 @@ function broadleaf(kind: BroadleafKind): { geometry: THREE.BufferGeometry; sampl
     col.push(shade * (1 + warm), shade, shade * (0.92 - warm * 0.5));
   };
   // The cards: sprays round each cluster, the twig end inward, each inside the envelopes with the storm margin. The
-  // first fifth are the rim's: smaller open sprays near the clusters' surface, standing out from it (their face across
+  // every fifth is the rim's: smaller open sprays near the clusters' surface, standing out from it (their face across
   // the radius rather than along it), so a crown's outline seen from any side breaks into sprays of leaves.
   const volume = clusters.map(({ scale }) => scale[0] * scale[1] * scale[2]);
   const total = volume.reduce((a, b) => a + b, 0);
   const half = kind === 'tree' ? [0.28, 0.41] : [0.17, 0.26];
-  const rimCards = Math.round(LEAF_CARDS[kind] / 5);
   // The crown's height, for its shading: a crown is darker underneath, where the leaves above shade it.
   const bottom = Math.min(...clusters.map(({ at, scale }) => at[1] - scale[1]));
   const top = Math.max(...clusters.map(({ at, scale }) => at[1] + scale[1]));
@@ -129,7 +134,8 @@ function broadleaf(kind: BroadleafKind): { geometry: THREE.BufferGeometry; sampl
   const corner = new THREE.Vector3(), normal = new THREE.Vector3(), out = new THREE.Vector3();
   let cards = 0;
   for (let attempt = 0; cards < LEAF_CARDS[kind] && attempt < 20000; attempt++) {
-    const rim = cards < rimCards;
+    // Rim and body cards alternate through the list, so a far crown drawn with its first LEAF_CARDS_FAR cards keeps both.
+    const rim = cards % 5 === 0;
     let pick = rng.range(0, total);
     let ci = 0;
     while (ci < clusters.length - 1 && pick > volume[ci]!) pick -= volume[ci++]!;
@@ -391,6 +397,23 @@ export function treeTrunkGeometry(): THREE.BufferGeometry {
     for (const end of TREE_FORKS[k]!) parts.push(barkTube([l.to, end], [0, 1], 4, (t) => l.r1 * (0.8 - 0.45 * t), () => 1, l.to[1]));
   });
   return merge(parts);
+}
+
+/**
+ * The trunk drawn when its batch is far from the camera (PropsView's distance level): the same flared trunk on five
+ * sides, its four limbs straight out to between their forks, three-sided. 54 triangles, 242 near.
+ */
+export function treeTrunkFarGeometry(): THREE.BufferGeometry {
+  const flare = (y: number) => 1 + 0.38 * Math.exp(-y / 0.22);
+  const parts = [barkTube([[0, 0, 0], [0.03, 1.3, 0.02], [-0.03, 2.6, 0.04], [0.08, TRUNK_TOP, 0]], [0, 0.1, 0.5, 1], 5, (_t, _a, y) => trunkRadius(y) * flare(y), (_t, y) => trunkShade(y))];
+  TREE_LIMBS.forEach((l, k) => {
+    const [a, b] = TREE_FORKS[k]!;
+    const end: Point = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    parts.push(barkTube([l.from, end], [0, 1], 3, (t) => l.r0 * (1 - 0.6 * t), () => 0.95, l.from[1]));
+  });
+  const g = merge(parts);
+  g.name = 'tree-trunk-far';
+  return g;
 }
 
 /** A cypress's trunk: straight and plain, hidden but for its foot inside the column of leaves it carries. */
