@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import type { Store, StoreKind, TownAnchors } from '../../world/country/places';
 import { hashInts, rectContains, type FacadeStyle } from '../../world/layout';
-import { boxC, face, pitched, tri, type V } from '../city/attractions';
+import { boxC, face, tri, type V } from '../city/attractions';
 import { prism } from '../city/rooftops';
 import { box, cyl, ModelBuilder } from '../furniture';
 import { GeoBuilder, scaleRgb, type RGB } from '../geo';
@@ -326,6 +326,7 @@ interface StoreBands {
 }
 
 function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: Map<FacadeStyle, GeoBuilder>, s: Store, bands: StoreBands): void {
+  const tin = bands.tin;
   const b = view.world.layout.buildings.find((q) => q.id === s.building)!;
   const L = look(s);
   const south = s.front === 'S';
@@ -343,7 +344,19 @@ function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: M
   // The gable runs back from the false front, low enough to hide behind it.
   const w = body.maxX - body.minX;
   const rise = Math.min(w * 0.18, s.top - s.eaves - 0.35);
-  pitched(p.plain, body, s.eaves, s.eaves + rise, false, 0.3, TIN, scaleRgb(wall, 0.92));
+  // Its two slopes in the places' tin, running back from the front, and its back gable in the wall's colour.
+  {
+    const cx = (body.minX + body.maxX) / 2;
+    const [z0, z1] = [body.minZ - 0.3, body.maxZ + 0.3];
+    const run = (z1 - z0) / TIN_TILE;
+    for (const sx of [-1, 1]) {
+      const ex = sx < 0 ? body.minX - 0.3 : body.maxX + 0.3;
+      face(p.painted, [ex, s.eaves - 0.05, z0], [ex, s.eaves - 0.05, z1], [cx, s.eaves + rise, z1], [cx, s.eaves + rise, z0], [sx, 1, 0], TIN, [0, tin[0], run, tin[0], run, tin[1], 0, tin[1]]);
+      face(p.plain, [ex, s.eaves - 0.08, z0], [ex, s.eaves - 0.08, z1], [cx, s.eaves + rise - 0.03, z1], [cx, s.eaves + rise - 0.03, z0], [-sx, -1, 0], scaleRgb(WOOD, 0.8));
+    }
+    for (const [z, sz] of [[body.minZ, -1], [body.maxZ, 1]] as const) tri(p.plain, [body.minX, s.eaves, z], [body.maxX, s.eaves, z], [cx, s.eaves + rise - 0.05, z], [0, 0, sz], scaleRgb(wall, 0.92));
+    beam(p.plain, [cx, s.eaves + rise + 0.02, z0], [cx, s.eaves + rise + 0.02, z1], 0.14, scaleRgb(TIN, 0.7));
+  }
   const fz = south ? slab.maxZ : slab.minZ;
   const out = south ? 1 : -1;
   /** A box on the front from x0 to x1, y0 to y1, standing `d` m proud of it. */
