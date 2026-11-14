@@ -107,32 +107,108 @@ export function flipped(geo: THREE.BufferGeometry): THREE.BufferGeometry {
 // ---------------------------------------------------------------------------------------------------------------------
 // Street furniture
 
-/** The lamp standard: a cast base, a tapered pole with collars and the arm out to the head (LAMP_HEAD). */
+/** A solid of revolution about y: `profile` is [radius, height] from the foot up, `seg` sides, `flute(j)` scales side j. */
+function turned(profile: ReadonlyArray<readonly [number, number]>, seg: number, flute: (j: number, k: number) => number = () => 1): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const m = profile.length;
+  for (let j = 0; j < seg; j++) {
+    const a = (j / seg) * Math.PI * 2;
+    profile.forEach(([r, h], k) => {
+      const rr = r * flute(j, k);
+      pos.push(Math.sin(a) * rr, h, Math.cos(a) * rr);
+    });
+  }
+  for (let j = 0; j < seg; j++) {
+    for (let k = 0; k < m - 1; k++) {
+      const a = j * m + k, b = j * m + k + 1, c = ((j + 1) % seg) * m + k, d = ((j + 1) % seg) * m + k + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** The lamp's cast base: its height (m), its foot's radius and the pole's radius where it leaves it. */
+export const LAMP_BASE = { h: 0.92, r: 0.21, neck: 0.1 } as const;
+
+/**
+ * The lamp standard: a cast base in a darker paint (a chamfered foot, a fluted bell with an access door, a moulded
+ * ring), a smooth pole tapering from 0.1 to 0.06 m with a collar, and the arm, thick at the pole and thinner out to
+ * the head (LAMP_HEAD), under a curled brace.
+ */
 export function lampPoleGeometry(head: Head): THREE.BufferGeometry {
   const { y, reach } = head;
   const b = new ModelBuilder();
-  b.add('base', cyl(0.19, 0.21, 0.07, 8), 0xffffff, 0.72);
-  b.add('base', cyl(0.165, 0.18, 0.36, 8, 0, 0.07, 0, true), 0xffffff, 0.78);
-  b.add('base', cyl(0.11, 0.165, 0.09, 8, 0, 0.43, 0, true), 0xffffff, 0.78);
-  b.add('pole', cyl(0.065, 0.1, 6.03, 10, 0, 0.52, 0, true));
-  b.add('collar', cyl(0.1, 0.1, 0.06, 10, 0, 0.6, 0, true), 0xffffff, 0.8);
-  b.add('collar', cyl(0.078, 0.078, 0.05, 10, 0, 4.6, 0, true), 0xffffff, 0.8);
-  b.add('cap', new THREE.SphereGeometry(0.072, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 6.55, 0));
-  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.3, 0), v3(0, 6.75, 0.3), v3(0, y + 0.12, reach - 0.32));
-  b.add('arm', new THREE.TubeGeometry(curve, 8, 0.045, 6));
-  // A slim brace under the arm.
-  b.add('arm', new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(v3(0, 5.8, 0.05), v3(0, 6.05, 0.45), v3(0, 6.5, 0.72)), 5, 0.018, 4), 0xffffff, 0.85);
+  const { h, r, neck } = LAMP_BASE;
+  // Foot, chamfer, the fluted bell (twelve flutes on its waist), the moulding, the neck into the pole.
+  const profile = [[r, 0], [r, 0.05], [0.165, 0.1], [0.132, 0.68], [0.145, 0.72], [0.145, 0.79], [neck, h]] as const;
+  b.add('base', turned(profile, 10, (j, k) => (k >= 2 && k <= 3 && j % 2 === 1 ? 0.9 : 1)), 0xffffff, 0.5);
+  // The access door on the street side of the bell, a raised panel.
+  b.add('door', box(0.1, 0.2, 0.02, 0, 0.36, -0.148).rotateX(-0.06), 0xffffff, 0.44);
+  b.add('pole', cyl(0.06, neck, 6.36 - h, 12, 0, h, 0, true));
+  b.add('collar', cyl(0.082, 0.082, 0.06, 10, 0, 3.0, 0, true), 0xffffff, 0.8);
+  b.add('cap', new THREE.SphereGeometry(0.066, 8, 2, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 6.36, 0), 0xffffff, 0.85);
+  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.25, 0), v3(0, 6.78, 0.3), v3(0, y + 0.12, reach - 0.42));
+  b.add('arm', new THREE.TubeGeometry(curve, 8, 0.048, 6));
+  // A curved brace under the arm, from the pole up to it.
+  const brace = new THREE.CatmullRomCurve3([v3(0, 5.72, 0.04), v3(0, 5.9, 0.36), v3(0, 6.25, 0.56), v3(0, 6.58, 0.66)]);
+  b.add('arm', new THREE.TubeGeometry(brace, 6, 0.02, 4), 0xffffff, 0.85);
   return b.build('lamp-pole');
 }
 
-/** The cobra head: a low dome on a closed rim round the lens, a clamp where the arm enters and a photocell on top. */
+/**
+ * The luminaire: a housing that swells from where the arm enters to its widest over the lens and narrows to a rounded
+ * nose, a light skirt round the lens, the arm's clamp and a photocell on top.
+ */
 export function lampHeadGeometry(head: Head): THREE.BufferGeometry {
   const { y, reach } = head;
   const b = new ModelBuilder();
-  b.add('head', new THREE.SphereGeometry(1, 14, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.18, 0.15, 0.39).translate(0, y + 0.05, reach));
-  b.add('head', new THREE.CylinderGeometry(1, 1, 1, 14, 1, true).scale(0.18, 0.04, 0.39).translate(0, y + 0.03, reach), 0xffffff, 0.85);
-  b.add('clamp', new THREE.CylinderGeometry(0.06, 0.07, 0.16, 8).rotateX(Math.PI / 2).translate(0, y + 0.11, reach - 0.3), 0xffffff, 0.8);
-  b.add('photocell', cyl(0.035, 0.04, 0.05, 8, 0, y + 0.18, reach - 0.12), 0x6a6e72);
+  // Along z: [z from the head point, half width, rise above the skirt]; the shell's centre is the head point.
+  const shell: ReadonlyArray<readonly [number, number, number]> = [[-0.45, 0.085, 0.075], [-0.28, 0.17, 0.16], [0.02, 0.205, 0.165], [0.3, 0.165, 0.105], [0.45, 0.065, 0.04]];
+  const seg = 10;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  for (const [z, w, up] of shell) {
+    for (let j = 0; j <= seg; j++) {
+      // Half a superellipse over the skirt, from one side round the top to the other.
+      const a = (j / seg) * Math.PI;
+      const c = Math.cos(a), s = Math.sin(a);
+      pos.push(w * Math.sign(c) * Math.abs(c) ** 0.7, y + 0.045 + up * Math.abs(s) ** 0.8, reach + z);
+    }
+  }
+  for (let i = 0; i < shell.length - 1; i++) {
+    for (let j = 0; j < seg; j++) {
+      const a = i * (seg + 1) + j, c = a + seg + 1;
+      idx.push(a, a + 1, c, a + 1, c + 1, c);
+    }
+  }
+  // Its two ends closed, each a fan from the middle of its foot.
+  for (const [i, back] of [[0, true], [shell.length - 1, false]] as const) {
+    const centre = pos.length / 3;
+    pos.push(0, y + 0.045, reach + shell[i]![0]);
+    for (let j = 0; j < seg; j++) {
+      const a = i * (seg + 1) + j;
+      if (back) idx.push(centre, a + 1, a);
+      else idx.push(centre, a, a + 1);
+    }
+  }
+  const dome = new THREE.BufferGeometry();
+  dome.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  dome.setIndex(idx);
+  dome.computeVertexNormals();
+  b.add('head', dome);
+  // The skirt: a flat band round the lens at the housing's foot, outline in the shell's plan.
+  const rim: THREE.Vector2[] = [];
+  for (const [z, w] of shell) rim.push(new THREE.Vector2(w, z));
+  for (const [z, w] of [...shell].reverse()) rim.push(new THREE.Vector2(-w, z));
+  const skirt = new THREE.ExtrudeGeometry(new THREE.Shape(rim), { depth: 0.02, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, y + 0.045, reach);
+  b.add('skirt', skirt, 0xd8dcdf, 1);
+  b.add('clamp', new THREE.CylinderGeometry(0.058, 0.066, 0.14, 6).rotateX(Math.PI / 2).translate(0, y + 0.12, reach - 0.38), 0xffffff, 0.75);
+  b.add('photocell', cyl(0.032, 0.038, 0.05, 6, 0, y + 0.2, reach - 0.1), 0x6a6e72);
   return b.build('lamp-head');
 }
 
@@ -143,12 +219,12 @@ export function lampHeadGeometry(head: Head): THREE.BufferGeometry {
 export function lampShadowGeometry(head: Head): THREE.BufferGeometry {
   const { y, reach } = head;
   const b = new ModelBuilder();
-  b.add('base', box(0.34, 0.5, 0.34, 0, 0.25, 0));
-  b.add('pole', cyl(0.065, 0.1, 6.1, 6, 0, 0.5, 0, true));
-  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.3, 0), v3(0, 6.75, 0.3), v3(0, y + 0.12, reach - 0.32));
+  b.add('base', box(0.3, LAMP_BASE.h, 0.3, 0, LAMP_BASE.h / 2, 0));
+  b.add('pole', cyl(0.06, LAMP_BASE.neck, 6.36 - LAMP_BASE.h, 6, 0, LAMP_BASE.h, 0, true));
+  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.25, 0), v3(0, 6.78, 0.3), v3(0, y + 0.12, reach - 0.42));
   const pts = [0, 1 / 3, 2 / 3, 1].map((t) => curve.getPoint(t));
   for (let k = 0; k < 3; k++) b.add('arm', beam(pts[k]!, pts[k + 1]!, 0.09));
-  b.add('head', box(0.36, 0.14, 0.78, 0, y + 0.09, reach));
+  b.add('head', box(0.4, 0.16, 0.9, 0, y + 0.11, reach));
   return b.build('shadow-lamp');
 }
 
