@@ -1,6 +1,8 @@
 // How the people move (round 9): someone standing about rests on one leg with his feet planted, an arm swings
 // forward with the other leg, no knee or elbow bends past its limit or the wrong way at any speed, each person's own
-// way of walking is his every time, and a turn is led by the head while a gun stays where the simulation has it.
+// way of walking is his every time, and a turn is led by the head while a gun stays where the simulation has it. A
+// runner rides tall over a bent stance knee, his feet planted, his swinging foot bent no further than an ankle goes,
+// and his pelvis turns between his legs and his chest.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -9,7 +11,7 @@ import { CrowdView } from '../../src/render/crowd';
 import { isWoman } from '../../src/sim/appearance';
 import { stepCharacter, type CharacterPhysicsHost } from '../../src/sim/characterPhysics';
 import { Character, type Appearance } from '../../src/sim/entities';
-import { makeTrunk, trunkPose } from '../../src/sim/pose';
+import { gaitCycle, gaitHipY, makeGaitCycle, makeTrunk, SKELETON, trunkPose } from '../../src/sim/pose';
 import type { StaticWorld } from '../../src/world/staticWorld';
 
 await vi.hoisted(async () => {
@@ -334,5 +336,149 @@ describe('turning', () => {
     expect(armed.head).toBeGreaterThan(0.2);
     expect(Math.abs(armed.chest)).toBeLessThan(1e-6);
     expect(Math.abs(armed.bank)).toBeLessThan(0.02);
+  });
+});
+
+describe('running tall', () => {
+  /** Up (+y) along the shoe's sole and forward along it, and the angle (deg) a foot is bent up from square to the shin. */
+  const dorsi = (cv: CrowdView, i: number): number => {
+    const p = parts(cv);
+    const up = origin(matrixAt(p.shin!, i)).sub(origin(matrixAt(p.shoe!, i))).normalize();
+    return 90 - deg(up.angleTo(new THREE.Vector3().setFromMatrixColumn(matrixAt(p.shoe!, i), 2).normalize()));
+  };
+
+  /** Drawn hips and head (relative to standing), the knee of a foot planted under the hips, flight and slipping. */
+  function run(speed: number, height: number) {
+    const stand = person(1, height);
+    stand.inventory.give('pistol', 30);
+    stand.inventory.current = 'pistol';
+    const still = new CrowdView();
+    for (let i = 0; i < 60; i++) still.sync([stand], 0, 0, 1 / 60);
+    const head = origin(matrixAt(parts(still).head!, 0)).y;
+    const c = person(1, height);
+    const r = { hipLo: Infinity, hipHi: -Infinity, headDrop: 0, knee: [] as number[], air: 0, n: 0, slip: 0, slipN: 0, swingDorsi: 0 };
+    const last: Array<THREE.Vector3[] | null> = [null, null];
+    walk(c, speed, 2, (cv) => {
+      const p = parts(cv);
+      const hip = origin(matrixAt(p.torso!, 0)).y - c.pos.y;
+      r.hipLo = Math.min(r.hipLo, hip);
+      r.hipHi = Math.max(r.hipHi, hip);
+      r.headDrop = Math.max(r.headDrop, head - origin(matrixAt(p.head!, 0)).y);
+      const { legs } = limbs(cv, c);
+      r.n++;
+      if (Math.min(legs[0]!.sole, legs[1]!.sole) > 0.01) r.air++;
+      for (const l of legs) if (l.sole < 0.01 && Math.abs(l.ankle.z) < 0.03 * height) r.knee.push(l.flex);
+      for (let i = 0; i < 2; i++) {
+        const m = matrixAt(p.shoe!, i);
+        const corners = SOLE.map((q) => q.clone().applyMatrix4(m));
+        // A planted foot rolls about the edge on the ground, which stays put.
+        const was = last[i];
+        if (was && soleLow(m) < 0.01) {
+          let least = Infinity;
+          for (let k = 0; k < 4; k++) if (corners[k]!.y < 0.006 && was[k]!.y < 0.006) least = Math.min(least, Math.hypot(corners[k]!.x - was[k]!.x, corners[k]!.z - was[k]!.z) * 240);
+          if (least < Infinity) {
+            r.slip = Math.max(r.slip, least);
+            r.slipN++;
+          }
+        }
+        last[i] = corners;
+        if (soleLow(m) > 0.03) r.swingDorsi = Math.max(r.swingDorsi, dorsi(cv, i));
+      }
+    });
+    return r;
+  }
+
+  it.each([
+    // speed, stance knee at height 1 (deg), and across heights 0.92 to 1.07
+    [4.3, [38, 46], [36, 50]],
+    [7.4, [45, 56], [45, 58]],
+  ] as const)('at %f m/s his hips ride near standing height over a stance knee bent %j degrees, his feet planted', (speed, kneeOne, kneeAll) => {
+    for (const height of [0.92, 1, 1.07]) {
+      const r = run(speed, height);
+      const label = `height ${height}`;
+      const top = SKELETON.hipY * height;
+      // (A 0.88 m stance at 4.3 m/s and 0.96 m at 7.4 sank the hips to 0.85 of standing and the head 11 to 15 cm, the
+      // stance knee bent 69 and 77 degrees.)
+      expect(r.hipLo / top, label).toBeGreaterThan(0.91);
+      expect(r.hipHi / top, label).toBeLessThanOrEqual(1.0001);
+      expect(r.headDrop, label).toBeLessThan(0.085);
+      expect(r.knee.length, label).toBeGreaterThan(10);
+      const knee = Math.max(...r.knee);
+      const [lo, hi] = height === 1 ? kneeOne : kneeAll;
+      expect(knee, label).toBeGreaterThan(lo);
+      expect(knee, label).toBeLessThan(hi);
+      // The edge a planted foot stands or rolls on moves by under a millimetre a frame.
+      expect(r.slipN, label).toBeGreaterThan(100);
+      expect(r.slip, label).toBeLessThan(0.25);
+    }
+  });
+
+  it('a sprinter is off the ground half the time, a jogger a third', () => {
+    // (Before the stance was shortened, 38 and 18 per cent.)
+    expect(run(7.4, 1).air / run(7.4, 1).n).toBeGreaterThan(0.45);
+    expect(run(4.3, 1).air / run(4.3, 1).n).toBeGreaterThan(0.3);
+  });
+
+  it('breaking into a run, the hips neither drop nor jump', () => {
+    const g = makeGaitCycle();
+    const curve = (v: number) => {
+      gaitCycle(v, 0, 1, 1, g);
+      return Array.from({ length: 100 }, (_, k) => gaitHipY(g, k / 100));
+    };
+    const mean = (ys: number[]) => ys.reduce((a, y) => a + y, 0) / ys.length;
+    let prev = curve(1.4);
+    for (let v = 1.45; v <= 7.4 + 1e-9; v += 0.05) {
+      const now = curve(v);
+      // Through every speed between a walk and a sprint, never lower than 0.91 of standing, and little different from
+      // a speed 0.05 m/s away at the same moment of the stride.
+      expect(Math.min(...now) / SKELETON.hipY, `${v} m/s`).toBeGreaterThan(0.91);
+      for (let k = 0; k < 100; k++) expect(Math.abs(now[k]! - prev[k]!), `${v} m/s`).toBeLessThan(0.025);
+      prev = now;
+    }
+    // From a walk to a jog (the player's step from 1.45 to 4.3 m/s within a tenth of a second) the hips keep their
+    // height and change only the shape of their rise and fall. (A 7.8 cm drop in the mean, 12.8 cm at one moment.)
+    const walking = curve(1.45);
+    const jogging = curve(4.3);
+    expect(Math.abs(mean(jogging) - mean(walking))).toBeLessThan(0.02);
+    expect(Math.max(...walking.map((y, k) => Math.abs(y - jogging[k]!)))).toBeLessThan(0.06);
+  });
+
+  it('a swinging foot is bent up no further than an ankle goes', () => {
+    // (Carried level through the swing, it was bent up 62 degrees at a jog and 86 at a sprint as the heel kicked up.)
+    expect(run(4.3, 1).swingDorsi).toBeLessThan(28);
+    for (const speed of [1.45, 2.8, 5.4, 7.4]) expect(run(speed, 1.07).swingDorsi, `${speed} m/s`).toBeLessThan(40);
+  });
+
+  it('his pelvis turns between his legs and his chest: half way behind a shouldered rifle, against the chest with the stride', () => {
+    const yaw = (m: THREE.Matrix4) => {
+      const f = new THREE.Vector3(0, 0, 1).transformDirection(m);
+      return Math.atan2(f.x, f.z);
+    };
+    const c = person(6);
+    c.inventory.give('rifle', 30);
+    c.inventory.current = 'rifle';
+    c.aiming = true;
+    c.aimYaw = 0;
+    const cv = new CrowdView();
+    for (let i = 0; i < 60; i++) cv.sync([c], 0, 0, 1 / 60);
+    const t = trunkPose(c, makeTrunk());
+    const hips = yaw(matrixAt(parts(cv).hips!, 0));
+    expect(Math.abs(t.chestYaw - t.hipYaw)).toBeGreaterThan(0.5);
+    expect(hips).toBeCloseTo((t.hipYaw + t.chestYaw) / 2, 2);
+    // Jogging, the pelvis and the chest turn opposite ways about the legs' heading.
+    const r = person(6);
+    let against = 0;
+    let n = 0;
+    walk(r, 4.3, 1, (v) => {
+      const legs = trunkPose(r, makeTrunk()).hipYaw;
+      const chest = yaw(matrixAt(parts(v).torso!, 0)) - legs;
+      const pelvis = yaw(matrixAt(parts(v).hips!, 0)) - legs;
+      if (Math.abs(chest) > 0.05) {
+        n++;
+        if (Math.sign(pelvis) === -Math.sign(chest) && Math.abs(pelvis) > 0.02) against++;
+      }
+    });
+    expect(n).toBeGreaterThan(50);
+    expect(against / n).toBeGreaterThan(0.95);
   });
 });

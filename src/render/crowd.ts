@@ -49,6 +49,14 @@ const TURN_BANK = 0.004;
 const TURN_BANK_MAX = 0.14;
 /** How fast the drawn turn follows the heading's rate (1/s): smooth over a frame's jitter, quick enough to lead. */
 const TURN_EASE = 14;
+/**
+ * The pelvis, between the legs and the chest: it turns PELVIS_SHARE of the way from the hips' heading to the chest's
+ * (a rifleman's chest is bladed 37 degrees off his legs; the pelvis turned with it left the thighs coming out of it
+ * askew), and against the chest with the stride, PELVIS_SWING as far as the chest's counter-turn (the hip of the
+ * swinging leg forward, about 3.5 degrees each way).
+ */
+const PELVIS_SHARE = 0.5;
+const PELVIS_SWING = 0.6;
 const FLINCH_LEAN = 0.34;
 const FLINCH_TWIST = 0.24;
 const FLINCH_DROP = 0.06;
@@ -220,8 +228,9 @@ const V = () => new THREE.Vector3();
 const S = {
   /** Instance matrix being written. */
   inst: new THREE.Matrix4(),
-  /** Body frame rotation of the character being posed (chest, lying or seat frame). */
+  /** Body frame rotation of the character being posed (chest, lying or seat frame), and of an upright one's pelvis. */
   body: new THREE.Matrix4(),
+  hipsRot: new THREE.Matrix4(),
   /** Vehicle body frame and its rotation (seated characters). */
   frame: new THREE.Matrix4(),
   vrot: new THREE.Matrix4(),
@@ -772,8 +781,11 @@ export class CrowdView {
     this.put(this.parts.shoe, S.inst, 0xffffff);
   }
 
-  /** Torso, neck, head and hair or hat on the body frame S.body at the pelvis, the head turned and pitched (- up). Sets S.neck. */
-  private torso(c: Character, pelvis: THREE.Vector3, headPitch: number, headYaw = 0): void {
+  /**
+   * Torso, neck, head and hair or hat on the body frame S.body at the pelvis, the head turned and pitched (- up), and
+   * the hips on `hips` (a rotation; S.body when null). Sets S.neck.
+   */
+  private torso(c: Character, pelvis: THREE.Vector3, headPitch: number, headYaw = 0, hips: THREE.Matrix4 | null = null): void {
     const a = c.appearance;
     const s = a.height;
     const local = c === this.player;
@@ -781,7 +793,9 @@ export class CrowdView {
     S.inst.copy(S.body).scale(S.sc.set(a.build, s, a.build)).setPosition(pelvis);
     this.drawShape = she ? 1 : 0;
     this.put(this.parts.torso, S.inst, a.shirt);
+    if (hips) S.inst.copy(hips).scale(S.sc.set(a.build, s, a.build)).setPosition(pelvis);
     this.put(this.parts.hips, S.inst, a.pants);
+    if (hips) S.inst.copy(S.body).scale(S.sc.set(a.build, s, a.build)).setPosition(pelvis);
     this.drawShape = 0;
     this.put(this.parts.neck, S.inst, a.skin);
     // The player's jacket has a light inset and rear yoke. Civilians mix zip jackets and plain tops;
@@ -985,10 +999,14 @@ export class CrowdView {
     const P = S.pelvis.set(c.pos.x + hc * shift, c.pos.y + t.y - drop - (sag / 2) * rest, c.pos.z - hs * shift);
     S.e.set(lean, chestYaw, bank, 'YXZ');
     S.body.makeRotationFromEuler(S.e);
+    // The chest's counter-turn with the stride (trunkPose's, when the chest is not on the aim).
+    const stride = aim || idle ? 0 : t.move * g.chestYaw;
+    S.e.set(lean, wrapAngle(hipYaw + PELVIS_SHARE * wrapAngle(chestYaw - hipYaw - stride) - PELVIS_SWING * stride), bank, 'YXZ');
+    S.hipsRot.makeRotationFromEuler(S.e);
     const headPitch = crouch ? 0.35 : aim ? -c.aimPitch * 0.6 - lean * 0.5 : -lean * 0.6;
     // Looking down the barrel of a shouldered gun, over the turned chest; otherwise into the turn.
     const lead = clamp(TURN_HEAD * anim.turn, -TURN_HEAD_MAX, TURN_HEAD_MAX);
-    this.torso(c, P, headPitch, aim ? wrapAngle(t.armYaw - chestYaw) : glance + lead);
+    this.torso(c, P, headPitch, aim ? wrapAngle(t.armYaw - chestYaw) : glance + lead, S.hipsRot);
     this.shoulders(c, P);
 
     // Legs: planted gait feet, blended with standing feet, the crouch and the airborne tuck.
