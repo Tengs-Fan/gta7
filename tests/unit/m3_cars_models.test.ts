@@ -197,6 +197,120 @@ describe('imported car bodies', () => {
     }
   });
 
+  it('the refined paint shades as the model\'s own faces do: its normals are the coarse ones carried onto the pieces', () => {
+    // A refined corner's normal is the coarse face's corner normals interpolated at it (within 2 degrees): normals
+    // recomputed on the refined mesh were flat over each original face and bent only along its edges (wavy blotches).
+    const rows: string[] = [];
+    const tri = new THREE.Triangle();
+    const bary = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const closest = new THREE.Vector3();
+    for (const kind of MODEL_KINDS) {
+      const m = carModel(kind)!;
+      // The far paint is the coarse paint (white vertex colour) followed by the cabin's lining.
+      const cp = m.farPaint.getAttribute('position');
+      const cn = m.farPaint.getAttribute('normal');
+      const cc = m.farPaint.getAttribute('color');
+      const coarse: number[] = [];
+      for (let t = 0; t < cp.count / 3; t++) if (cc.getX(t * 3) === 1) coarse.push(t);
+      const fp = m.paint.getAttribute('position');
+      const fn = m.paint.getAttribute('normal');
+      let worst = 0;
+      let checked = 0;
+      for (let i = 0; i < fp.count; i += 7) {
+        p.fromBufferAttribute(fp, i);
+        n.fromBufferAttribute(fn, i);
+        // The coarse face the corner lies on whose interpolated normal is nearest its own (a corner on an edge lies on both).
+        let best = Infinity;
+        for (const t of coarse) {
+          tri.set(new THREE.Vector3().fromBufferAttribute(cp, t * 3), new THREE.Vector3().fromBufferAttribute(cp, t * 3 + 1), new THREE.Vector3().fromBufferAttribute(cp, t * 3 + 2));
+          tri.closestPointToPoint(p, closest);
+          if (closest.distanceToSquared(p) > 1e-8) continue;
+          tri.getBarycoord(p, bary);
+          const want = new THREE.Vector3();
+          for (let k = 0; k < 3; k++) want.addScaledVector(new THREE.Vector3().fromBufferAttribute(cn, t * 3 + k), [bary.x, bary.y, bary.z][k]!);
+          best = Math.min(best, want.normalize().angleTo(n));
+        }
+        expect(best, `${kind} corner ${i} lies on a coarse face`).toBeLessThan(Infinity);
+        worst = Math.max(worst, best);
+        checked++;
+      }
+      rows.push(`${kind}: ${checked} refined corners, worst ${THREE.MathUtils.radToDeg(worst).toFixed(2)} deg off the coarse shading`);
+      expect(THREE.MathUtils.radToDeg(worst), kind).toBeLessThan(2);
+    }
+    console.log(rows.join('\n'));
+  });
+
+  it('the model bodies wear the fittings kit: door handles on both flanks, and the sedan\'s sills, tail panel and grille', () => {
+    const ray = new THREE.Raycaster();
+    const rows: string[] = [];
+    for (const kind of MODEL_KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      const m = carModel(kind)!;
+      const v = view(kind);
+      const ext = mesh(v, 'exterior');
+      const pos = ext.geometry.getAttribute('position');
+      const uv = ext.geometry.getAttribute('uv');
+      // Satin (the atlas's metal cell) just under the side windows on each flank: the handles.
+      const handles = [0, 0];
+      for (let i = 0; i < pos.count; i++) {
+        if (uv.getX(i) < 0.5 || uv.getY(i) > 0.5) continue;
+        if (Math.abs(pos.getY(i) - (m.beltY - 0.09)) < 0.03 && Math.abs(pos.getX(i)) > s.width / 2 - 0.25) handles[pos.getX(i) > 0 ? 0 : 1]++;
+      }
+      expect(Math.min(...handles), `${kind} a handle on each flank`).toBeGreaterThan(0);
+      // The far trim keeps the pieces that read from afar (fewer triangles than the near trim).
+      expect(m.farTrim.getAttribute('position').count, kind).toBeLessThan(m.trim.getAttribute('position').count);
+      rows.push(`${kind}: fittings ${pos.count / 3} triangles near, ${m.farTrim.getAttribute('position').count / 3} far`);
+    }
+    // The sedan (whose paint runs to its foot, with no trim of its own): from straight behind, between its tail lamps,
+    // the dark panel; from straight ahead, between the head lamps, the grille.
+    const m = carModel('sedan')!;
+    const v = view('sedan');
+    const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
+    const half = VEHICLE_SPECS.sedan.length / 2;
+    // Seen square from the side, low between the wheels: the dark sill.
+    ray.set(new THREE.Vector3(VEHICLE_SPECS.sedan.width, m.bottom + 0.07, 0), new THREE.Vector3(-1, 0, 0));
+    expect(ray.intersectObjects(parts, false)[0]?.object.name, 'sedan sill').toBe('exterior');
+    for (const [lamps, end] of [[m.tail, -1], [m.head, 1]] as const) {
+      const y = (lamps[0]!.at.y + lamps[1]!.at.y) / 2;
+      ray.set(new THREE.Vector3(0, y, end * (half + 2)), new THREE.Vector3(0, 0, -end));
+      expect(ray.intersectObjects(parts, false)[0]?.object.name, `sedan ${end > 0 ? 'grille' : 'tail panel'}`).toBe('exterior');
+    }
+    console.log(rows.join('\n'));
+  });
+
+  it('the sedan\'s tail panel and grille stay in front of its paint when the tail and nose are dented 8 cm', () => {
+    // The kit follows the body on a finer grid than the body's own refinement, so a dent pulls the panel under the
+    // body's coarser chords; the dark patches stand 8 mm proud to keep a moderate dent from burying them.
+    const s = VEHICLE_SPECS.sedan;
+    const m = carModel('sedan')!;
+    const v = view('sedan');
+    const car = new Vehicle(1, 'sedan', 0, 0, 0, 0, 0xb03a2e);
+    v.bind(car);
+    v.sync(car, 1 / 60, 0, 0);
+    const half = s.length / 2;
+    const tailY = (m.tail[0]!.at.y + m.tail[1]!.at.y) / 2;
+    const headY = (m.head[0]!.at.y + m.head[1]!.at.y) / 2;
+    car.dents.push({ lx: 0, ly: tailY, lz: -half + 0.05, nx: 0, nz: 1, depth: 0.08 }, { lx: 0, ly: headY, lz: half - 0.05, nx: 0, nz: -1, depth: 0.08 });
+    car.dentVersion++;
+    v.sync(car, 1 / 60, 0, 0);
+    v.group.updateMatrixWorld(true);
+    const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
+    for (const [y, end, w] of [[tailY, -1, 0.3], [headY, 1, 0.25]] as const) {
+      let ext = 0;
+      let n = 0;
+      for (let x = -w; x <= w + 1e-6; x += 0.05) {
+        for (const dy of [-0.02, 0, 0.02]) {
+          const hit = new THREE.Raycaster(new THREE.Vector3(x, y + dy, end * (half + 2)), new THREE.Vector3(0, 0, -end)).intersectObjects(parts, false)[0];
+          n++;
+          if (hit?.object.name === 'exterior') ext++;
+        }
+      }
+      expect(ext / n, end > 0 ? 'grille' : 'tail panel').toBeGreaterThanOrEqual(0.85);
+    }
+  });
+
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
     for (const kind of MODEL_KINDS) {
       const v = view(kind);

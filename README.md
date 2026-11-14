@@ -152,6 +152,9 @@ To play with friends on your network, run the optional multiplayer server (see [
   Someone standing idle breathes and looks up and down the street; feet are planted by the gait, and every body part is one instanced draw for the whole crowd (a man's and a woman's torso come out of the same one).
   Who is a woman is settled once, by each person's id: the figure, the voice a shout is in and the fare someone is in a cab all follow it.
   Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
+  The imported bodies shade smooth across their faces.
+  They wear a grille, a dark panel joining their tail lamps, a valance, door handles, sills and exhausts.
+  The box vans' backs are two doors between tall lamp clusters; the van has a sliding door and a ribbed roof, and the bus framed windows and an engine grille.
   Buildings have PBR stone, brick, plaster and metal facades with recessed windows, sills, cornices and coped parapets.
   Doorways stand back behind the shop, lobby and house fronts, and stone piers part the bays of a ground floor under its cornice.
   Hotels run balconies along their floors, some apartment blocks have them at every other window, and many brick blocks have a fire escape down a street wall.

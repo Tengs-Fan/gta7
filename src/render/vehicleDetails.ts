@@ -314,6 +314,20 @@ export function alloyGeometry(radius: number, kind: VehicleKind): THREE.BufferGe
   return result;
 }
 
+/** The box-bodied vans, whose backs are a pair of doors. */
+const BACK_DOORS: ReadonlySet<VehicleKind> = new Set(['van', 'swat', 'ambulance']);
+
+/**
+ * Where a procedural body's tail lamps sit (x out from the middle, y up) and their lenses' width and height: tall
+ * clusters up the back corners of the box vans, whose doors fill their backs, and of the bus, beside its engine grille;
+ * a wide lamp beside the plate on the rest.
+ */
+export function tailLamp(kind: VehicleKind, half: number, lightY: number): { x: number; y: number; w: number; h: number } {
+  if (BACK_DOORS.has(kind)) return { x: half - 0.13, y: lightY + 0.22, w: 0.15, h: 0.42 };
+  if (kind === 'bus') return { x: half - 0.16, y: lightY + 0.35, w: 0.2, h: 0.5 };
+  return { x: half - 0.3, y: lightY + 0.05, w: 0.36, h: kind === 'sports' ? 0.085 : 0.14 };
+}
+
 export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.BufferGeometry {
   const s = VEHICLE_SPECS[kind];
   const hw = s.width / 2;
@@ -374,7 +388,8 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
   for (const side of [-1, 1]) {
     const lensH = kind === 'sports' ? 0.12 : 0.19;
     box(side * (hw - 0.32), ly, end - 0.022, 0.40, lensH, 0.050);
-    box(side * (hw - 0.3), ly + 0.05, -end + 0.022, 0.40, lensH, 0.050);
+    const tail = tailLamp(kind, hw, ly);
+    box(side * tail.x, tail.y, -end + 0.022, tail.w + 0.04, tail.h + 0.05, 0.050);
     // Twin exhaust tips and the dark opening at the end of each tube.
     if (kind !== 'bus' && kind !== 'van' && (side < 0 || kind === 'sports' || kind === 'muscle')) {
       const pipe = new THREE.CylinderGeometry(0.038, 0.038, 0.14, 12, 1, true);
@@ -397,6 +412,27 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     seam(rearDoor, handleY + 0.06);
     seam(frontDoor, Math.min(H * 0.61, topAt(p.body, frontDoor) - 0.015));
     if (p.rearSeats) seam(rearLimit, handleY + 0.05);
+    if (kind === 'ambulance' && side < 0) {
+      // The kerb-side door into the patient compartment, just behind the cab, with its handle.
+      const z1 = -0.09 * L - 0.12;
+      const z0 = z1 - 0.6;
+      const top = H * 0.86;
+      seam(z0, top);
+      seam(z1, top);
+      line(new THREE.Vector3(flank(side, top), top, z0), new THREE.Vector3(flank(side, top), top, z1), 0.007);
+      box(flank(side, H * 0.5), H * 0.5, z0 + 0.16, 0.029, 0.060, 0.22);
+      box(flank(side, H * 0.5) + side * 0.019, H * 0.5 + 0.006, z0 + 0.16, 0.022, 0.025, 0.16, 1);
+    }
+    if (kind === 'van') {
+      // A sliding door behind the cab's: its rear seam and top edge, its handle, and the track it runs back along.
+      const slide = rearDoor - 1.1;
+      const top = H * 0.86;
+      seam(slide, top);
+      line(new THREE.Vector3(flank(side, top), top, slide), new THREE.Vector3(flank(side, top), top, rearDoor), 0.007);
+      line(new THREE.Vector3(flank(side, H * 0.6), H * 0.6, slide - 0.02), new THREE.Vector3(flank(side, H * 0.6), H * 0.6, -L / 2 + 0.2), 0.012);
+      box(flank(side, H * 0.5), H * 0.5, slide + 0.16, 0.029, 0.060, 0.22);
+      box(flank(side, H * 0.5) + side * 0.019, H * 0.5 + 0.006, slide + 0.16, 0.022, 0.025, 0.16, 1);
+    }
     // Lower side sill only between the arches, leaving steering and spring travel unobstructed.
     const sillRear = p.wheelRear * L + p.wheelR + 0.13;
     const sillFront = p.wheelFront * L - p.wheelR - 0.13;
@@ -445,6 +481,7 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
   if (kind === 'sports') sportsKit(p, s.width, L, H, box, flank);
   if (kind === 'firetruck') fireEngineKit(p, s.width, L, H, box, flank);
   if (kind === 'bus') busKit(p, s.width, L, H, box);
+  if (BACK_DOORS.has(kind)) backDoors(s.width, L, H, bumperY, box);
   if (kind === 'muscle') {
     // A raised intake on the bonnet.
     const z = L * 0.22;
@@ -553,7 +590,27 @@ function fireEngineKit(p: ExteriorProfile, width: number, L: number, H: number, 
   box(0, ly - 0.22, L / 2 + 0.012, width * 0.98, 0.16, 0.05, 1);
 }
 
-/** The bus's window pillars over its long side windows, and its doors on the kerb side (its right, -x). */
+/**
+ * A box van's back doors: the seam between the two leaves and along their top, satin handles either side of the seam
+ * under the windows, and two dark hinges on each leaf's outer edge.
+ */
+function backDoors(width: number, L: number, H: number, bumperY: number, box: BoxFn): void {
+  const hw = width / 2;
+  const back = -L / 2 - 0.004;
+  const top = H * 0.93;
+  const foot = bumperY + 0.08;
+  box(0, (foot + top) / 2, back, 0.016, top - foot, 0.012);
+  box(0, top, back, width - 0.16, 0.014, 0.012);
+  for (const side of [-1, 1]) {
+    box(side * 0.075, H * 0.47, back - 0.012, 0.028, 0.16, 0.024, 1);
+    for (const y of [H * 0.3, H * 0.72]) box(side * (hw - 0.07), y, back - 0.008, 0.05, 0.11, 0.022);
+  }
+}
+
+/**
+ * The bus's window pillars over its long side windows, its doors on the kerb side (its right, -x), satin rails framing
+ * its window band, and the engine grille across its back.
+ */
 function busKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn): void {
   const fb = p.cabin[0]!;
   const ft = p.cabin[1]!;
@@ -571,10 +628,28 @@ function busKit(p: ExteriorProfile, width: number, L: number, H: number, box: Bo
     }
   }
   // Two doors on the right: dark glazed leaves with a bright frame.
-  for (const zc of [L * 0.4, -L * 0.02]) {
+  const doors = [L * 0.4, -L * 0.02];
+  for (const zc of doors) {
     box(-(hw + 0.02), H * 0.47, zc, 0.02, H * 0.74, 1.1, 1);
     box(-(hw + 0.03), H * 0.47, zc, 0.012, H * 0.7, 0.03);
   }
+  // Satin rails under and over the window band, framing it (broken by the doors on the right).
+  for (const side of [-1, 1]) {
+    for (const [y, h] of [[y0 - 0.05, 0.06], [y1 + 0.05, 0.05]] as const) {
+      const cuts = side < 0 && y < H * 0.84 ? doors.map((zc) => [zc - 0.58, zc + 0.58] as const) : [];
+      let from = -L / 2 + 0.12;
+      for (const [a, b] of [...cuts, [L / 2 - 0.12, L / 2] as const].sort((p, q) => p[0] - q[0])) {
+        if (a - from > 0.1) box(side * (hw + 0.012), y, (from + a) / 2, 0.016, h, a - from, 1);
+        from = b;
+      }
+    }
+  }
+  // The engine's louvred grille across the back, between the plate and the rear window.
+  const back = -L / 2 - 0.004;
+  const g0 = H * 0.3;
+  const g1 = H * 0.48;
+  box(0, (g0 + g1) / 2, back, width * 0.62, g1 - g0, 0.02);
+  for (let y = g0 + 0.05; y < g1 - 0.02; y += 0.065) box(0, y, back - 0.012, width * 0.58, 0.018, 0.012, 1);
 }
 
 /** The sports car's aero kit: front splitter, side intakes ahead of the rear wheels, rear diffuser and bonnet vents. */
