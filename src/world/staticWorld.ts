@@ -108,7 +108,7 @@ export class StaticWorld {
     // arch's portal posts, and the county's props.
     for (const r of parapets.slice(country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
     for (const x of [BRIDGE_ARCH.x0, BRIDGE_ARCH.x1]) for (const z of BRIDGE_ARCH.ribs) g.addCircle(x, z, BRIDGE_ARCH.post, WATER_Y - 1.5, BRIDGE_ARCH.postTop, 'pillar');
-    for (let i = country.firstProp; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
+    for (let i = country.firstProp; i < this.layout.firstQuaySignal; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
     // Its rises' sight cores, and Lookout Point's parapet and fire lookout tower on Coyote Ridge (world/country/hills.ts).
     for (const c of countyCores(country)) g.addBox(c.minX, c.minZ, c.maxX, c.maxZ, -1, c.y1, 'terrain');
     const top = countryGround(country, LOOKOUT.tower.x, LOOKOUT.tower.z);
@@ -132,6 +132,8 @@ export class StaticWorld {
     for (const s of [...country.places.solids, ...country.lakeland.solids]) solid(s);
     for (const h of country.valley.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
     for (const s of [...country.valley.solids, ...country.oddities.solids]) solid(s);
+    // The signals on the drowned cells' corners (layout.ts drown), the last props, after every older collider.
+    for (let i = this.layout.firstQuaySignal; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
   }
 
   private addBuilding(tiers: Building['tiers']): void {

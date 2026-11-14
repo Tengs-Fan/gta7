@@ -11,7 +11,7 @@ import { hasOpposite, LIT, quadLit, showKey, showScratch, signalCount, signalQua
 import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { AVENUE_W, CURB_H, PROP_INSET } from '../../src/world/constants';
-import type { Prop } from '../../src/world/layout';
+import { waterAt, type Prop } from '../../src/world/layout';
 import { axisOf, PED_WALK, SIGNAL_CYCLE, SIGNAL_GREEN, SIGNAL_HALF, SIGNAL_YELLOW, type Axis, type Dir } from '../../src/world/roads';
 import { freshWorld } from './helpers';
 
@@ -202,6 +202,39 @@ describe('what a signal shows', () => {
     const a = showKey(signalShow(roads, signals[0]!, 3.2, scratch));
     expect(showKey(signalShow(roads, signals[0]!, 3.2, scratch))).toBe(a);
     expect(showKey(signalShow(roads, signals[0]!, 4.4, scratch))).not.toBe(a);
+  });
+});
+
+describe('which approaches have a signal', () => {
+  it('every signalised approach has one, on the corner at its right, facing its traffic, on dry ground off the road, and no other approach has one', () => {
+    const missing: string[] = [];
+    let approaches = 0;
+    for (const node of signalled) {
+      for (let d = 0; d < 4; d++) {
+        const lanes = roads.lanes.filter((l) => l.to === node.id && l.dir === d);
+        if (lanes.length === 0) continue;
+        approaches++;
+        const own = signals.filter((p) => p.node === node.id && p.dir === d);
+        if (own.length === 0) missing.push(`node ${node.id} (${node.i}, ${node.j}) dir ${d}`);
+        expect(own.length, `node ${node.id} dir ${d}`).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(missing).toEqual([]);
+    expect(approaches).toBe(signals.length);
+    for (const p of signals) {
+      const node = roads.nodes[p.node]!;
+      expect(node.signal, `${p.node} ${p.dir}`).toBe(true);
+      // At the corner on the approach's right, PROP_INSET past both kerbs, as generateCity and signalHead stand them.
+      const tx = p.dir === 1 ? 1 : p.dir === 3 ? -1 : 0;
+      const tz = p.dir === 2 ? 1 : p.dir === 0 ? -1 : 0;
+      // Right of the travel (-tz, tx), and back from it (-tx, -tz).
+      expect(p.x, `${p.node} ${p.dir}`).toBeCloseTo(node.x + (-tz - tx) * (node.halfX + PROP_INSET), 9);
+      expect(p.z, `${p.node} ${p.dir}`).toBeCloseTo(node.z + (tx - tz) * (node.halfZ + PROP_INSET), 9);
+      expect(Math.cos(p.rot - Math.atan2(-tx, -tz)), `${p.node} ${p.dir}`).toBeCloseTo(1, 9);
+      expect(W.isOnRoad(p.x, p.z), `${p.node} ${p.dir}`).toBe(false);
+      expect(waterAt(W.layout, p.x, p.z), `${p.node} ${p.dir}`).toBeNull();
+      expect(p.y, `${p.node} ${p.dir}`).toBeCloseTo(W.groundHeight(p.x, p.z), 9);
+    }
   });
 });
 
@@ -514,8 +547,8 @@ describe('the walk heads on the poles', () => {
       spare += off.getX(index);
       expect(mesh.customDepthMaterial?.customProgramCacheKey()).toBe('gta7-signal-depth');
     });
-    // The 30 of them: no new meshes, so the props' budget holds (m3_props counts it).
-    expect(spare).toBe(30);
+    // One at each of the 32 T junctions: no new meshes, so the props' budget holds (m3_props counts it).
+    expect(spare).toBe(32);
     // Only the second walk head's vertices are flagged: a walk head's two boxes and its clamp.
     for (const style of STYLES) {
       const flags = signalGeometry(style).getAttribute('aSpare');
@@ -533,7 +566,7 @@ describe('the walk heads on the poles', () => {
     }
   });
 
-  it('every crosswalk end at a signalised junction has a walk head facing the person waiting there, bar a pinned 66', () => {
+  it('every crosswalk end at a signalised junction has a walk head facing the person waiting there, bar a T junction\'s corner with no approach', () => {
     const heads = signals.flatMap((p) => signalLayout(signalStyle(roads, p)).walks.map((f, w) => ({ p, dir: facing(p, f.turn), axis: walkAxes(roads, p)[w] })));
     let ends = 0;
     let bare = 0;
@@ -546,17 +579,12 @@ describe('the walk heads on the poles', () => {
         if (!heads.some((h) => h.p.node === e.roadNode && h.axis === e.axis && Math.hypot(h.p.x - b.x, h.p.z - b.z) < 3.2 && h.dir.dot(back) > 0.9)) bare++;
       }
     }
-    // The 66 that have none, of 704. 32 are at a T junction's corner that has no approach and so no pole (a walk head
-    // stands on the signal pole of the approach at its corner; its spare head faces along the kerb, not across the road
-    // there). The other 34 are at corners whose approach the layout left without any signal: 18 approaches
-    // (layout.ts re-lays the roads after the sea bodies and adds the bridged segments back, but the signals were
-    // generated against the earlier road set, and its filter can only remove them), a layout bug apart from this
-    // branch. Fixing either lowers the number: lower it here then.
+    // The 32 that have none, of 704, one at each of the 32 T junctions: the corner that has no approach and so no pole (a
+    // walk head stands on the signal pole of the approach at its corner; its spare head faces along the kerb, not across
+    // the road there).
     expect(ends).toBe(704);
-    expect(bare).toBe(66);
-    const approaches = new Set(signals.map((p) => `${p.node}/${p.dir}`));
-    const unsignalled = new Set(roads.lanes.filter((l) => roads.nodes[l.to]!.signal && !approaches.has(`${l.to}/${l.dir}`)).map((l) => `${l.to}/${l.dir}`));
-    expect(unsignalled.size).toBe(18);
+    expect(bare).toBe(roads.nodes.filter((n) => n.signal && n.degree === 3).length);
+    expect(bare).toBe(32);
   });
 
   it('show the walking figure exactly when the people they face may start across, and blank where no crosswalk is', () => {

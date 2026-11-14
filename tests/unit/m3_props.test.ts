@@ -525,10 +525,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // the lake's review (the fire break west of the tower's pad takes its pines out, the pad's boulders stand, and the hills' old
   // scrub is set aside from the pad, the track and the pines' skirts, which moves its foliage envelopes); all re-recorded once
   // on the merged head, where the passes run places, lakeland, valley's farms, oddities, so the lakeland's props come before
-  // the farms' and the roadside oddities' (mailboxes and signs) last, and the colliders follow in the same order.
+  // the farms' and the roadside oddities' (mailboxes and signs) last, and the colliders follow in the same order; and when
+  // the 18 signals that drowning the four bays had taken off their corners stood again, appended after every other prop and
+  // their colliders after every other collider (layout.ts drown).
   const D98 = {
-    props: '85a2b30dd75027abd2fc3a6bbf4f6cf38ce369c5593a861de65b112a9cb974a6',
-    colliders: 'f7e94100091c209f2bd5b08412f9fc587470bd3e6dc90f6d92ae2da3ed4e1c93',
+    props: '09d4ff1377bcf7f06bdb96d0bedea6b43b81b910c4340e8c24754a2dda7fdc2e',
+    colliders: 'd909d41cda6d6f8845de370776eef67be964083ab7f69b01b9ac02d74d8c3f6b',
     envelopes: 'a13bd45640a2bdfe39ee42eba25dfe6c86b08c57f3283b7b3cbf0507c7776f47',
   };
 
