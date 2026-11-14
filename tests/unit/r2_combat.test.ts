@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { V3 } from '../../src/core/math';
 import { wrapAngle } from '../../src/core/math';
-import { CameraController } from '../../src/render/camera';
+import { CameraController, FOOT_BOOM, FOOT_BOOM_AIM, FOOT_LIFT, FOOT_SHOULDER, FOOT_SHOULDER_AIM } from '../../src/render/camera';
 import { CrowdView } from '../../src/render/crowd';
 import { Effects, FLASH_SIZE } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
@@ -132,19 +132,19 @@ function arm(sim: Sim, weapon: WeaponId, ammo = 200): void {
   p.inventory.current = weapon;
 }
 
-/** The on-foot shoulder camera (2.4 m back when aiming, 4.3 m from the hip), its crosshair ray on `target` or along `pitch`. */
+/** The on-foot shoulder camera (FOOT_BOOM_AIM back when aiming, FOOT_BOOM from the hip), its crosshair ray on `target` or along `pitch`. */
 function shoulderAim(sim: Sim, yaw: number, pitch: number, target: V3 | null, over: Partial<PlayerInput> = {}): PlayerInput {
   const p = sim.player;
   const aiming = over.aim ?? true;
-  const dist = aiming ? 2.4 : 4.3;
-  const sh = aiming ? 0.62 : 0.42;
+  const dist = aiming ? FOOT_BOOM_AIM : FOOT_BOOM;
+  const sh = aiming ? FOOT_SHOULDER_AIM : FOOT_SHOULDER;
   const vx = Math.sin(yaw) * Math.cos(pitch);
   const vy = Math.sin(pitch);
   const vz = Math.cos(yaw) * Math.cos(pitch);
   const headY = p.pos.y + 1.58 * p.appearance.height;
   const ox = p.pos.x - vx * dist - Math.cos(yaw) * sh;
   const oz = p.pos.z - vz * dist + Math.sin(yaw) * sh;
-  const o = { x: ox, y: Math.max(headY - vy * dist + 0.18, sim.world.groundHeight(ox, oz) + 0.35), z: oz };
+  const o = { x: ox, y: Math.max(headY - vy * dist + FOOT_LIFT, sim.world.groundHeight(ox, oz) + 0.35), z: oz };
   let d = { x: vx, y: vy, z: vz };
   if (target) {
     const l = Math.hypot(target.x - o.x, target.y - o.y, target.z - o.z);
@@ -413,7 +413,7 @@ describe('P30: hip fire keeps the pace and the view; the firing ray is this fram
     const sim = makeSim();
     const f = standOnOpenRoad(sim);
     const p = sim.player;
-    // A wall 1.2 m behind him: the boom (4.3 m) is pulled in.
+    // A wall 1.2 m behind him: the boom (FOOT_BOOM, 3.2 m) is pulled in.
     wallAhead(sim, { fx: -f.fx, fz: -f.fz, rx: -f.rx, rz: -f.rz }, 1.2, 1);
     const cam = new CameraController(16 / 9);
     cam.mode = 'play';
@@ -1784,7 +1784,7 @@ describe('tracers read from the hip camera', () => {
     const { shot, frame } = rifleAtWall(false);
     expect(R.effects.tracerCount).toBe(1);
     const first = onScreen(0).px;
-    // Seen from 4.3 m behind the shooter the whole 14 m from the muzzle to the wall is only a few dozen pixels (it runs
+    // Seen from FOOT_BOOM behind the shooter the whole 14 m from the muzzle to the wall is only a few dozen pixels (it runs
     // into the crosshair), and a 3 m streak about half of that, partly behind his arm.
     const whole = pathOnScreen(shot, 0, Math.hypot(shot.tx - shot.fx, shot.ty - shot.fy, shot.tz - shot.fz));
     const dash = pathOnScreen(shot, 0, 3);

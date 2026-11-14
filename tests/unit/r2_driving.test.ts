@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { clamp, smoothstep, wrapAngle } from '../../src/core/math';
-import { CameraController, CHASE_FOV_REST, chaseFov } from '../../src/render/camera';
+import { CameraController, CHASE_FOV_REST, chaseFov, FOOT_BOOM, FOOT_BOOM_AIM, FOOT_BOOM_FAR, FOOT_SHOULDER } from '../../src/render/camera';
 import { FOLIAGE_FADE_FAR, PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
 import type { Vehicle } from '../../src/sim/entities';
@@ -695,7 +695,7 @@ describe('the camera and street trees (P21)', () => {
   it('a new game starts with the camera clear of the street tree behind the player', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 15.5 });
     const p = sim.player;
-    const boom = (yaw: number) => ({ x: p.pos.x - Math.sin(yaw) * 4.3 - Math.cos(yaw) * 0.42, z: p.pos.z - Math.cos(yaw) * 4.3 + Math.sin(yaw) * 0.42 });
+    const boom = (yaw: number) => ({ x: p.pos.x - Math.sin(yaw) * FOOT_BOOM - Math.cos(yaw) * FOOT_SHOULDER, z: p.pos.z - Math.cos(yaw) * FOOT_BOOM + Math.sin(yaw) * FOOT_SHOULDER });
     const trees = sim.world.layout.props.filter((q) => isTree(q) && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < 20);
     const clearance = (b: { x: number; z: number }) => Math.min(...trees.map((q) => Math.hypot(q.x - b.x, q.z - b.z) / q.scale));
     // The boom straight behind the player ends 1.2 m from a street tree (this is what filled the first frame with leaves).
@@ -803,7 +803,7 @@ describe('the camera and street trees (P21)', () => {
     cam.reset(sim);
     cam.yaw = hug.yaw;
     for (let i = 0; i < 40; i++) cam.update(DT, sim, false);
-    expect(back(hug.yaw)).toBeGreaterThan(3.8);
+    expect(back(hug.yaw)).toBeGreaterThan(FOOT_BOOM - 0.15);
     // 2.5 m back: swinging the camera onto it pulls the boom in over a few frames, never in one jump.
     const far = setup(2.5)!;
     cam.reset(sim);
@@ -836,8 +836,8 @@ describe('the camera and street trees (P21)', () => {
     for (let i = 0; i < 60; i++) cam.update(DT, sim, true);
     expect(boom()).toBeLessThan(2.6);
     for (let i = 0; i < 18; i++) cam.update(DT, sim, false);
-    // The boom eases from 2.4 to 4.3 m at 10/s: 95% of the way in 0.3 s.
-    expect(boom()).toBeGreaterThan(4.1);
+    // The boom eases from FOOT_BOOM_AIM to FOOT_BOOM (2.4 to 3.2 m) at 10/s: 95% of the way in 0.3 s.
+    expect(boom()).toBeGreaterThan(FOOT_BOOM_AIM + 0.95 * (FOOT_BOOM - FOOT_BOOM_AIM));
   });
 
   it('the chase camera is not pulled in by roadside trunks', () => {
@@ -866,8 +866,8 @@ describe('the camera and street trees (P21)', () => {
     cam.mode = 'play';
     cam.zoomLevel = 1;
     cam.reset(sim);
-    const bx = p.pos.x - Math.sin(cam.yaw) * 6.6 - Math.cos(cam.yaw) * 0.42;
-    const bz = p.pos.z - Math.cos(cam.yaw) * 6.6 + Math.sin(cam.yaw) * 0.42;
+    const bx = p.pos.x - Math.sin(cam.yaw) * FOOT_BOOM_FAR - Math.cos(cam.yaw) * FOOT_SHOULDER;
+    const bz = p.pos.z - Math.cos(cam.yaw) * FOOT_BOOM_FAR + Math.sin(cam.yaw) * FOOT_SHOULDER;
     for (const q of sim.world.layout.props) if (isTree(q) && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < 20) expect(Math.hypot(q.x - bx, q.z - bz)).toBeGreaterThanOrEqual(2.6 * q.scale);
   });
 
