@@ -1069,6 +1069,7 @@ export class Game {
     this.audio.update(dt, m, true);
     this.countUnmute(dt);
     this.hud.device = fi.device;
+    this.hud.menuOpen = this.menus.open || this.netStatus.open;
     this.hud.update(dt, m, cam.yaw, aiming, this.mpOverlay.inRace ? null : m.interactions.prompt(me), this.renderer.time);
     this.mpOverlay.update(dt, m, cam.camera, m.tick, this.menus.open || this.netStatus.open);
     const watching = m.slot < 0 && live;

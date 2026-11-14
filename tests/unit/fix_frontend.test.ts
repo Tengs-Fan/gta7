@@ -5013,6 +5013,77 @@ describe('San Azura driving HUD', () => {
     expect(faded()).toBe(true);
   });
 
+  it('the controls line holds its time under a menu (multiplayer updates the HUD there) and comes up again for keys rebound in it', () => {
+    const { hud, el, update } = rig();
+    const faded = () => el.quickControls!.classList.contains('faded');
+    update();
+    hud.menuOpen = true;
+    update(10);
+    expect(faded()).toBe(false);
+    // Rebound in the menu: the line is redrawn and its time starts again, still held while the menu is up.
+    (hud as unknown as { keys: KeyLabels }).keys.keymap.set({ ...DEFAULT_BINDINGS, sprint: 'KeyX' });
+    update();
+    update(10);
+    expect(faded()).toBe(false);
+    expect(el.quickControls!.innerHTML).toContain('<kbd>X</kbd> Sprint');
+    hud.menuOpen = false;
+    update(7.9);
+    expect(faded()).toBe(false);
+    update(0.2);
+    expect(faded()).toBe(true);
+  });
+
+  it('the controls line waits for the welcome and a line of dialogue to go before its time runs, and comes back on respawning', () => {
+    const { hud, el, sim, update } = rig();
+    const faded = () => el.quickControls!.classList.contains('faded');
+    hud.help('Welcome to San Azura. Steal a ride with <kbd>F</kbd>.', 9);
+    update();
+    update(9.1);
+    expect(faded()).toBe(false);
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Kai Navarro!', duration: 4 });
+    update(4.1);
+    expect(faded()).toBe(false);
+    update(8.1);
+    expect(faded()).toBe(true);
+    sim.events.emit('respawn', { reason: 'wasted' } as never);
+    update();
+    expect(faded()).toBe(false);
+  });
+
+  it("the vehicle's name flashes whenever he is seated in another, with or without the event that he got in", () => {
+    const { el, sim, update } = rig();
+    const rp = roadPoint(sim);
+    const car = sim.spawnVehicle('sports', rp.x, rp.z, rp.heading);
+    placeInCar(sim, car);
+    update();
+    expect(el.zone!.classList.contains('show')).toBe(true);
+    expect(el.zone!.textContent).toBe(car.spec.name);
+    update(3.1);
+    expect(el.zone!.classList.contains('show')).toBe(false);
+    // Moved straight into another (a reseat): its name.
+    const van = sim.spawnVehicle('van', rp.x + 20, rp.z, rp.heading);
+    placeInCar(sim, van);
+    update();
+    expect(el.zone!.classList.contains('show')).toBe(true);
+    expect(el.zone!.textContent).toBe(van.spec.name);
+  });
+
+  it('the next-step line, the card and the route all name the contact a call routed the GPS to', () => {
+    const { hud, el, sim, update } = rig();
+    const defs = sim.missions.defs;
+    vi.spyOn(sim.missions, 'offers').mockReturnValue([defs.find((d) => d.id === 'wheels')!, defs.find((d) => d.id === 'loose_lips')!]);
+    hud.routeContact = 'dex';
+    hud.showNextStep(sim);
+    update();
+    expect(el.objective!.textContent).toBe('Dex Moreau has work: follow the route to the D on your radar');
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+    expect((hud as unknown as { routeColor: string }).routeColor).toBe('#38e1d2');
+    update(8.1);
+    update();
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    expect(el.navName!.textContent).toBe('Dex Moreau');
+  });
+
   it("the district's name comes up at the top left as he enters it and fades; nothing flashes at the bottom right", () => {
     const { el, sim, update } = rig();
     const place = () => el.place!.classList.contains('show');

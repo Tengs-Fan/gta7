@@ -269,6 +269,8 @@ body {
 .status.timer {
   font-family: 'Anton', Impact, sans-serif;
   font-size: 22px;
+  /* One line: 'RUSH HOUR 3:45' broken in two reads as two things. */
+  white-space: nowrap;
   font-weight: 400;
   line-height: 1.1;
   color: var(--gold);
@@ -2196,6 +2198,8 @@ body {
   .hud-tr { min-width: 148px; width: 148px; padding: 9px 11px; }
   .toast, .toast-prev { font-size: 15px; padding: 6px 10px; }
   .hud-tr .money { font-size: 24px; }
+  /* 'RUSH HOUR 3:45' on one line in the 126 px inside the narrow cluster. */
+  .hud-tr .status.timer { font-size: 18px; letter-spacing: 0; }
   .bars { width: 126px; }
   .hud-tr .stars svg { width: 21px; height: 21px; }
   .radar { left: 18px; width: 140px; height: 140px; }

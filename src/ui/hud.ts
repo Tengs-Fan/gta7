@@ -158,7 +158,10 @@ export class Hud {
   private routeTimer = 0;
   /** The toasts up (oldest first) and the seconds each has left; under 0 it is fading out (TOAST_FADE). */
   private toasts: Array<{ text: string; t: number }> = [];
-  /** The vehicle the player is in (id, -1: none) and where its headlight switch stood at the last frame: a toast when that moves, not on getting into another. */
+  /**
+   * The vehicle the player is in (id, -1: none) and where its headlight switch stood at the last frame: a toast when that
+   * moves, not on getting into another, whose name flashes instead.
+   */
   private switchCar = -1;
   private switchState: LampSwitch = 'auto';
   /** The title card's side padding as last written ('left right', '' for none; see fitTitle). */
@@ -187,6 +190,11 @@ export class Hud {
   private scannerTimer = 0;
   private shownEvade = '';
   waypoint: { x: number; z: number } | null = null;
+  /**
+   * A menu covers the game. Only multiplayer updates the HUD under one (its world goes on); the controls line's time
+   * holds there, as it does in single player, so keys rebound in the menu are still up to read on getting back.
+   */
+  menuOpen = false;
   /** The contact a phone call routed the GPS to (their offer comes first while they have one); null: the first offer. */
   routeContact: string | null = null;
   visible = true;
@@ -393,9 +401,6 @@ export class Hud {
         this.moneyDelta += e.amount;
         this.timers.delta = 2.5;
       }),
-      ev.on('vehicleEnter', (e) => {
-        if (e.character === this.me(sim).character) this.flashZone(e.vehicle.spec.name, '');
-      }),
       ev.on('fade', (e) => {
         if (!this.mine(e)) return;
         this.fade = { startedAt: sim.time, duration: Math.max(FADE_EDGE_SECONDS * 2, e.duration) };
@@ -403,7 +408,11 @@ export class Hud {
         this.el.fade!.classList.add('on');
       }),
       ev.on('respawn', (e) => {
-        if (this.mine(e)) this.lastHealth = this.me(sim).character.health;
+        if (!this.mine(e)) return;
+        this.lastHealth = this.me(sim).character.health;
+        // On his feet again at the hospital or the station: the keys come up again.
+        this.controlMode = '';
+        this.controlLine = '';
       }),
       ev.on('missionEnded', (e) => this.mine(e) && clearObjective()),
       ev.on('activityEnded', (e) => this.mine(e) && clearObjective()),
@@ -523,6 +532,7 @@ export class Hud {
     this.routeColor = '';
     this.routeWaypoint = null;
     this.jobRunning = sim.activities.busy;
+    this.menuOpen = false;
     this.activityObjective = '';
     this.controlMode = '';
     this.controlLine = '';
@@ -798,7 +808,8 @@ export class Hud {
     const below = [this.el.drive!, this.el.zone!, this.el.quickControls!];
     let limit = Infinity;
     for (const e of below) {
-      if (e.classList.contains('hidden') || (e === this.el.zone && !e.classList.contains('show'))) continue;
+      // Not shown: the zone or vehicle name between flashes, the controls line faded out.
+      if (e.classList.contains('hidden') || (e === this.el.zone && !e.classList.contains('show')) || (e === this.el.quickControls && e.classList.contains('faded'))) continue;
       const r = e.getBoundingClientRect();
       // Only what lies under the column, side by side with it.
       if (!(r.height > 0) || r.top <= col.top || r.left >= col.left + col.width || r.left + r.width <= col.left) continue;
@@ -897,8 +908,11 @@ export class Hud {
       }
     }
 
-    // Timed elements.
-    for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0) this.timers[k] -= dt;
+    // Timed elements. The controls line's time runs only while the player can read it: no menu over the game, and
+    // nothing else talking (a line of dialogue, the help box, the next-step line), as at the start of a game.
+    const nextLine = el.objective!.classList.contains('next') && this.timers.objective > 0;
+    const reading = !this.menuOpen && this.timers.subtitle <= 0 && !this.helpCur && !nextLine;
+    for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0 && (k !== 'controls' || reading)) this.timers[k] -= dt;
     this.updateHelp(dt);
     this.updateSubtitle(dt);
     if (this.timers.zone <= 0) el.zone!.classList.remove('show');
@@ -1091,6 +1105,8 @@ export class Hud {
    * it), saying whether the lamps are lit now: the lamps coming on by themselves at dusk move no switch.
    */
   private watchSwitch(sim: ViewState, v: Vehicle | null): void {
+    // In another vehicle (got in, seated on a street run's grid or a reseat): its name flashes over the drive panel.
+    if (v && v.id !== this.switchCar) this.flashZone(v.spec.name, '');
     if (v && v.id === this.switchCar && v.lights !== this.switchState) this.toast(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)) ? 'Headlights on' : 'Headlights off');
     this.switchCar = v ? v.id : -1;
     this.switchState = v ? v.lights : 'auto';
@@ -1235,7 +1251,8 @@ export class Hud {
     // until the immediate retry (or its lose-the-cops instruction) is no longer offered.
     if (!this.nextPending || retry || this.bigCur || this.bigQueue.length > 0) return;
     this.nextPending = false;
-    const d = busy ? undefined : sim.missions.offers()[0];
+    // The contact the card and the route lead to.
+    const d = busy ? undefined : this.routedOffer(sim);
     // Already on that marker (Wheels hands over at Lou's): the card says it.
     if (!d || this.onNextMarker(sim)) return;
     const c = contactById(d.giver);
@@ -1249,10 +1266,10 @@ export class Hud {
     return !!(sim.missions.retryOffer() || sim.missions.retryAfterCops());
   }
 
-  /** The player stands on the marker of the next mission on offer, the one the next-step line names. */
+  /** The player stands on the marker of the mission the next-step line names (and the card and the route lead to). */
   private onNextMarker(sim: ViewState): boolean {
     const here = sim.interactions.current(this.me(sim));
-    return here?.kind === 'mission' && here.ref === sim.missions.offers()[0]?.id;
+    return here?.kind === 'mission' && here.ref === this.routedOffer(sim)?.id;
   }
 
   private statusText(sim: ViewState): string {
