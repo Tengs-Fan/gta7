@@ -264,6 +264,8 @@ export function buildBuildings(view: CityView): void {
   for (const b of layout.buildings) {
     // The county's other buildings are drawn by its own code (Dry Creek's stores: town.ts; the valley's winery and ranch house: valley.ts).
     if (b.district === 'country' && !farmhouses.has(b.id)) continue;
+    // The Azura Bowl is drawn as a stadium, its name on its cornice (setPieces.ts), over the box the sim makes of it.
+    if (b.special === 'stadium') continue;
     const gb = builders.get(b.style)!;
     // Per-building seed (k / 1000) for the night windows, so neighbours of one style never match; each tier's walls carry
     // it under their roof's height (facadeSeed).

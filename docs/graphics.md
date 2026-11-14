@@ -180,9 +180,16 @@ The lamp and Ferris wheel halos draw their glow in the shader, so there is no te
 
 The Ferris wheel's models are in `src/render/setPieceModels.ts`, and PropsView turns and places them.
 Its 16 cabins are round, with a domed roof, a band of dark glass split by six mullions and a yoke up to the pivot, in the old box's envelope (floor 2.6 m under the rim).
-Its two rims are braced into a truss by cross tubes and diagonals, 32 bays with a cross tube at each cabin's pivot, and 32 tension spokes run from the hub's flanges.
+Its two rims are joined into a ladder truss by 32 cross tubes, one at each cabin's pivot and one midway between (diagonals would run through the cabins hanging at 3 and 9 o'clock), and 32 tension spokes run from the hub's flanges.
 Its A-frames are octagonal tubes tapering to the hub, braced by a tie across each frame 15 m up and by struts and crossed diagonals beside the deck, all clear of the walkway and the cabins' sweep.
-The wheel keeps its three meshes (rim, cabins, legs), so it adds no draw: from under it 3.3% more triangles on High, 5.5% on Medium and 3.1% on Low, the shadow pass included.
+The wheel keeps its three meshes (rim, cabins, legs), so it adds no draw: from under it at most 3.3% more triangles on High, 5.5% on Medium and 3.1% on Low, the shadow pass included (measured with the rims' diagonals, since taken out).
+
+Port Basin's three cranes and the Azura Bowl are city geometry (`src/render/city/setPieces.ts`): one vertex-coloured geometry over a small atlas, in the city's cells, so each place is one draw where it is seen (the three cranes were three meshes of props.ts).
+Each crane is a ship-to-shore crane on the legs its colliders are: a portal of box legs on dark shoes with K-braces in the frames along the wharf (the frames across it stay open to 22 m), a boom of two box girders 54 m long with the machinery house on its backreach, the apex frame 47 m up with its forestays and backstays, the trolley with the driver's cab, the ropes and the spreader.
+Its floodlights under the boom and the portal and the red beacons on its apex and boom tip light up after dark through the signs' night glow, as the stadium's canopy strip and mast heads do.
+The stadium is drawn on the box the sim makes of it, and the city no longer draws that box as an office block (`buildings.ts` skips it): the podium is clad as the concourse (a concrete base with ten gates and their boards, dark glazing behind white fins that glows warm after dark, the name on the north and south cornices), and on its 22 m top stand the pitch, twelve rows of stands rising to a rounded rim, the canopy over the upper rows and a floodlight mast at each corner.
+The docks' containers are framed and corrugated (`setPieceModels.ts`): walls set into corner posts and rails, the doors' seam and locking bars, a ribbed and weathered texture the instance colour paints; 182 triangles each against the box's 12, in the same batches.
+The bridges' parapets are balustrades on their colliders (`coast.ts` bridgeParapet), and AzuraLink's cars are lofted shells (a rounded roof, flat sides for the windows and doors, the noses falling to the headlamps with a dark windscreen) on a beam with a darkened running surface, expansion joints and hammerhead pylon heads on bearing pads.
 
 Street Run gates use open ground outlines and slim illuminated posts, with a separate readable turn instruction, road name, gate count and distance. This keeps traffic visible through a checkpoint.
 
