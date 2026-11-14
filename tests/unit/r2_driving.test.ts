@@ -879,10 +879,11 @@ describe('the camera and street trees (P21)', () => {
     });
     // Spatial cells share the same canopy/bush/frond/corn geometries and materials (the cemetery's cypresses wear
     // the trees' canopy, Las Lomas County's apple trees the bushes' leaves, and Pinewood's pines their own model and
-    // material). The dissolve remains one colour pass for each batch, with every foliage prop drawn once.
+    // material; the yards' shrubs, which are dressing and no props, the bushes' leaves on a smaller model of their own).
+    // The dissolve remains one colour pass for each batch, with every foliage prop drawn once.
     expect(new Set(foliage.map((mesh) => mesh.material)).size).toBe(5);
-    expect(new Set(foliage.map((mesh) => mesh.geometry)).size).toBe(5);
-    const drawnProps = foliage.flatMap((mesh) => mesh.userData.propIndices as number[]).sort((a, b) => a - b);
+    expect(new Set(foliage.map((mesh) => mesh.geometry)).size).toBe(6);
+    const drawnProps = foliage.flatMap((mesh) => (mesh.userData.propIndices as number[] | undefined) ?? []).sort((a, b) => a - b);
     const expectedProps = world().layout.props.flatMap((p, i) => ['tree', 'bush', 'palm', 'cypress', 'corn', 'orchardTree', 'pine'].includes(p.kind) ? [i] : []);
     expect(drawnProps).toEqual(expectedProps);
     for (const mesh of foliage) {

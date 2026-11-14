@@ -65,9 +65,10 @@ const NECK = 0.86;
 /**
  * A cowering civilian crouched with his hands over his head (peds.cowerCrouched) is hit as CrowdView draws him: one body
  * volume (no head of its own) up to CROUCH_TOP of his height, its axis CROUCH_FWD of his height ahead of his feet (he leans
- * into the crouch), CROUCH_R of his height wide. Rounds that pass over him miss him.
+ * into the crouch), CROUCH_R of his height wide. Rounds that pass over him miss him. (His hands over his head are drawn
+ * up to 0.675 of his height: the volume ends a centimetre and a half over them.)
  */
-const CROUCH_TOP = 0.7;
+const CROUCH_TOP = 0.685;
 const CROUCH_FWD = 0.2;
 const CROUCH_R = 0.24;
 /** Rocket launch speed (m/s); a rocket self-destructs once it has flown the launcher's range. */

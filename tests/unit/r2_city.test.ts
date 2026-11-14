@@ -858,7 +858,7 @@ describe('round 2 fix: the camera and street trees', () => {
     });
     let checked = 0;
     for (const kind of ['tree', 'bush'] as const) {
-      const instances = meshes.flatMap((mesh) => (mesh.userData.propIndices as number[]).map((pi, k) => ({ mesh, k, q: world().layout.props[pi]! }))).filter(({ q }) => q.kind === kind);
+      const instances = meshes.flatMap((mesh) => ((mesh.userData.propIndices as number[] | undefined) ?? []).map((pi, k) => ({ mesh, k, q: world().layout.props[pi]! }))).filter(({ q }) => q.kind === kind);
       const m = new THREE.Matrix4();
       const v = new THREE.Vector3();
       for (const sample of [0, 7, Math.floor(instances.length / 2), instances.length - 1]) {
