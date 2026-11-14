@@ -57,8 +57,11 @@ export class PlacesKit {
     dirtMat.polygonOffsetFactor = -1;
     dirtMat.polygonOffsetUnits = -1;
     view.add(setGroundAttribute(this.dirt.build(), [], NO_RECT), dirtMat, { split: false, name: 'places-dirt' });
+    // Repeating along u, so tin and concrete run on round a silo or along a wall; every band spans the atlas's width.
+    const map = this.atlas.texture();
+    map.wrapS = THREE.RepeatWrapping;
     const mat = new THREE.MeshStandardMaterial({
-      map: this.atlas.texture(),
+      map,
       emissiveMap: this.atlas.texture(true),
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 0.4,

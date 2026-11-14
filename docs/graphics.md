@@ -232,6 +232,15 @@ A storm's haze cuts the fog's far end to about 350 m: the cells it culls are ful
 The fire road is a gravel ribbon draped 5 cm over the ground (`render/country/hills.ts`), with Lookout Point's car park in the same mesh; its parapet and the timber fire lookout are a mesh each.
 Coyote Ridge's six turbines share Turbine Row's instanced nacelles and rotors, with their land towers (a concrete foundation and the mast, no transition piece and no foam) one more instanced draw.
 The reflector posts along the county's roads are one mesh cut into cells; after dark the reflectors ahead of the player's lit car shine back as glows in `LightSprites` (`addReflector`), brightest dead ahead and fading over 80 m, so on Low, with no headlight beam, they mark the road's edges.
+Gravel shoulders 0.9 m wide run along both edges of every county road, a mesh of the city's dirt 6 mm over the grass (`country-shoulders`, one draw for the county, 2,084 triangles in pieces from vertex to vertex of the road, 12 m at most), laid only where a piece lies wholly on the county's land, so the asphalt meets gravel and not the lawn, and none lies on the links' spans or through the city's promenade.
+
+**The farmsteads' and the town's models.**
+Their detail is painted, not modelled, wherever it is a surface: the farms' atlas (`render/country/farms.ts`, now 2048 px tall), the valley's and the places' each carry a band of ribbed tin (`tinBand`, a seam every 0.375 m, weathered toward the eaves, a neutral grey the vertex colour tints) and the places' a band of slipformed concrete, and those atlases repeat along u, so a roof or a silo maps the band on as far as it runs (`TIN_TILE`, 12 m to the band) in a quad or two rather than a quad a tile.
+So the barns' gambrel roofs and gable ends are tin in their own colours, with a ridge cap, boards up the rakes and along the eaves in white (dark green on the whitewashed dairy, where white would not show), corner boards, and a hay hood that carries the roof's peak out over the loft door; the dairy's, Pippin Hollow's and the Lazy Q's barns have a louvred cupola with a weathervane, and the two whose ridges the crows perch along (Hollister Bottoms', Halfmoon Acres') do not.
+The farmhouses, which the city draws as plain houses, get from the county a stone plinth, corner boards, a brick chimney up through the roof, and a porch along the wall facing into the yard: a deck on dark skirting, three steps, posts, a railing of balusters, a tin roof with boards under it, and the front door (a band of two doors on the atlas) with its casing and a lamp; the Lazy Q's house gets a plinth, steps, a door and the underside of its porch roof, as do the winery's porch and the paddocks' shelters.
+All of it is in the meshes the farms already drew (`farmsteads`, `lazy-q-ranch`, `sunset-vineyard`): about 3,800 triangles more in the county's and 300 in the ranch's, no draw.
+The hedgerows are pillows of leaves 1.6 to 3.2 m long overlapping by a third, a five-sided section bulging at the sides and tapering to their ends, each a little thicker or thinner, taller or lower than the next, closed at a run's two ends: 14,450 triangles for all of them against the 5,020 of the boxes with lumps along their tops they were, in the one `hedgerows` mesh (an eight-sided section of shorter pillows, 23,000, put 3 to 8% on the triangles of the county's views, most of it the sun's cascades drawing the hedgerows again).
+Dry Creek's grain elevator wraps its four silos in six lifts of the concrete band (24 sides) over a darker footing, under a rim and a low cone, with a caged ladder up the west one; its head house and leg tower are tin with strips of windows under tin roofs (2,800 triangles more in the town's mesh).
 
 **The countryside's life.**
 Crows, the dairy's dog, the crop-duster, the combine and the dawn balloon (`render/country/life/`) are presentation only: they read the sim's clock, its cars and the player's position and write nothing to it, and draw from no random stream of the sim's.
@@ -466,6 +475,26 @@ The before run was made with a load average of 14 to 43 and other agents' Chromi
 With the traffic and the people gone (the round's `diag.mjs`, which also hides each group of the lakeland's meshes in turn) the same views draw 215, 183, 419 and 157 calls against 151, 105, 362 and 102 before, and 1.22, 0.78, 2.08 and 0.64 M triangles against 0.68, 0.33, 1.54 and 0.34 M.
 The pines are 19 of pinewood-noon's calls and 0.35 M of its triangles (shadows included), the valley's oaks 16 and 0.09 M, its bushes 4 and 0.07 M, the kit's meshes, the reeds, the flowers, the rocks and the lights 2 to 12 calls and under 0.05 M each.
 The city's scenes facing away from the valley are as before, and the ridge hides the valley from Dry Creek: the lakeland's cells are the cells the valley's beach and ground already were.
+
+The county's models redrawn (the farmsteads' tin, porches and cupolas, the hedgerows' pillows, the elevator's concrete and the roads' shoulders) on 2026-11-13, through the round's `shoot.mjs` (39 views on foot and from the road at the named places, traffic and people gone, at the playtest's default 1600x900), on the base build (28dfbee) and the head: every view but one drew 2 calls more (the shoulders' mesh, the one county mesh more in each view's frustum; the one, 15 fewer, differed by what lay outside the county's meshes), and the county's own meshes in the frustum took 2 to 18 k triangles more (the hedgerows' 9,400 wherever they are in the frustum, since they are one mesh, the shoulders' 2,100, the rest the farm or the town in view).
+
+| View (traffic and people gone) | Draw calls before | after | Triangles before | after |
+| --- | ---: | ---: | ---: | ---: |
+| Hollister Bottoms from its drive | 285 | 287 | 1.50 M | 1.54 M |
+| the dairy's barn and silos | 239 | 241 | 1.10 M | 1.13 M |
+| Pippin Hollow's barn | 228 | 230 | 1.39 M | 1.42 M |
+| Halfmoon Acres' farmhouse | 566 | 568 | 1.85 M | 1.89 M |
+| Dry Creek's main street, facing west | 288 | 290 | 1.58 M | 1.62 M |
+| the Feed & Seed's front, the elevator behind it | 202 | 204 | 0.76 M | 0.80 M |
+| the elevator from the main street | 206 | 208 | 0.80 M | 0.84 M |
+| the Lazy Q's barn | 454 | 456 | 1.92 M | 1.95 M |
+| Lake Lomas's dock | 218 | 220 | 1.05 M | 1.08 M |
+| Coyote Pass | 292 | 294 | 1.64 M | 1.68 M |
+| the highway's south leg by the fields | 248 | 250 | 1.53 M | 1.56 M |
+| a pickup on the highway's north leg | 281 | 283 | 1.71 M | 1.75 M |
+
+Across the 39 views the triangles rose 1.0 to 5.7% (median 2.3%), most of it the sun's cascades drawing the hedgerows again; the two over 5% (5.5% and 5.7%) are the two that frame the elevator, whose own 2,800 triangles more the cascades draw again too.
+Frame rates on the RTX 5090 were 44 to 60 fps before and 35 to 61 after, with other agents' browsers on the GPU, so they are not compared; Medium, Low and the software fallback draw the barns, the elevator and the shoulders (`tiers.mjs`; the software tier at 13 to 24 fps under the same load).
 
 ## Software fallback
 

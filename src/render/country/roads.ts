@@ -1,14 +1,16 @@
-// Las Lomas County's roads: asphalt ribbons along each road's centre line, mitred at its bends, a pad on every
-// junction, and the links' mouths through the promenade (the causeway's and the highway's ribbons run on to the
-// gateways' boxes); white edge lines, the highway's dashed lane lines, a dashed yellow centre line (a double solid one
-// round the highway's bends) and stop lines at the signals. Flush with the ground, so the paint sits just over the asphalt
-// and the asphalt just over the grass. A few thousand triangles in all: one mesh each, as the city's roads and paint.
+// Las Lomas County's roads: asphalt ribbons along each road's centre line, mitred at its bends, gravel shoulders either
+// side of them, a pad on every junction, and the links' mouths through the promenade (the causeway's and the highway's
+// ribbons run on to the gateways' boxes); white edge lines, the highway's dashed lane lines, a dashed yellow centre line
+// (a double solid one round the highway's bends) and stop lines at the signals. Flush with the ground, so the paint sits
+// just over the asphalt, the asphalt just over the gravel and the gravel just over the grass. A few thousand triangles in
+// all: one mesh each, as the city's roads and paint.
 
 import * as THREE from 'three';
 import { CROSSWALK_W, LANE_W } from '../../world/constants';
+import { rectContains, type Rect } from '../../world/layout';
 import type { RoadNode } from '../../world/roads';
 import { quadLine } from '../city/shared';
-import { setGroundAttribute, type GroundRange } from '../city/surfaces';
+import { NO_RECT, setGroundAttribute, type GroundRange } from '../city/surfaces';
 import { GeoBuilder } from '../geo';
 import { COUNTRY_CELL } from '../quality';
 import type { CountryView } from './index';
@@ -16,6 +18,11 @@ import type { CountryView } from './index';
 /** Heights (m) of the asphalt and the paint over the flush ground. */
 const ASPHALT_Y = 0.012;
 const PAINT_Y = 0.024;
+/** The gravel shoulders either side of the asphalt: their width (m) out from its edge, their height over the ground. */
+const SHOULDER = 0.9;
+const SHOULDER_Y = 0.006;
+/** A shoulder's longest piece (m) along the road: short enough to stop near where the land does. */
+const SHOULDER_STEP = 12;
 /** A dashed line's dash and gap (m). */
 const DASH = 3;
 const GAP = 6;
@@ -40,6 +47,9 @@ export function buildCountryRoads(view: CountryView): void {
   const white = new GeoBuilder(false);
   const yellow = new GeoBuilder(false);
   const uv = { kind: 'world', scale: surfaces.tile('road') } as const;
+  const gravel = new GeoBuilder(false);
+  const dirtUv = { kind: 'world', scale: surfaces.tile('plain') } as const;
+  const land = view.world.layout.country.land;
   const outer = (n: RoadNode) => n.i < 0;
   for (const { road, nodes } of roads.outerRoads) {
     const half = road.width / 2;
@@ -64,6 +74,7 @@ export function buildCountryRoads(view: CountryView): void {
       const total = pts[pts.length - 1]!.s;
       const s1 = total - box(last, pts[pts.length - 1]!.x - pts[pts.length - 2]!.x, pts[pts.length - 1]!.z - pts[pts.length - 2]!.z);
       ribbon(asphalt, ranges, pts, s0, s1, -half, half, ASPHALT_Y, uv);
+      for (const [o0, o1] of [[-half - SHOULDER, -half + 0.05], [half - 0.05, half + SHOULDER]] as const) shoulder(gravel, land, pts, s0, s1, o0, o1, dirtUv.scale);
       for (const o of [-(half - 0.35), half - 0.35]) line(white, pts, s0, s1, o, 0.1, false);
       const centre = s0 + CROSSWALK_W;
       const stop = s1 - CROSSWALK_W;
@@ -88,6 +99,11 @@ export function buildCountryRoads(view: CountryView): void {
   roadMat.polygonOffsetFactor = -1;
   roadMat.polygonOffsetUnits = -1;
   view.add(setGroundAttribute(asphalt.build(), ranges), roadMat, { name: 'country-roads', split: false });
+  const gravelMat = surfaces.patch(view.city.wet.patch(surfaces.material('plain', 'dirt')), 'plain');
+  gravelMat.polygonOffset = true;
+  gravelMat.polygonOffsetFactor = -1;
+  gravelMat.polygonOffsetUnits = -1;
+  view.add(setGroundAttribute(gravel.build(), [], NO_RECT), gravelMat, { name: 'country-shoulders', split: false });
   const paint = (color: number) => view.city.wet.patch(new THREE.MeshStandardMaterial({ color, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   view.add(white.build(), paint(0xe6e6e0), { name: 'country-markings-white', split: false });
   view.add(yellow.build(), paint(0xe8b923), { name: 'country-markings-yellow', split: false });
@@ -171,6 +187,28 @@ function ribbon(g: GeoBuilder, ranges: GroundRange[], pts: Vertex[], s0: number,
         v++;
       },
     });
+  }
+}
+
+/**
+ * Gravel along the run from s0 to s1 between offsets o0 and o1, in pieces from vertex to vertex of SHOULDER_STEP m at most,
+ * each laid only where all of it is on the county's `land`: none on the links' spans over the water or through the city's
+ * promenade.
+ */
+function shoulder(g: GeoBuilder, land: readonly Rect[], pts: Vertex[], s0: number, s1: number, o0: number, o1: number, tile: number): void {
+  const on = (p: { x: number; z: number }) => land.some((r) => rectContains(r, p.x, p.z));
+  const k = 1 / tile;
+  // Cut at every vertex of the run, so a piece never chords across a bend, and every SHOULDER_STEP m between.
+  const cuts = [s0, s1, ...pts.map((p) => p.s).filter((s) => s > s0 && s < s1)].sort((p, q) => p - q);
+  const at0 = [...cuts];
+  for (let i = 1; i < at0.length; i++) for (let s = at0[i - 1]! + SHOULDER_STEP; s < at0[i]! - 1; s += SHOULDER_STEP) cuts.push(s);
+  cuts.sort((p, q) => p - q);
+  for (let i = 1; i < cuts.length; i++) {
+    const a = cuts[i - 1]!;
+    const b = cuts[i]!;
+    const q = [at(pts, a, o1), at(pts, b, o1), at(pts, b, o0), at(pts, a, o0)] as const;
+    if (!q.every(on)) continue;
+    g.quad(q[0].x, SHOULDER_Y, q[0].z, q[1].x, SHOULDER_Y, q[1].z, q[2].x, SHOULDER_Y, q[2].z, q[3].x, SHOULDER_Y, q[3].z, q.flatMap((p) => [p.x * k, -p.z * k]));
   }
 }
 
