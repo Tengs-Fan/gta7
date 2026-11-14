@@ -131,6 +131,12 @@ A lamp's ground pool is its light laid on the ground, an additive decal 18 m acr
 On High's downtown avenue at 23:00 the road at a lamp's foot reads luma 120, 97 at 3 m and 47 at 6 m against a lens of 220 (the earlier 13 m glow, more orange than the lamp, read 148, 92 and 35: a hot spot like a mirror image of the lamp).
 The lamp and Ferris wheel halos draw their glow in the shader, so there is no texture to upload when the lights come on at night.
 
+The Ferris wheel's models are in `src/render/setPieceModels.ts`, and PropsView turns and places them.
+Its 16 cabins are round, with a domed roof, a band of dark glass split by six mullions and a yoke up to the pivot, in the old box's envelope (floor 2.6 m under the rim).
+Its two rims are braced into a truss by cross tubes and diagonals, 32 bays with a cross tube at each cabin's pivot, and 64 laced tension spokes run from the hub's flanges.
+Its A-frames are octagonal tubes tapering to the hub, braced by a tie across each frame 15 m up and by struts and crossed diagonals beside the deck, all clear of the walkway and the cabins' sweep.
+The wheel keeps its three meshes (rim, cabins, legs), so it adds no draw: about 10,000 triangles more, 4.6% of the Low tier's view from under it.
+
 Street Run gates use open ground outlines and slim illuminated posts, with a separate readable turn instruction, road name, gate count and distance. This keeps traffic visible through a checkpoint.
 
 ## Lighting and sky

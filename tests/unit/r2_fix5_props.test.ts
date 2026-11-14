@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
+import { LEG_VERTICES } from '../../src/render/setPieceModels';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { WATER_Y } from '../../src/world/constants';
 import type { Prop } from '../../src/world/layout';
@@ -214,22 +215,23 @@ describe('the Ferris wheel as drawn', () => {
     expect(lowest - deckY).toBeGreaterThan(VEHICLE_SPECS.bus.height + 0.5);
   });
 
-  /** Each leg's axis (its end faces' middles) in world space: four boxes of 36 vertices in the merged leg mesh. */
+  /** Each leg's axis (its end rings' middles) in world space: the merged leg mesh starts with the four legs' tubes, LEG_VERTICES each, its bracing after them. */
   function legAxes(): Array<{ bottom: THREE.Vector3; top: THREE.Vector3 }> {
     // The one plain mesh standing at the prop's own position and height.
     const legs = props.group.children.find((o) => o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh) && o.position.distanceTo(new THREE.Vector3(f.x, f.y, f.z)) < 1e-6) as THREE.Mesh;
     expect(legs, 'the legs').toBeInstanceOf(THREE.Mesh);
     legs.updateMatrixWorld(true);
     const pos = legs.geometry.getAttribute('position');
-    expect(pos.count).toBe(4 * 36);
+    expect(pos.count).toBeGreaterThan(4 * LEG_VERTICES);
     const out: Array<{ bottom: THREE.Vector3; top: THREE.Vector3 }> = [];
     for (let l = 0; l < 4; l++) {
       const pts: THREE.Vector3[] = [];
-      for (let i = l * 36; i < (l + 1) * 36; i++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(legs.matrixWorld));
-      pts.sort((a, b) => a.y - b.y);
+      for (let i = l * LEG_VERTICES; i < (l + 1) * LEG_VERTICES; i++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(legs.matrixWorld));
+      const lo = Math.min(...pts.map((p) => p.y));
+      const hi = Math.max(...pts.map((p) => p.y));
       const mid = (list: THREE.Vector3[]) => list.reduce((s, p) => s.add(p), new THREE.Vector3()).multiplyScalar(1 / list.length);
-      // The 4 corners of each end face come 6 times each over the 12 triangles of a box.
-      out.push({ bottom: mid(pts.slice(0, 12)), top: mid(pts.slice(-12)) });
+      // Each tube is cut level at both ends: every vertex of its foot ring at the lowest height, of its head ring at the highest.
+      out.push({ bottom: mid(pts.filter((p) => p.y < lo + 1e-4)), top: mid(pts.filter((p) => p.y > hi - 1e-4)) });
     }
     return out;
   }
