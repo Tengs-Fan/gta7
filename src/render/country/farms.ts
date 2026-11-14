@@ -1,11 +1,11 @@
 // Las Lomas County's farmsteads (world/country/farms.ts), drawn only: their colliders are the barns' garage walls and
 // roofs, the farmhouses' buildings, the props' and the hedgerows'. The barns' gambrel roofs and gables in ribbed tin over
 // the garages' slabs (structures.ts draws the walls and slabs), their trim, hay hoods, loft doors and cupolas; what the
-// farmhouses (city houses the city draws plain) wear: plinths, porches, front doors and chimneys; the dairy's silos, the
-// grain bins, the windpump's tower and stock tank, the signs, mailboxes and ladders: one draw over the four farms, its
-// tin, doors and boards painted on a small atlas of its own (city/attractions.ts Atlas). The hedgerows are a second,
-// which the camera sees through where one stands between it and what it frames; the farmyards' and drives' dirt a
-// third; the windpump's wheel turns in the wind.
+// farmhouses (city houses the city draws plain) wear: plinths, porches, front doors and chimneys; the dairy's stave silos,
+// the corrugated grain bins, the windpump's tower and stock tank, the signs, mailboxes and ladders: one draw over the
+// four farms, its tin, staves, doors and boards painted on a small atlas of its own (city/attractions.ts Atlas). The
+// hedgerows are a second, which the camera sees through where one stands between it and what it frames; the farmyards'
+// and drives' dirt a third; the windpump's wheel turns in the wind.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -48,6 +48,9 @@ export function beam(g: GeoBuilder, a: V, b: V, t: number, color: RGB): void {
   }
 }
 
+/** How far the ridge cap's top stands over a gambrel's ridge (m): where the crows perched along a ridge stand (life/flocks.ts). */
+export const RIDGE_CAP = 0.05;
+
 /** The tin band repeats every TIN_TILE m along a sheet's run, a seam every 0.375 m. */
 export const TIN_TILE = 12;
 
@@ -62,9 +65,29 @@ export interface FarmBands {
 /** A door's width in the door band's u: 1.1 m of a 2.3 m tall door on a 256 px band of a 1024 px atlas. */
 export const DOOR_U = 0.12;
 
+/** Rows each painted surface's band repeats past its top and its foot, so filtering at its edges never reaches its neighbour's. */
+const PAD = 4;
+
+/**
+ * A band `h` px tall painted by `draw` (unlit), with its first and last rows repeated PAD px past either edge: a band's
+ * neighbour on an atlas is another surface, or the transparent black round two doors, and a roof's eaves sampled at
+ * v[0] would take half of it, a dark line that widens with distance as the mipmaps blur it. Its v range is the inner h px.
+ */
+export function paddedBand(atlas: Atlas, h: number, draw: (ctx: CanvasRenderingContext2D) => void): [number, number] {
+  const [c, cctx] = canvas(1024, h);
+  draw(cctx);
+  const v = atlas.band(h + 2 * PAD, (ctx) => {
+    ctx.drawImage(c, 0, PAD);
+    ctx.drawImage(c, 0, 0, 1024, 1, 0, 0, 1024, PAD);
+    ctx.drawImage(c, 0, h - 1, 1024, 1, 0, h + PAD, 1024, PAD);
+  });
+  const k = (v[1] - v[0]) / (h + 2 * PAD);
+  return [v[0] + PAD * k, v[1] - PAD * k];
+}
+
 /** Ribbed tin on `atlas` (FarmBands.tin), TIN_TILE m to the band's width. */
 export function tinBand(atlas: Atlas): [number, number] {
-  return atlas.band(128, (ctx) => {
+  return paddedBand(atlas, 128, (ctx) => {
     const rng = new Rng(4419);
     ctx.fillStyle = '#d6d6d4';
     ctx.fillRect(0, 0, 1024, 128);
@@ -162,7 +185,7 @@ function gambrel(g: GeoBuilder, painted: GeoBuilder, tin: readonly [number, numb
     const v: [number, number] = k === 0 || k === 3 ? [tin[0], knee] : [knee, tin[1]];
     paint(painted, P(l0, lo, ylo), P(l1, lo, ylo), P(l1, hi, yhi), P(l0, hi, yhi), n, roof, v, run);
   }
-  beam(g, P(l0 - 0.04, 0, profile[2]![1]), P(l1 + 0.04, 0, profile[2]![1]), 0.14, scaleRgb(roof, 0.7));
+  beam(g, P(l0 - 0.04, 0, profile[2]![1] + RIDGE_CAP - 0.07), P(l1 + 0.04, 0, profile[2]![1] + RIDGE_CAP - 0.07), 0.14, scaleRgb(roof, 0.7));
   for (const s of [-1, 1]) {
     const a = s * (hw + over + 0.02);
     beam(g, P(l0, a, eaves - 0.2), P(l1, a, eaves - 0.2), 0.2, trim);
@@ -196,14 +219,14 @@ function gambrel(g: GeoBuilder, painted: GeoBuilder, tin: readonly [number, numb
  * door over them under a hay hood, boards at its four corners, and, if `cupola`, a louvred cupola on its ridge with a
  * weathervane (not on the barns whose ridges the crows perch along, life/flocks.ts).
  */
-export function barn(g: GeoBuilder, painted: GeoBuilder, bands: FarmBands, f: Pick<Farmstead, 'barn' | 'door'>, height: number, color: number, roofColor: number, cupola: boolean): void {
+export function barn(g: GeoBuilder, painted: GeoBuilder, tin: readonly [number, number], f: Pick<Farmstead, 'barn' | 'door'>, height: number, color: number, roofColor: number, cupola: boolean): void {
   const r = f.barn;
   const top = height + GARAGE_ROOF;
   const alongX = f.door === 'E' || f.door === 'W';
   const wall = hexToRgb(color);
   const roof = hexToRgb(roofColor);
   const trim = trimFor(wall);
-  gambrel(g, painted, bands.tin, r, top, alongX, roof, wall, trim);
+  gambrel(g, painted, tin, r, top, alongX, roof, wall, trim);
   for (const x of [r.minX, r.maxX]) for (const z of [r.minZ, r.maxZ]) boxC(g, x - 0.16, 0, z - 0.16, x + 0.16, top, z + 0.16, trim);
   // The front: a header over the doors; the loft door, braced with an X, under the hood that keeps the hay dry.
   const front = f.door === 'E' ? r.maxX : f.door === 'W' ? r.minX : f.door === 'S' ? r.maxZ : r.minZ;
@@ -232,7 +255,7 @@ export function barn(g: GeoBuilder, painted: GeoBuilder, bands: FarmBands, f: Pi
     const cc: V = at(s * hoodW, hoodY - fall, hoodLen);
     const d: V = at(s * hoodW, hoodY - fall, -0.1);
     const up: V = alongX ? [0, 1, s * 0.4] : [s * 0.4, 1, 0];
-    paint(painted, d, cc, b, a, up, roof, [bands.tin[0], bands.tin[0] + (bands.tin[1] - bands.tin[0]) * 0.3], hoodLen / TIN_TILE);
+    paint(painted, d, cc, b, a, up, roof, [tin[0], tin[0] + (tin[1] - tin[0]) * 0.3], hoodLen / TIN_TILE);
     face(g, at(0, hoodY - 0.06, -0.1), at(0, hoodY - 0.06, hoodLen), at(s * hoodW, hoodY - fall - 0.06, hoodLen), at(s * hoodW, hoodY - fall - 0.06, -0.1), [-up[0], -1, -up[2]], scaleRgb(wall, 0.55));
     beam(g, at(s * (hoodW + 0.04), hoodY - fall - 0.04, hoodLen + 0.06), at(0, hoodY + 0.04, hoodLen + 0.06), 0.18, trim);
   }
@@ -255,7 +278,7 @@ export function barn(g: GeoBuilder, painted: GeoBuilder, bands: FarmBands, f: Pi
     const e = cw + 0.25;
     const a: V = [mx + nx * e - nz * e, cy1, mz + nz * e + nx * e];
     const b: V = [mx + nx * e + nz * e, cy1, mz + nz * e - nx * e];
-    paintTri(painted, a, b, [mx, cy1 + cw * 1.3, mz], [nx, 0.8, nz], roof, [0, bands.tin[0], 0.15, bands.tin[0], 0.075, bands.tin[1]]);
+    paintTri(painted, a, b, [mx, cy1 + cw * 1.3, mz], [nx, 0.8, nz], roof, [0, tin[0], 0.15, tin[0], 0.075, tin[1]]);
   }
   const vane = cy1 + cw * 1.3;
   boxC(g, mx - 0.025, vane, mz - 0.025, mx + 0.025, vane + 1.2, mz + 0.025, IRON);
@@ -275,78 +298,103 @@ const CROWS_ON_RIDGE: ReadonlySet<FarmId> = new Set(['acres', 'bottoms']);
 /** Which wall of each farmhouse its porch and door are on: the one facing into the yard, toward where the drive comes in. */
 const HOUSE_FRONT: Readonly<Record<FarmId, 'N' | 'S'>> = { bottoms: 'N', dairy: 'N', orchard: 'N', acres: 'S' };
 /** A farmhouse porch: its depth (m) out from the wall, the deck's height, its roof's height at the wall and at the front. */
-export const PORCH = { depth: 2.6, deck: 0.55, high: 3.45, low: 3.05, inset: 1.0 } as const;
+export const PORCH: PorchSpec = { y0: 0, depth: 2.6, deck: 0.55, high: 3.45, low: 3.05, inset: 1.0, steps: 3 };
 
-/** Where a farmhouse's porch stands (its deck and steps, decoration only): along `front`, inset from the corners. */
+/** Where a farmhouse's porch stands as drawn (decoration only): along `front`, inset from the corners, out to its steps' foot, its roof 0.25 m past the deck either side. */
 export function porchRect(house: Rect, front: 'N' | 'S'): Rect {
   const z0 = front === 'S' ? house.maxZ : house.minZ - PORCH.depth - 0.9;
   const z1 = front === 'S' ? house.maxZ + PORCH.depth + 0.9 : house.minZ;
-  return { minX: house.minX + PORCH.inset, minZ: z0, maxX: house.maxX - PORCH.inset, maxZ: z1 };
+  return { minX: house.minX + PORCH.inset - 0.25, minZ: z0, maxX: house.maxX - PORCH.inset + 0.25, maxZ: z1 };
 }
 
 export function farmhouseFront(id: FarmId): 'N' | 'S' {
   return HOUSE_FRONT[id];
 }
 
+/** A porch's shape: its foot's height, depth out from the wall, deck height over its foot, its roof's height at the wall and at the front (over its foot), its inset from the house's corners, and the steps down from its deck. */
+export interface PorchSpec {
+  y0: number;
+  depth: number;
+  deck: number;
+  high: number;
+  low: number;
+  inset: number;
+  steps: number;
+}
+
 /**
- * What the county's farmhouses (city houses of their own, which the city draws plain) wear: a stone plinth, corner boards,
- * a porch along the front on its skirting with steps, posts, a railing and a tin roof, the front door behind it, and a
- * brick chimney up through the roof by one end of the ridge (the city's gable runs along the longer side).
+ * A farmhouse porch along the `front` wall of `house`: the deck on its dark skirting, steps down from its middle, posts
+ * along its front edge with a top and a bottom rail and balusters between them, open at the steps; a tin roof, painted
+ * boards under it and a fascia board along its front.
  */
-function farmhouse(g: GeoBuilder, painted: GeoBuilder, bands: FarmBands, house: Rect, eaves: number, front: 'N' | 'S', k: number): void {
-  const { minX, minZ, maxX, maxZ } = house;
-  boxC(g, minX - 0.07, 0, minZ - 0.07, maxX + 0.07, PORCH.deck, maxZ + 0.07, [0.5, 0.47, 0.42]);
-  for (const x of [minX, maxX]) for (const z of [minZ, maxZ]) boxC(g, x - 0.12, PORCH.deck, z - 0.12, x + 0.12, eaves - 0.15, z + 0.12, WHITE);
+export function farmPorch(g: GeoBuilder, painted: GeoBuilder, tin: readonly [number, number], house: Rect, front: 'N' | 'S', P: PorchSpec): void {
+  const { minX, maxX } = house;
   const out = front === 'S' ? 1 : -1;
-  const wz = front === 'S' ? maxZ : minZ;
-  const x0 = minX + PORCH.inset;
-  const x1 = maxX - PORCH.inset;
+  const wz = front === 'S' ? house.maxZ : house.minZ;
+  const x0 = minX + P.inset;
+  const x1 = maxX - P.inset;
   const cx = (minX + maxX) / 2;
   const deck: RGB = [0.56, 0.44, 0.32];
   const z = (o: number) => wz + out * o;
   const zr = (a: number, b: number): [number, number] => [Math.min(z(a), z(b)), Math.max(z(a), z(b))];
-  // The deck on its dark skirting, three steps down from its middle.
+  const top = P.y0 + P.deck;
   {
-    const [za, zb] = zr(0, PORCH.depth);
-    boxC(g, x0, 0, za, x1, PORCH.deck - 0.1, zb, [0.24, 0.2, 0.17]);
-    boxC(g, x0 - 0.05, PORCH.deck - 0.1, za, x1 + 0.05, PORCH.deck, zb, deck);
+    const [za, zb] = zr(0, P.depth);
+    boxC(g, x0, P.y0, za, x1, top - 0.1, zb, [0.24, 0.2, 0.17]);
+    boxC(g, x0 - 0.05, top - 0.1, za, x1 + 0.05, top, zb, deck);
   }
-  for (let s = 0; s < 3; s++) {
-    const [za, zb] = zr(PORCH.depth, PORCH.depth + 0.3 * (s + 1));
-    boxC(g, cx - 0.95, 0, za, cx + 0.95, (PORCH.deck * (3 - s)) / 4, zb, scaleRgb(deck, 0.92 - s * 0.04));
+  for (let s = 0; s < P.steps; s++) {
+    const [za, zb] = zr(P.depth, P.depth + 0.3 * (s + 1));
+    boxC(g, cx - 0.95, P.y0, za, cx + 0.95, P.y0 + (P.deck * (P.steps - s)) / (P.steps + 1), zb, scaleRgb(deck, 0.92 - s * 0.04));
   }
-  // Posts along the front edge, a top and a bottom rail between them with balusters, open at the steps.
   const posts = Math.max(3, Math.round((x1 - x0) / 2.6) + 1);
   const postAt = (i: number) => x0 + 0.12 + ((x1 - x0 - 0.24) * i) / (posts - 1);
-  const pz = z(PORCH.depth - 0.12);
-  for (let i = 0; i < posts; i++) boxC(g, postAt(i) - 0.08, PORCH.deck, pz - 0.08, postAt(i) + 0.08, PORCH.low, pz + 0.08, WHITE);
+  const pz = z(P.depth - 0.12);
+  // Up to the roof's boards where it passes over them, falling from `high` at the wall to `low` 0.35 m past the deck.
+  const postTop = P.y0 + P.high - ((P.high - P.low) * (P.depth - 0.12)) / (P.depth + 0.35);
+  for (let i = 0; i < posts; i++) boxC(g, postAt(i) - 0.08, top, pz - 0.08, postAt(i) + 0.08, postTop, pz + 0.08, WHITE);
   const railRun = (xa: number, xb: number, zz: number, alongX: boolean) => {
-    for (const y of [PORCH.deck + 0.12, PORCH.deck + 0.9]) {
+    for (const y of [top + 0.12, top + 0.9]) {
       if (alongX) boxC(g, xa, y - 0.04, zz - 0.04, xb, y + 0.04, zz + 0.04, WHITE);
       else boxC(g, zz - 0.04, y - 0.04, xa, zz + 0.04, y + 0.04, xb, WHITE);
     }
     for (let a = xa + 0.18; a < xb - 0.1; a += 0.32) {
-      if (alongX) boxC(g, a - 0.025, PORCH.deck + 0.12, zz - 0.025, a + 0.025, PORCH.deck + 0.9, zz + 0.025, WHITE);
-      else boxC(g, zz - 0.025, PORCH.deck + 0.12, a - 0.025, zz + 0.025, PORCH.deck + 0.9, a + 0.025, WHITE);
+      if (alongX) boxC(g, a - 0.025, top + 0.12, zz - 0.025, a + 0.025, top + 0.9, zz + 0.025, WHITE);
+      else boxC(g, zz - 0.025, top + 0.12, a - 0.025, zz + 0.025, top + 0.9, a + 0.025, WHITE);
     }
   };
   railRun(postAt(0), cx - 1.0, pz, true);
   railRun(cx + 1.0, postAt(posts - 1), pz, true);
-  const [sa, sb] = zr(0.1, PORCH.depth - 0.2);
+  const [sa, sb] = zr(0.1, P.depth - 0.2);
   for (const x of [postAt(0), postAt(posts - 1)]) railRun(sa, sb, x, false);
-  // The roof: tin on top, painted boards under it, a fascia board along its front.
   const roof: RGB = [0.36, 0.4, 0.42];
   const rw = (x1 - x0 + 0.5) / TIN_TILE;
-  const A: V = [x0 - 0.25, PORCH.high, wz];
-  const B: V = [x1 + 0.25, PORCH.high, wz];
-  const C: V = [x1 + 0.25, PORCH.low, z(PORCH.depth + 0.35)];
-  const D: V = [x0 - 0.25, PORCH.low, z(PORCH.depth + 0.35)];
-  paint(painted, D, C, B, A, [0, 1, out * 0.15], roof, bands.tin, rw);
+  const A: V = [x0 - 0.25, P.y0 + P.high, wz];
+  const B: V = [x1 + 0.25, P.y0 + P.high, wz];
+  const C: V = [x1 + 0.25, P.y0 + P.low, z(P.depth + 0.35)];
+  const D: V = [x0 - 0.25, P.y0 + P.low, z(P.depth + 0.35)];
+  paint(painted, D, C, B, A, [0, 1, out * 0.15], roof, tin, rw);
   face(g, A, B, C, D, [0, -1, 0], [0.86, 0.84, 0.78]);
-  {
-    const [za, zb] = zr(PORCH.depth + 0.3, PORCH.depth + 0.4);
-    boxC(g, x0 - 0.25, PORCH.low - 0.25, za, x1 + 0.25, PORCH.low + 0.02, zb, WHITE);
-  }
+  const [za, zb] = zr(P.depth + 0.3, P.depth + 0.4);
+  boxC(g, x0 - 0.25, P.y0 + P.low - 0.25, za, x1 + 0.25, P.y0 + P.low + 0.02, zb, WHITE);
+}
+
+/**
+ * What the county's farmhouses (city houses of their own, which the city draws plain) wear: a stone plinth, corner boards,
+ * a porch along the front (farmPorch), the front door behind it, and a brick chimney up through the roof by one end of the
+ * ridge (the city's gable runs along the longer side).
+ */
+function farmhouse(g: GeoBuilder, painted: GeoBuilder, bands: FarmBands, house: Rect, eaves: number, front: 'N' | 'S', k: number): void {
+  const { minX, minZ, maxX, maxZ } = house;
+  // The plinth's top a few centimetres under the deck's, which runs over its edge along the front.
+  const plinth = PORCH.deck - 0.03;
+  boxC(g, minX - 0.07, 0, minZ - 0.07, maxX + 0.07, plinth, maxZ + 0.07, [0.5, 0.47, 0.42]);
+  for (const x of [minX, maxX]) for (const z of [minZ, maxZ]) boxC(g, x - 0.12, plinth, z - 0.12, x + 0.12, eaves - 0.15, z + 0.12, WHITE);
+  farmPorch(g, painted, bands.tin, house, front, PORCH);
+  const out = front === 'S' ? 1 : -1;
+  const wz = front === 'S' ? maxZ : minZ;
+  const cx = (minX + maxX) / 2;
+  const zr = (a: number, b: number): [number, number] => [Math.min(wz + out * a, wz + out * b), Math.max(wz + out * a, wz + out * b)];
   // The front door, in its casing, and a lamp beside it.
   const dz = wz + out * 0.04;
   const du = (k % 2) * DOOR_U;
@@ -389,23 +437,95 @@ export function mailbox(g: GeoBuilder, x: number, z: number): void {
   boxC(g, x + 0.14, 1.12, z + 0.05, x + 0.17, 1.42, z + 0.09, [0.75, 0.12, 0.1]);
 }
 
-/** A stave silo: concrete in bands, a domed cap, the chute down one side. */
-function silo(g: GeoBuilder, x: number, z: number, r: number, h: number): void {
-  const concrete: RGB = [0.78, 0.76, 0.72];
-  prism(g, x, z, r, r, 0, h, 22, concrete, false);
-  for (let y = 1.6; y < h; y += 1.6) prism(g, x, z, r + 0.04, r + 0.04, y, y + 0.1, 22, scaleRgb(concrete, 0.8), false);
-  prism(g, x, z, r, r * 0.7, h, h + 1.2, 22, [0.36, 0.42, 0.45], false);
-  prism(g, x, z, r * 0.7, 0, h + 1.2, h + 2.1, 22, [0.36, 0.42, 0.45], false);
+/**
+ * A drum of `n` sides round (x, z), radius r from y0 to y1, its quads mapped by `uv(k, y0, y1)` (k the side), counter-
+ * clockwise seen from outside.
+ */
+function drum(g: GeoBuilder, x: number, z: number, r: number, y0: number, y1: number, n: number, color: RGB, uv: (k: number, y0: number, y1: number) => number[]): void {
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const b = ((k + 1) / n) * Math.PI * 2;
+    g.quad(x + Math.cos(b) * r, y0, z + Math.sin(b) * r, x + Math.cos(a) * r, y0, z + Math.sin(a) * r, x + Math.cos(a) * r, y1, z + Math.sin(a) * r, x + Math.cos(b) * r, y1, z + Math.sin(b) * r, uv(k, y0, y1), color);
+  }
+}
+
+/** A stave silo's lift: STAVE_LIFT m of concrete staves, half a stave's offset course over course, a steel hoop round its top. */
+function staveBand(atlas: Atlas): [number, number] {
+  return paddedBand(atlas, 128, (ctx) => {
+    const rng = new Rng(4423);
+    ctx.fillStyle = '#c9c4b8';
+    ctx.fillRect(0, 0, 1024, 128);
+    // Two courses of staves, 32 px wide, each its own shade, mortar between them.
+    for (let c = 0; c < 2; c++) {
+      for (let k = 0; k < 33; k++) {
+        const x = k * 32 - (c % 2) * 16;
+        const l = rng.int(184, 214);
+        ctx.fillStyle = `rgb(${l},${l - 4},${l - 12})`;
+        ctx.fillRect(x + 1, 12 + c * 58, 30, 56);
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(x + 1, 12 + c * 58, 3, 56);
+      }
+    }
+    // The hoop, its shadow under it, and a rust run down from a lug here and there.
+    ctx.fillStyle = '#5c5f62';
+    ctx.fillRect(0, 2, 1024, 7);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(0, 9, 1024, 3);
+    for (let x = 64; x < 1024; x += 256) {
+      ctx.fillStyle = '#3e3f40';
+      ctx.fillRect(x, 0, 10, 12);
+      ctx.fillStyle = 'rgba(120,70,30,0.25)';
+      ctx.fillRect(x + 2, 12, 5, rng.int(30, 110));
+    }
+  });
+}
+
+/** A stave silo's lift (m), and the staves' band's width round it. */
+const STAVE_LIFT = 1.6;
+const STAVE_TILE = 8;
+
+/** A stave silo: concrete staves in lifts under their hoops, on a footing, a domed cap, the chute down one side. */
+function silo(g: GeoBuilder, painted: GeoBuilder, v: readonly [number, number], x: number, z: number, r: number, h: number): void {
+  const n = 22;
+  const round = Math.max(1, Math.round((2 * Math.PI * r) / STAVE_TILE));
+  for (let y = 0; y < h - 1e-3; y += STAVE_LIFT) {
+    const y1 = Math.min(h, y + STAVE_LIFT);
+    const vt = v[0] + ((v[1] - v[0]) * (y1 - y)) / STAVE_LIFT;
+    drum(painted, x, z, r, y, y1, n, [1, 1, 1], (k) => [((k + 1) / n) * round, v[0], (k / n) * round, v[0], (k / n) * round, vt, ((k + 1) / n) * round, vt]);
+  }
+  prism(g, x, z, r + 0.08, r + 0.08, 0, 0.5, n, [0.6, 0.58, 0.54], false);
+  prism(g, x, z, r + 0.06, r * 0.7, h, h + 1.2, n, [0.36, 0.42, 0.45], false);
+  prism(g, x, z, r * 0.7, 0, h + 1.2, h + 2.1, n, [0.36, 0.42, 0.45], false);
   boxC(g, x + r - 0.1, 0, z - 0.4, x + r + 0.7, h + 0.6, z + 0.4, [0.62, 0.6, 0.56]);
 }
 
-/** A grain bin: corrugated steel, ringed, under a cone roof with its vent and a ladder up it. */
-function grainBin(g: GeoBuilder, x: number, z: number, r: number, h: number): void {
-  prism(g, x, z, r, r, 0, h, 24, STEEL, false);
-  for (let y = 0.8; y < h; y += 0.8) prism(g, x, z, r + 0.03, r + 0.03, y, y + 0.06, 24, scaleRgb(STEEL, 0.82), false);
-  prism(g, x, z, r + 0.15, 0.45, h, h + r * 0.75, 24, scaleRgb(STEEL, 1.06), false);
-  prism(g, x, z, 0.45, 0.3, h + r * 0.75, h + r * 0.75 + 0.5, 10, scaleRgb(STEEL, 0.9));
+/**
+ * A grain bin: corrugated steel (the tin band turned on its side, so its ribs run round the bin a tenth of a metre apart),
+ * on a concrete ring, under a cone roof whose ribs run down from the vent, a ring at the eaves and a ladder up it.
+ */
+function grainBin(g: GeoBuilder, painted: GeoBuilder, bands: FarmBands, x: number, z: number, r: number, h: number): void {
+  const n = 24;
+  const t = bands.tin;
+  // A quarter of the band's height round each side, from its top, where the streaks are faint and no stain runs.
+  const va = t[1] - (t[1] - t[0]) * 0.25;
+  drum(painted, x, z, r, 0, h, n, STEEL, (_k, y0, y1) => [y0 / 3, va, y0 / 3, t[1], y1 / 3, t[1], y1 / 3, va]);
+  prism(g, x, z, r + 0.12, r + 0.12, -0.1, 0.25, n, [0.66, 0.64, 0.6], true);
+  prism(g, x, z, r + 0.05, r + 0.05, h - 0.12, h + 0.04, n, scaleRgb(STEEL, 0.75), false);
+  // The roof: a cone of tin, its seams running down it.
+  const top = h + r * 0.75;
+  const run = Math.max(1, Math.round((2 * Math.PI * (r + 0.15)) / TIN_TILE));
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const b = ((k + 1) / n) * Math.PI * 2;
+    const ro = r + 0.15;
+    const ri = 0.45;
+    painted.quad(x + Math.cos(b) * ro, h, z + Math.sin(b) * ro, x + Math.cos(a) * ro, h, z + Math.sin(a) * ro, x + Math.cos(a) * ri, top, z + Math.sin(a) * ri, x + Math.cos(b) * ri, top, z + Math.sin(b) * ri, [((k + 1) / n) * run, t[0], (k / n) * run, t[0], (k / n) * run * 0.2, t[1], ((k + 1) / n) * run * 0.2, t[1]], scaleRgb(STEEL, 1.06));
+  }
+  prism(g, x, z, 0.45, 0.3, top, top + 0.5, 10, scaleRgb(STEEL, 0.9));
   for (const dx of [-0.22, 0.22]) boxC(g, x + dx - 0.03, 0, z + r + 0.08, x + dx + 0.03, h, z + r + 0.14, [0.3, 0.3, 0.32]);
+  for (let y = 0.4; y < h; y += 0.4) boxC(g, x - 0.22, y, z + r + 0.09, x + 0.22, y + 0.035, z + r + 0.13, [0.3, 0.3, 0.32]);
+  // The hatch at its foot, to the ladder's side.
+  boxC(g, x - 0.45, 0.35, z + r - 0.02, x + 0.45, 1.25, z + r + 0.05, scaleRgb(STEEL, 0.8));
 }
 
 /** The windpump's tower of four splayed legs and its braces, the platform, the tail vane, the stock tank beside it. */
@@ -484,7 +604,8 @@ const HEDGE_PROFILE: ReadonlyArray<readonly [number, number]> = [[-0.9, -0.05], 
 /**
  * A hedgerow along `h`: pillows 1.6 to 3.2 m long, each overlapping the last by a third, a little thicker or thinner,
  * taller or lower than its neighbours and tapering to its ends, so the run reads as clipped shrubs rather than a wall
- * (14,450 triangles for the county's and the valley's hedgerows, against the 5,020 of the boxes and lumps they were).
+ * (20,080 triangles for the county's and the valley's hedgerows, 5,630 of them the pillows' closed ends, against the
+ * 5,020 of the boxes and lumps they were).
  * Its leaves' uvs are projected on the run's length and the profile's height.
  */
 function hedgeRun(g: GeoBuilder, rng: Rng, h: Rect): void {
@@ -501,7 +622,7 @@ function hedgeRun(g: GeoBuilder, rng: Rng, h: Rect): void {
     pillows.push({ a, l, t: half * rng.range(0.94, 1.1), top: HEDGE_H + rng.range(-0.18, 0.22), lean: rng.range(-0.12, 0.12) });
     a += l * rng.range(0.6, 0.72);
   }
-  pillows.forEach(({ a, l, t, top, lean }, k) => {
+  pillows.forEach(({ a, l, t, top, lean }) => {
     // Three rings along the pillow: its ends at 80 % of its middle's size.
     const ring = (along: number, f: number): V[] => HEDGE_PROFILE.map(([u, v]) => P(along, u * t * f + lean * v, v * top * (0.86 + 0.14 * f)));
     const rings = [ring(a, 0.8), ring(a + l / 2, 1), ring(a + l, 0.8)];
@@ -519,17 +640,14 @@ function hedgeRun(g: GeoBuilder, rng: Rng, h: Rect): void {
         face(g, r0[i]!, r1[i]!, r1[i + 1]!, r0[i + 1]!, out, [1, 1, 1], [s0, w0, s1, w0, s1, w1, s0, w1]);
       }
     }
-    // The run's two ends closed, a fan from the middle of the end ring.
+    // Both its ends closed: neighbours differ in thickness, height and lean, so an open end pokes out past the next
+    // pillow and shows the sky through the hedge. The end ring is convex, so a fan from its first corner closes it,
+    // the foot's edge too, in four triangles.
     for (const [end, s] of [[0, -1], [2, 1]] as const) {
-      if ((end === 0 && k > 0) || (end === 2 && k < pillows.length - 1)) continue;
       const e = rings[end]!;
-      const c = P(end === 0 ? a : a + l, 0, top * 0.45);
       const toward: V = alongX ? [s, 0, 0] : [0, 0, s];
-      for (let i = 0; i + 1 < n; i++) {
-        const [u0, v0] = HEDGE_PROFILE[i]!;
-        const [u1, v1] = HEDGE_PROFILE[i + 1]!;
-        paintTri(g, c, e[i]!, e[i + 1]!, toward, [1, 1, 1], [0, 0.45, u0 * 0.3, v0 * 0.7, u1 * 0.3, v1 * 0.7]);
-      }
+      const uv = (i: number): [number, number] => [HEDGE_PROFILE[i]![0] * 0.3, HEDGE_PROFILE[i]![1] * 0.7];
+      for (let i = 1; i + 1 < n; i++) paintTri(g, e[0]!, e[i]!, e[i + 1]!, toward, [1, 1, 1], [...uv(0), ...uv(i), ...uv(i + 1)]);
     }
   });
 }
@@ -599,9 +717,10 @@ export class FarmsView {
       ctx.fillRect(0, 0, 1024, 8);
     });
     const bands = farmBands(atlas);
+    const stave = staveBand(atlas);
     farms.farmsteads.forEach((f, k) => {
       const gar = layout.garages.find((q) => q.poi === `${f.id}_barn`)!;
-      barn(g, painted, bands, f, gar.height, gar.color, BARN_ROOF[f.id], !CROWS_ON_RIDGE.has(f.id));
+      barn(g, painted, bands.tin, f, gar.height, gar.color, BARN_ROOF[f.id], !CROWS_ON_RIDGE.has(f.id));
       const house = layout.buildings.find((b) => b.id === f.house)!;
       farmhouse(g, painted, bands, house.rect, house.height, HOUSE_FRONT[f.id], k);
     });
@@ -611,8 +730,8 @@ export class FarmsView {
       mailbox(g, f.mailbox.x, f.mailbox.z);
     }
     for (const p of layout.props.slice(layout.country.firstProp)) {
-      if (p.kind === 'silo') silo(g, p.x, p.z, p.w / 2, p.h);
-      if (p.kind === 'grainbin') grainBin(g, p.x, p.z, p.w / 2, p.h);
+      if (p.kind === 'silo') silo(g, painted, stave, p.x, p.z, p.w / 2, p.h);
+      if (p.kind === 'grainbin') grainBin(g, painted, bands, p.x, p.z, p.w / 2, p.h);
       if (p.kind === 'windpump') windpump(g, p.x, p.z, p.h);
     }
     for (const l of farms.ladders) ladder(g, l.x, l.z, l.rot);

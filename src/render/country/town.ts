@@ -1,9 +1,9 @@
-// Dry Creek (world/country/places.ts): its stores' false fronts, gables, shop windows and porches over the boardwalks,
-// their signs; Gas & Grits' canopy and islands (the pumps are props: render/props.ts draws them with pumpGeometry); the
-// grain elevator, the water tower and the World's Second-Largest Corn Cob; the town's two billboards; the gravel of the
-// forecourt and the parking; and Moo-Moo's neon cow, which kicks after dark. The stores' walls take the city's facade
-// materials (and so its night windows), a draw a style; the rest is the town's piece of the places' atlas (kit.ts) but
-// for the neon, a draw of its own.
+// Dry Creek (world/country/places.ts): its stores' false fronts with their cornices, gables, shop fronts in bays and
+// porches (the diner's awning) over the boardwalks, their signs; Gas & Grits' canopy and islands (the pumps are props:
+// render/props.ts draws them with pumpGeometry); the grain elevator, the water tower and the World's Second-Largest Corn
+// Cob; the town's two billboards; the gravel of the forecourt and the parking; and Moo-Moo's neon cow, which kicks after
+// dark. The stores' walls take the city's facade materials (and so its night windows), a draw a style; the rest is the
+// town's piece of the places' atlas (kit.ts) but for the neon, a draw of its own.
 
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
@@ -16,7 +16,7 @@ import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { FACADE_CELL, FACADE_COLS, FACADE_ROWS } from '../textures/facade';
 import { canvas, toTexture } from '../textures/misc';
 import type { CountryView } from './index';
-import { beam, TIN_TILE, tinBand } from './farms';
+import { beam, paddedBand, TIN_TILE, tinBand } from './farms';
 import { DIRT_Y, type PlacePieces, type PlacesKit } from './kit';
 
 /** The shop windows' band, from the boardwalk up; the porch roofs over the boardwalks, from the fronts out. */
@@ -102,74 +102,186 @@ export function sign(kit: PlacesKit, lines: ReadonlyArray<readonly [string, numb
   }, true);
 }
 
-/** A shop window band (lit after dark): display windows and a door in a timber frame, in one of four designs. */
+/**
+ * A shop front's band (lit after dark): four bays side by side, each a quarter of the band and BAY_W wide on the wall,
+ * so a front of any width repeats them instead of stretching one. Bay 0 is the door's: the door under its transom
+ * between two narrow lights; bays 1 to 3 are display windows, each with its own goods behind the glass; in one of four
+ * designs.
+ */
 function shopFront(kit: PlacesKit, kind: 'shop' | 'diner' | 'sheriff' | 'gas'): [number, number] {
   const H = 192;
+  const T = 256;
   return kit.atlas.band(H, (ctx) => {
     const glow = ctx.canvas !== kit.atlas.canvas;
-    const frame = glow ? '#000' : kind === 'diner' ? '#c9d2d4' : kind === 'gas' ? '#e8e6e0' : '#4a3322';
-    const lit = (x: number, y: number, w: number, h: number) => {
+    const frame = kind === 'diner' ? '#c9d2d4' : kind === 'gas' ? '#e8e6e0' : '#4a3322';
+    const kick = kind === 'gas' || kind === 'diner' ? '#b8242a' : '#3a2616';
+    const rng = new Rng(4421);
+    /** Glass at (x, y), w by h, lit warm; `goods` the display behind it (0 none, 1 shelves, 2 a sign, 3 a blind, 4 the diner's counter). */
+    const lit = (x: number, y: number, w: number, h: number, goods: number) => {
       const g = ctx.createLinearGradient(0, y, 0, y + h);
       g.addColorStop(0, glow ? '#5a4520' : '#f3d88f');
       g.addColorStop(1, glow ? '#3a2a10' : '#b8873c');
       ctx.fillStyle = g;
       ctx.fillRect(x, y, w, h);
       if (glow) return;
-      // Shelves and goods behind the glass.
-      ctx.fillStyle = 'rgba(70,44,20,0.55)';
-      for (let k = 1; k < 4; k++) ctx.fillRect(x, y + (h * k) / 4, w, 4);
-      for (let k = 0; k < w; k += 23) ctx.fillRect(x + k + 4, y + h * 0.55, 12, h * 0.2);
-    };
-    ctx.fillStyle = frame;
-    ctx.fillRect(0, 0, 1024, H);
-    if (kind === 'diner') {
-      // A ribbon of glass along the counter, chrome stools under it, the door at the left.
-      lit(150, 40, 840, 100);
-      if (!glow) {
+      if (goods === 1) {
+        // Shelves of tins and sacks.
+        ctx.fillStyle = 'rgba(70,44,20,0.55)';
+        for (let k = 1; k < 4; k++) ctx.fillRect(x, y + (h * k) / 4, w, 3);
+        for (let s = 0; s < 3; s++) {
+          for (let k = 4; k < w - 10; k += rng.int(12, 20)) {
+            const hh = rng.int(8, (h / 4) * 0.8);
+            ctx.fillStyle = `rgba(${rng.int(60, 140)},${rng.int(40, 90)},${rng.int(20, 60)},0.75)`;
+            ctx.fillRect(x + k, y + ((s + 1) * h) / 4 - hh, rng.int(6, 11), hh);
+          }
+        }
+      } else if (goods === 2) {
+        // A hand-lettered card in the window, a pyramid of cans under it.
+        ctx.fillStyle = '#f4ecd2';
+        ctx.fillRect(x + w * 0.2, y + h * 0.18, w * 0.6, h * 0.3);
+        ctx.fillStyle = '#8c1d18';
+        ctx.font = '700 22px Anton, Impact, "Arial Black", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(rng.pick(['OPEN', 'SALE', 'NO CREDIT', 'FRESH BAIT', 'WE BUY HAY']), x + w / 2, y + h * 0.33, w * 0.56);
+        ctx.fillStyle = 'rgba(80,50,24,0.7)';
+        for (let r = 0; r < 4; r++) for (let k = 0; k <= r; k++) ctx.fillRect(x + w / 2 - r * 7 + k * 14 - 6, y + h - 12 - (3 - r) * 11, 12, 10);
+      } else if (goods === 3) {
+        // A blind pulled half down, its slats.
+        ctx.fillStyle = '#d9cfb4';
+        ctx.fillRect(x, y, w, h * 0.45);
+        ctx.fillStyle = 'rgba(90,70,40,0.35)';
+        for (let k = 4; k < h * 0.45; k += 6) ctx.fillRect(x, y + k, w, 1);
+        ctx.fillStyle = 'rgba(70,44,20,0.5)';
+        ctx.fillRect(x, y + h * 0.75, w, 3);
+      } else if (goods === 4) {
+        // The counter's red stools under the glass, a pie case at the back.
+        ctx.fillStyle = 'rgba(80,60,40,0.4)';
+        ctx.fillRect(x, y + h * 0.62, w, 6);
         ctx.fillStyle = '#c4262e';
-        for (let x = 190; x < 980; x += 60) ctx.fillRect(x, 118, 26, 22);
-        ctx.fillStyle = '#7d878a';
-        for (let x = 300; x < 990; x += 120) ctx.fillRect(x, 40, 6, 100);
+        for (let k = 18; k < w; k += 52) ctx.fillRect(x + k, y + h - 24, 26, 20);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(x + w * 0.3, y + h * 0.2, w * 0.4, h * 0.25);
       }
-      lit(30, 30, 90, 150);
-      return;
-    }
-    // Two display windows either side of the door, transoms over them, a kick plate under.
-    lit(40, 30, 380, 110);
-    lit(604, 30, 380, 110);
-    lit(452, 30, 120, 150);
-    if (glow) return;
-    ctx.fillStyle = frame;
-    for (const x of [228, 792]) ctx.fillRect(x, 30, 8, 110);
-    ctx.fillRect(40, 64, 380, 6);
-    ctx.fillRect(604, 64, 380, 6);
-    ctx.fillStyle = kind === 'gas' ? '#c41f1f' : '#3a2616';
-    ctx.fillRect(40, 146, 380, 40);
-    ctx.fillRect(604, 146, 380, 40);
-    // The door: a panel under its glass and a handle.
-    ctx.fillStyle = kind === 'sheriff' ? '#5a4128' : '#3a2616';
-    ctx.fillRect(452, 110, 120, 70);
-    ctx.fillStyle = '#d8c070';
-    ctx.fillRect(552, 120, 8, 14);
-    if (kind === 'sheriff') {
-      // The star on the door, and bars across the windows.
-      ctx.fillStyle = '#e8c547';
-      ctx.beginPath();
-      for (let k = 0; k < 10; k++) {
-        const a = -Math.PI / 2 + (k * Math.PI) / 5;
-        const r = k % 2 === 0 ? 30 : 13;
-        ctx.lineTo(512 + Math.cos(a) * r, 72 + Math.sin(a) * r);
+    };
+    /** The window's frame: a mullion, a transom bar, a sill. */
+    const sash = (x: number, y: number, w: number, h: number, bars: number) => {
+      if (glow) return;
+      ctx.fillStyle = frame;
+      for (let k = 1; k < bars; k++) ctx.fillRect(x + (w * k) / bars - 3, y, 6, h);
+      ctx.fillRect(x, y + 24, w, 5);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(x, y, w, 3);
+    };
+    const kickPlate = (x: number, w: number) => {
+      ctx.fillStyle = kick;
+      ctx.fillRect(x, 148, w, 38);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 2;
+      for (let k = x + 8; k < x + w - 30; k += (w - 16) / Math.max(1, Math.round((w - 16) / 60))) ctx.strokeRect(k, 154, (w - 16) / Math.max(1, Math.round((w - 16) / 60)) - 8, 26);
+    };
+    ctx.fillStyle = glow ? '#000' : frame;
+    ctx.fillRect(0, 0, 1024, H);
+    for (let t = 0; t < 4; t++) {
+      ctx.save();
+      ctx.translate(t * T, 0);
+      if (!glow) {
+        // The frame's shadow line round the bay, so the bays read apart where they meet.
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(0, 0, 4, H);
+        ctx.fillRect(T - 4, 0, 4, H);
       }
-      ctx.fill();
-      ctx.fillStyle = '#2c2c2e';
-      for (let x = 60; x < 420; x += 40) ctx.fillRect(x, 30, 5, 110);
-      for (let x = 624; x < 984; x += 40) ctx.fillRect(x, 30, 5, 110);
-    }
-    if (kind === 'gas') {
-      ctx.fillStyle = '#1f6fb2';
-      for (let x = 620; x < 970; x += 70) ctx.fillRect(x, 36, 56, 96);
+      if (t === 0) {
+        // The door: glass over a panel, a transom over it, a narrow light either side over a kick plate.
+        const door = kind === 'diner' ? '#9aa4a6' : kind === 'sheriff' ? '#5a4128' : '#3a2616';
+        lit(96, 10, 64, 18, 0);
+        lit(96, 34, 64, 70, 0);
+        for (const x of [14, 176]) lit(x, 30, 66, 112, rng.chance(0.5) ? 1 : 3);
+        if (!glow) {
+          ctx.fillStyle = door;
+          ctx.fillRect(90, 28, 76, 6);
+          ctx.fillRect(90, 104, 76, 84);
+          for (const x of [90, 160]) ctx.fillRect(x, 28, 6, 160);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(102, 116, 52, 28);
+          ctx.fillRect(102, 152, 52, 28);
+          ctx.fillStyle = '#d8c070';
+          ctx.fillRect(148, 112, 6, 12);
+          for (const x of [14, 176]) kickPlate(x, 66);
+          if (kind === 'sheriff') {
+            ctx.fillStyle = '#e8c547';
+            ctx.beginPath();
+            for (let k = 0; k < 10; k++) {
+              const a = -Math.PI / 2 + (k * Math.PI) / 5;
+              const r = k % 2 === 0 ? 22 : 9;
+              ctx.lineTo(128 + Math.cos(a) * r, 68 + Math.sin(a) * r);
+            }
+            ctx.fill();
+          }
+          if (kind === 'diner') {
+            ctx.fillStyle = '#c4262e';
+            ctx.font = '700 16px Anton, Impact, "Arial Black", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('PUSH', 128, 98);
+          }
+        }
+      } else if (kind === 'diner') {
+        // A ribbon of glass along the counter, running on from bay to bay; chrome mullions.
+        lit(0, 36, T, 108, 4);
+        if (!glow) {
+          ctx.fillStyle = '#7d878a';
+          for (const x of [0, T / 2 - 3, T - 6]) ctx.fillRect(x, 36, 6, 108);
+          ctx.fillStyle = '#e8eef0';
+          ctx.fillRect(0, 30, T, 6);
+          ctx.fillRect(0, 144, T, 6);
+          kickPlate(0, T);
+        }
+      } else {
+        // A display window under its transom lights, over a panelled kick plate.
+        const goods = kind === 'sheriff' ? 3 : t;
+        lit(14, 30, 228, 112, goods);
+        // A card in the window hangs in one pane, no mullion across it.
+        sash(14, 30, 228, 112, goods === 2 ? 1 : kind === 'gas' ? 2 : 3);
+        if (!glow) {
+          kickPlate(14, 228);
+          if (kind === 'sheriff') {
+            ctx.fillStyle = '#2c2c2e';
+            for (let x = 30; x < 240; x += 26) ctx.fillRect(x, 30, 4, 112);
+          }
+          if (kind === 'gas') {
+            ctx.fillStyle = '#1f6fb2';
+            ctx.fillRect(40 + t * 12, 50, 60, 80);
+            ctx.fillStyle = '#ffcf3d';
+            ctx.fillRect(140, 60 + t * 6, 70, 46);
+          }
+        }
+      }
+      ctx.restore();
     }
   }, true);
+}
+
+/** A shop front's bay on the wall (m): a quarter of the band's 1024 px, at the band's 192 px to SHOP_TOP. */
+const BAY_W = (SHOP_TOP * 256) / 192;
+
+/** Splits a front of width `w` into an odd number of bays near BAY_W each, so the door's stands in the middle. */
+export function bays(w: number): number {
+  const n = Math.max(1, Math.round(w / BAY_W));
+  if (n % 2 === 1) return n;
+  // Of the odd counts either side, the one whose bays stretch or squeeze the band the least.
+  const off = (k: number) => Math.max(w / k / BAY_W, (k * BAY_W) / w);
+  return off(n + 1) < off(n - 1) ? n + 1 : n - 1;
+}
+
+/** A canvas awning's band: broad stripes of the trim's colour and white, eight to the band's width. */
+function stripes(kit: PlacesKit, color: string): [number, number] {
+  return kit.atlas.band(32, (ctx) => {
+    for (let k = 0; k < 16; k++) {
+      ctx.fillStyle = k % 2 === 0 ? color : '#f4f0e6';
+      ctx.fillRect(k * 64, 0, 64, 32);
+    }
+  });
 }
 
 /** The cob's kernels: rows of rounded yellow kernels. */
@@ -206,7 +318,14 @@ function wrap(p: PlacePieces, v: [number, number], cx: number, cz: number, r: nu
   }
 }
 
-function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: Map<FacadeStyle, GeoBuilder>, s: Store, fronts: Record<string, [number, number]>): void {
+/** The painted surfaces the stores share: their shop fronts' bands by design, the tin of the porch roofs, the diner's awning. */
+interface StoreBands {
+  fronts: Record<'shop' | 'diner' | 'sheriff' | 'gas', [number, number]>;
+  tin: [number, number];
+  awning: [number, number];
+}
+
+function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: Map<FacadeStyle, GeoBuilder>, s: Store, bands: StoreBands): void {
   const b = view.world.layout.buildings.find((q) => q.id === s.building)!;
   const L = look(s);
   const south = s.front === 'S';
@@ -225,34 +344,117 @@ function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: M
   const w = body.maxX - body.minX;
   const rise = Math.min(w * 0.18, s.top - s.eaves - 0.35);
   pitched(p.plain, body, s.eaves, s.eaves + rise, false, 0.3, TIN, scaleRgb(wall, 0.92));
-  // The false front's cap and corner boards.
-  boxC(p.plain, slab.minX - 0.12, s.top, slab.minZ - 0.12, slab.maxX + 0.12, s.top + 0.22, slab.maxZ + 0.12, L.trim);
   const fz = south ? slab.maxZ : slab.minZ;
   const out = south ? 1 : -1;
+  /** A box on the front from x0 to x1, y0 to y1, standing `d` m proud of it. */
+  const onFront = (x0: number, y0: number, x1: number, y1: number, d: number, c: RGB) => boxC(p.plain, x0, y0, Math.min(fz, fz + out * d), x1, y1, Math.max(fz, fz + out * d), c);
+  // The false front's cap, a cornice on brackets under it, the corner boards up its edges.
+  boxC(p.plain, slab.minX - 0.12, s.top, slab.minZ - 0.12, slab.maxX + 0.12, s.top + 0.22, slab.maxZ + 0.12, L.trim);
+  const dark = scaleRgb(L.trim, 0.82);
+  onFront(slab.minX - 0.05, s.top - 0.3, slab.maxX + 0.05, s.top, 0.3, L.trim);
+  const corbels = Math.max(2, Math.round((slab.maxX - slab.minX) / 1.6));
+  for (let k = 0; k <= corbels; k++) {
+    const x = slab.minX + 0.2 + ((slab.maxX - slab.minX - 0.4) * k) / corbels;
+    onFront(x - 0.07, s.top - 0.5, x + 0.07, s.top - 0.3, 0.26, dark);
+  }
   for (const x of [slab.minX, slab.maxX - 0.25]) boxC(p.plain, x, 0, fz - 0.06, x + 0.25, s.top, fz + 0.06, L.trim);
-  // The shop windows across the front, the porch roof over the boardwalk on its posts, and the sign above it.
+  // The shop front in bays of the band's quarters, the door's in the middle: pilasters between them on plinths, a sill
+  // ledge under the windows, the door's casing, a frieze over them all.
   const rot = south ? 0 : Math.PI;
   const cx = (slab.minX + slab.maxX) / 2;
-  kit.board(p, fronts[L.front]!, slab.maxX - slab.minX - 0.6, SHOP_TOP, cx, SHOP_TOP / 2 + 0.02, fz + out * 0.03, rot);
-  const edge = fz + out * 3;
+  const x0 = slab.minX + 0.25;
+  const x1 = slab.maxX - 0.25;
+  const n = bays(x1 - x0);
+  const bw = (x1 - x0) / n;
+  const pick = hashInts(b.id, 0xba7);
+  for (let k = 0; k < n; k++) {
+    const bx = x0 + bw * (k + 0.5);
+    const door = k === (n - 1) / 2;
+    const tile = door ? 0 : 1 + ((pick >>> (k * 2)) % 3);
+    kit.board(p, bands.fronts[L.front], bw, SHOP_TOP, bx, SHOP_TOP / 2 + 0.02, fz + out * 0.03, rot, (tile * 256 + 3) / 1024, ((tile + 1) * 256 - 3) / 1024);
+    if (door) {
+      // The casing round the door's glass (0.375 to 0.625 of the bay, up to the transom's head), and its step.
+      const d0 = bx - 0.125 * bw - 0.12;
+      const d1 = bx + 0.125 * bw + 0.12;
+      for (const x of [d0, d1 - 0.12]) onFront(x, 0, x + 0.12, SHOP_TOP - 0.12, 0.1, L.trim);
+      onFront(d0 - 0.1, SHOP_TOP - 0.17, d1 + 0.1, SHOP_TOP - 0.03, 0.14, L.trim);
+      onFront(d0 - 0.1, 0, d1 + 0.1, DECK_Y + 0.1, 0.32, scaleRgb(WOOD, 0.85));
+    }
+    if (L.front !== 'diner' && !door) onFront(bx - bw / 2 + 0.2, 0.72, bx + bw / 2 - 0.2, 0.8, 0.14, dark);
+    if (k > 0) {
+      const x = x0 + bw * k;
+      onFront(x - 0.14, 0, x + 0.14, SHOP_TOP, 0.1, L.trim);
+      onFront(x - 0.18, 0, x + 0.18, 0.5, 0.14, dark);
+    }
+  }
+  onFront(slab.minX + 0.1, SHOP_TOP, slab.maxX - 0.1, SHOP_TOP + 0.3, 0.16, L.trim);
+  // Over the boardwalk: the diner's striped awning on iron rods, everyone else's porch roof in tin on posts.
+  if (L.front === 'diner') awning(p, bands.awning, slab.minX + 0.4, slab.maxX - 0.4, fz, out);
+  else porchRoof(p, bands.tin, slab, fz, out, L.trim);
+  // The sign between the porch and the cornice: its board on a backing of the trim, a moulding along its top and foot.
+  const lo = PORCH.high + 0.25;
+  const hi = s.top - 0.6;
+  const sh = Math.min(1.5, hi - lo - 0.3);
+  const sy = (lo + hi) / 2;
+  const sw = Math.min(slab.maxX - slab.minX - 1.6, sh * 8);
+  onFront(cx - sw / 2 - 0.14, sy - sh / 2 - 0.14, cx + sw / 2 + 0.14, sy + sh / 2 + 0.14, 0.08, L.trim);
+  for (const y of [sy - sh / 2 - 0.2, sy + sh / 2 + 0.08]) onFront(cx - sw / 2 - 0.22, y, cx + sw / 2 + 0.22, y + 0.12, 0.14, dark);
+  kit.board(p, sign(kit, [[s.name, 92]], L.sign[0], L.sign[1]), sw, sh, cx, sy, fz + out * 0.09, rot);
+}
+
+/**
+ * A porch roof over a boardwalk, from the front at `fz` out 3 m: tin on top falling to the street, boards and joists
+ * under it, a beam along its edge on posts PORCH.gap apart, each post on a base block with a knee brace either side.
+ */
+function porchRoof(p: PlacePieces, tin: [number, number], slab: { minX: number; maxX: number }, fz: number, out: number, trim: RGB): void {
   const ph = PORCH;
-  const roof: V[] = [[slab.minX - 0.1, ph.high, fz], [slab.maxX + 0.1, ph.high, fz], [slab.maxX + 0.1, ph.low, edge], [slab.minX - 0.1, ph.low, edge]];
-  face(p.plain, roof[0]!, roof[1]!, roof[2]!, roof[3]!, [0, 1, out * 0.2], TIN);
-  face(p.plain, roof[3]!, roof[2]!, roof[1]!, roof[0]!, [0, -1, 0], scaleRgb(WOOD, 0.8));
-  boxC(p.plain, slab.minX - 0.1, ph.low - 0.2, edge - 0.06, slab.maxX + 0.1, ph.low, edge + 0.06, L.trim);
+  const edge = fz + out * 3;
+  const xa = slab.minX - 0.1;
+  const xb = slab.maxX + 0.1;
+  const run = (xb - xa) / TIN_TILE;
+  const top: V[] = [[xa, ph.high, fz], [xb, ph.high, fz], [xb, ph.low, edge + out * 0.15], [xa, ph.low, edge + out * 0.15]];
+  face(p.painted, top[3]!, top[2]!, top[1]!, top[0]!, [0, 1, out * 0.2], TIN, [0, tin[0], run, tin[0], run, tin[1], 0, tin[1]]);
+  face(p.plain, [xa, ph.high - 0.05, fz], [xb, ph.high - 0.05, fz], [xb, ph.low - 0.05, edge], [xa, ph.low - 0.05, edge], [0, -1, 0], scaleRgb(WOOD, 0.8));
+  // Joists under the boards, from a ledger on the front to the beam.
+  const zr = (a: number, b: number): [number, number] => [Math.min(fz + out * a, fz + out * b), Math.max(fz + out * a, fz + out * b)];
+  const [la, lb] = zr(0, 0.12);
+  boxC(p.plain, xa, ph.high - 0.25, la, xb, ph.high - 0.05, lb, scaleRgb(WOOD, 0.7));
+  for (let x = xa + 0.6; x < xb - 0.3; x += 1.2) beam(p.plain, [x, ph.high - 0.12, fz + out * 0.12], [x, ph.low - 0.12, edge - out * 0.12], 0.09, scaleRgb(WOOD, 0.7));
+  // The beam on the posts' heads, 2.8 m out, just under the boards there.
+  const [ea, eb] = zr(2.66, 2.94);
+  boxC(p.plain, xa, ph.low - 0.26, ea, xb, ph.low - 0.02, eb, trim);
   const posts = Math.max(2, Math.round((slab.maxX - slab.minX) / ph.gap) + 1);
+  const pz = edge - out * 0.2;
   for (let k = 0; k < posts; k++) {
     const x = slab.minX + 0.1 + ((slab.maxX - slab.minX - 0.2) * k) / (posts - 1);
-    boxC(p.plain, x - ph.post / 2, DECK_Y, edge - out * 0.2 - ph.post / 2, x + ph.post / 2, ph.low, edge - out * 0.2 + ph.post / 2, L.trim);
+    boxC(p.plain, x - ph.post / 2, DECK_Y, pz - ph.post / 2, x + ph.post / 2, ph.low - 0.26, pz + ph.post / 2, trim);
+    boxC(p.plain, x - 0.13, DECK_Y, pz - 0.13, x + 0.13, DECK_Y + 0.22, pz + 0.13, scaleRgb(trim, 0.8));
+    for (const s of [-1, 1]) {
+      if ((k === 0 && s < 0) || (k === posts - 1 && s > 0)) continue;
+      beam(p.plain, [x, ph.low - 0.85, pz], [x + s * 0.6, ph.low - 0.26, pz], 0.08, trim);
+    }
   }
-  const sh = Math.min(1.5, s.top - ph.high - 0.5);
-  const sw = Math.min(slab.maxX - slab.minX - 1.6, sh * 8);
-  kit.board(p, sign(kit, [[s.name, 92]], L.sign[0], L.sign[1]), sw, sh, cx, (ph.high + s.top) / 2 + 0.15, fz + out * 0.05, rot);
+}
+
+/**
+ * A canvas awning over the boardwalk from x0 to x1: striped, falling from 3.65 m at the front to 3.05 m 2 m out, its
+ * valance hanging at the edge, the iron rods that hold it out from the wall.
+ */
+function awning(p: PlacePieces, band: [number, number], x0: number, x1: number, fz: number, out: number): void {
+  const u0 = x0 / 8;
+  const u1 = x1 / 8;
+  const ez = fz + out * 2;
+  const uv = [u0, band[0], u1, band[0], u1, band[1], u0, band[1]];
+  face(p.painted, [x0, 3.05, ez], [x1, 3.05, ez], [x1, 3.65, fz], [x0, 3.65, fz], [0, 1, out * 0.3], [1, 1, 1], uv);
+  face(p.painted, [x0, 3.04, ez], [x1, 3.04, ez], [x1, 3.64, fz], [x0, 3.64, fz], [0, -1, 0], [0.7, 0.7, 0.7], uv);
+  face(p.painted, [x0, 2.78, ez], [x1, 2.78, ez], [x1, 3.05, ez], [x0, 3.05, ez], [0, 0, out], [1, 1, 1], uv);
+  face(p.painted, [x0, 2.78, ez], [x1, 2.78, ez], [x1, 3.05, ez], [x0, 3.05, ez], [0, 0, -out], [0.7, 0.7, 0.7], uv);
+  for (let x = x0 + 0.3; x < x1; x += 2.4) beam(p.plain, [x, 2.6, fz], [x, 3.08, ez - out * 0.1], 0.04, [0.16, 0.16, 0.17]);
 }
 
 /** Slipformed concrete: the lifts' faint seams across it, darker streaks run down from the top, a little grime toward the foot (v[0]). */
 function concreteBand(kit: PlacesKit): [number, number] {
-  return kit.atlas.band(256, (ctx) => {
+  return paddedBand(kit.atlas, 256, (ctx) => {
     const rng = new Rng(4420);
     ctx.fillStyle = '#d2cdc2';
     ctx.fillRect(0, 0, 1024, 256);
@@ -272,7 +474,7 @@ function concreteBand(kit: PlacesKit): [number, number] {
   });
 }
 
-/** The concrete band's tile round a silo (m): its width spans CONCRETE_TILE m of wall, its height a sixth of the silo. */
+/** The concrete band's tile round a silo (m): its width spans about CONCRETE_TILE m of wall (a whole number of them round it), its height a sixth of the silo. */
 const CONCRETE_TILE = 8;
 
 /**
@@ -280,12 +482,11 @@ const CONCRETE_TILE = 8;
  * caged ladder up the west one; the head house across their tops and the leg tower at their east end in ribbed tin with
  * a strip of windows, roofed in tin; the spout from the leg down to the head house.
  */
-function elevator(kit: PlacesKit, p: PlacePieces, e: TownAnchors['elevator']): void {
-  const concrete = concreteBand(kit);
-  const tin = tinBand(kit.atlas);
+function elevator(p: PlacePieces, e: TownAnchors['elevator'], tin: [number, number], concrete: [number, number]): void {
   const n = 24;
   const lifts = 6;
-  const round = (2 * Math.PI * e.r) / CONCRETE_TILE;
+  // A whole number of the band's widths round a silo, so its u meets itself where the circle closes.
+  const round = Math.max(1, Math.round((2 * Math.PI * e.r) / CONCRETE_TILE));
   for (const s of e.silos) {
     for (let j = 0; j < lifts; j++) {
       const y0 = (e.height * j) / lifts;
@@ -324,6 +525,9 @@ function elevator(kit: PlacesKit, p: PlacePieces, e: TownAnchors['elevator']): v
     paintWall(p, [r.minX, y0, r.minZ], [r.minX, y0, r.maxZ], y1, [-1, 0, 0], scaleRgb(grey, 0.95), v);
   };
   walls(e.head, e.height, e.headTop);
+  // The head house's floor over the gaps between the silos' tops, seen from the ground between them.
+  const hd = e.head;
+  face(p.plain, [hd.minX, e.height, hd.maxZ], [hd.maxX, e.height, hd.maxZ], [hd.maxX, e.height, hd.minZ], [hd.minX, e.height, hd.minZ], [0, -1, 0], scaleRgb(grey, 0.7));
   walls(e.leg, 0, e.top - 1.5);
   const roofs = (r: { minX: number; minZ: number; maxX: number; maxZ: number }, y: number, rise: number) => {
     const cz = (r.minZ + r.maxZ) / 2;
@@ -358,9 +562,18 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   const town = L.country.places.town;
   const p = kit.place('dry-creek');
   const facades = new Map<FacadeStyle, GeoBuilder>();
-  const front: Record<string, [number, number]> = {};
-  for (const k of ['shop', 'diner', 'sheriff', 'gas'] as const) front[k] = shopFront(kit, k);
-  for (const s of town.stores) drawStore(view, kit, p, facades, s, front);
+  // The unlit bands first, together at the atlas's top, the concrete between the tin and the cob's kernels: a lit band's
+  // glow next to the concrete reached its edges at the coarser mipmaps, and every lift of the silos glowed in a ring at
+  // its top after dark.
+  const tin = tinBand(kit.atlas);
+  const concrete = concreteBand(kit);
+  const k = kernels(kit);
+  const bands: StoreBands = {
+    fronts: { shop: shopFront(kit, 'shop'), diner: shopFront(kit, 'diner'), sheriff: shopFront(kit, 'sheriff'), gas: shopFront(kit, 'gas') },
+    tin,
+    awning: stripes(kit, '#2f9c9c'),
+  };
+  for (const s of town.stores) drawStore(view, kit, p, facades, s, bands);
   for (const [style, gb] of facades) view.add(gb.build(), view.city.materials.facades.get(style)!, { shadow: true, split: false, name: `dry-creek-${style}` });
 
   // The boardwalks: plank decks a few centimetres up (the city's boardwalk timber), a fascia board along their street
@@ -392,17 +605,21 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   kit.board(p, fascia, c.maxX - c.minX, y1 - y0, cxm, (y0 + y1) / 2, c.minZ - 0.02, Math.PI);
   kit.board(p, fascia, c.maxZ - c.minZ, y1 - y0, c.maxX + 0.02, (y0 + y1) / 2, czm, Math.PI / 2);
   kit.board(p, fascia, c.maxZ - c.minZ, y1 - y0, c.minX - 0.02, (y0 + y1) / 2, czm, -Math.PI / 2);
-  const panel = kit.atlas.band(16, (ctx) => {
+  // The panels' light lit in the middle third of its band only, so the bands either side never sample its glow at their
+  // edges (the CO-OP's sign, painted next, showed a line of it along its top after dark).
+  const lit = kit.atlas.band(48, (ctx) => {
     ctx.fillStyle = '#fffaf0';
-    ctx.fillRect(0, 0, 1024, 16);
+    if (ctx.canvas === kit.atlas.canvas) ctx.fillRect(0, 0, 1024, 48);
+    else ctx.fillRect(0, 16, 1024, 16);
   }, true);
+  const panel: [number, number] = [lit[0] + (lit[1] - lit[0]) / 3, lit[1] - (lit[1] - lit[0]) / 3];
   for (const x of [-796, -784]) {
     const q: V[] = [[x - 1.6, y0 - 0.02, -283], [x + 1.6, y0 - 0.02, -283], [x + 1.6, y0 - 0.02, -297], [x - 1.6, y0 - 0.02, -297]];
     face(p.painted, q[0]!, q[1]!, q[2]!, q[3]!, [0, -1, 0], [1, 1, 1], [0, panel[0], 1, panel[0], 1, panel[1], 0, panel[1]]);
   }
 
   // The grain elevator: concrete silos, the corrugated head house over them and the leg tower at their end.
-  elevator(kit, p, town.elevator);
+  elevator(p, town.elevator, tin, concrete);
   const e = town.elevator;
   kit.board(p, sign(kit, [['DRY CREEK CO-OP', 96]], '#f6f1e4', '#7a2e1c'), 12, 1.6, (e.head.minX + e.head.maxX) / 2, e.height + 3.2, e.head.maxZ + 0.04, 0);
 
@@ -436,7 +653,6 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
 
   // The World's Second-Largest Corn Cob on its plinth, husk leaves round its foot, and its plaque.
   const cob = town.cob;
-  const k = kernels(kit);
   boxC(p.plain, cob.x - 1.8, 0, cob.z - 1.8, cob.x + 1.8, 0.6, cob.z + 1.8, CONCRETE);
   const segs = [[0.6, 1.25], [2.5, 1.3], [5, 1.18], [7, 0.95], [8.2, 0.62], [cob.height, 0.08]] as const;
   for (let s = 1; s < segs.length; s++) {

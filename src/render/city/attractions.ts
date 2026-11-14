@@ -1,6 +1,7 @@
 // The attractions' buildings and fittings (world/attractions.ts), drawn only: their colliders are the attractions'
-// solids and the barn's garage walls. Hollister Farm: the barn's gable over the garage it is (structures.ts draws its
-// walls and roof slab), its loft door and sign, the silo, the farm stand and the hay bales over the farm's kicker.
+// solids and the barn's garage walls. Hollister Farm: the barn over the garage it is (structures.ts draws its walls and
+// roof slab) and the farmhouse's porch, in the county's farm kit (render/country/farms.ts), the barn's sign, the silo,
+// the farm stand and the hay bales over the farm's kicker.
 // Eternal Palms Cemetery: the chapel with its bell tower and stained glass (lit at night with the signs), the three
 // mausoleums and the gate. All of it is one draw (see Atlas).
 
@@ -10,8 +11,8 @@ import { Rng } from '../../core/rng';
 import { attractionOf } from '../../world/attractions';
 import { CURB_H } from '../../world/constants';
 import { rectCX, rectCZ, type Rect } from '../../world/layout';
-import { GARAGE_EAVE, GARAGE_ROOF } from '../../world/staticWorld';
-import { GeoBuilder, hexToRgb, type RGB } from '../geo';
+import { barn, farmPorch, tinBand, WHITE, type PorchSpec } from '../country/farms';
+import { GeoBuilder, type RGB } from '../geo';
 import { canvas, toTexture } from '../textures/misc';
 import type { CityView } from './index';
 import { prism } from './rooftops';
@@ -214,6 +215,9 @@ export class Atlas {
   }
 }
 
+/** Hollister Farm's farmhouse porch: on the lot's kerb-high ground, its deck at the city's door sill, 1.6 m deep and one step down, so it ends 1.9 m out and its owner, 2.4 m out (FarmAnchors.porch), stands clear of it. */
+export const HOLLISTER_PORCH: PorchSpec = { y0: CURB_H, depth: 1.6, deck: 0.3, high: 3.25, low: 2.95, inset: 1.2, steps: 1 };
+
 export function buildAttractionViews(view: CityView): void {
   const L = view.world.layout;
   const g = new GeoBuilder(true);
@@ -233,19 +237,19 @@ export function buildAttractionViews(view: CityView): void {
 
   // --- Hollister Farm
   const farm = attractionOf(L, 'farm').anchors;
-  const red = hexToRgb(0x8e2b1f);
-  const white: RGB = [0.93, 0.91, 0.86];
-  const tin: RGB = [0.36, 0.33, 0.31];
   const b = farm.barn;
-  const top = L.garages.find((q) => q.poi === 'farm_barn')!.height + GARAGE_ROOF;
-  // The gable over the roof slab, its ridge running from the doors (west) to the back wall.
-  pitched(g, { minX: b.minX - GARAGE_EAVE, minZ: b.minZ, maxX: b.maxX + GARAGE_EAVE, maxZ: b.maxZ }, top, top + 4.4, true, 0.35, tin, red);
-  // A white header over the open doors, and the hayloft door under the ridge: dark, braced with a white X.
-  boxC(g, b.minX - 0.05, 6.2, b.minZ, b.minX + 0.35, 7, b.maxZ, white);
-  const cz = rectCZ(b);
-  const lx = b.minX - GARAGE_EAVE - 0.04;
-  face(g, [lx, top + 0.5, cz - 1.3], [lx, top + 0.5, cz + 1.3], [lx, top + 2.7, cz + 1.3], [lx, top + 2.7, cz - 1.3], [-1, 0, 0], [0.18, 0.1, 0.08]);
-  for (const s of [-1, 1]) face(g, [lx - 0.02, top + 0.5, cz - 1.3 * s - 0.1], [lx - 0.02, top + 0.5, cz - 1.3 * s + 0.1], [lx - 0.02, top + 2.7, cz + 1.3 * s + 0.1], [lx - 0.02, top + 2.7, cz + 1.3 * s - 0.1], [-1, 0, 0], white);
+  const gar = L.garages.find((q) => q.poi === 'farm_barn')!;
+  // The barn as the county's are drawn (render/country/farms.ts): a gambrel roof and gables in ribbed tin over the
+  // garage, white trim, the header over its doors to the lane, the loft door under its hay hood, a cupola on the ridge;
+  // its name on the south wall to the gate.
+  const tin = tinBand(atlas);
+  barn(g, painted, tin, { barn: b, door: 'W' }, gar.height, gar.color, 0x5b5651, true);
+  // The farmhouse as the county's wear theirs: corner boards, and a porch across its front at the door's sill (the city
+  // draws its door and no porch of its own), shallow enough that its owner stands clear of its step.
+  const house = L.buildings.find((q) => q.id === farm.house)!;
+  const hr = house.rect;
+  for (const x of [hr.minX, hr.maxX]) for (const z of [hr.minZ, hr.maxZ]) boxC(g, x - 0.12, CURB_H, z - 0.12, x + 0.12, house.height - 0.15, z + 0.12, WHITE);
+  farmPorch(g, painted, tin, hr, 'S', HOLLISTER_PORCH);
   board(atlas.board([['HOLLISTER FARM', 150, '#f3eadb']], '#6e1e16', 220), 9, 1.95, rectCX(b), 4.1, b.maxZ + 0.06, 0);
   // The silo: galvanised steel in bands, a domed cap and a ladder up its west side.
   const s = farm.silo;
@@ -362,8 +366,11 @@ export function buildAttractionViews(view: CityView): void {
   for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, (blank[0] + blank[1]) / 2);
   const geo = mergeGeometries([decor, painted.build()], false)!;
   decor.dispose();
+  // Repeating along u, so the barn's tin runs on along its roof; every band spans the atlas's width.
+  const map = toTexture(atlas.canvas, true, false);
+  map.wrapS = THREE.RepeatWrapping;
   const mat = new THREE.MeshStandardMaterial({
-    map: toTexture(atlas.canvas, true, false),
+    map,
     emissiveMap: toTexture(atlas.glowCanvas, true, false),
     emissive: new THREE.Color(0xffffff),
     emissiveIntensity: 0.4,

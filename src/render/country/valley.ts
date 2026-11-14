@@ -11,14 +11,14 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng } from '../../core/rng';
 import type { Shelter, ValleyFarms } from '../../world/country/valley';
-import { hashInts, rectCZ } from '../../world/layout';
-import { Atlas, boxC, face, pitched, type V } from '../city/attractions';
+import { hashInts, rectCZ, type Rect } from '../../world/layout';
+import { Atlas, boxC, face, pitched, tri, type V } from '../city/attractions';
 import { prism } from '../city/rooftops';
 import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { FACADE_CELL, FACADE_COLS, FACADE_ROWS } from '../textures/facade';
 import { canvas, glowTexture, toTexture } from '../textures/misc';
 import type { WindUniforms } from '../props';
-import { barn, beam, DOOR_U, farmBands, mailbox, sign, WOOD, type FarmBands } from './farms';
+import { barn, beam, DOOR_U, farmBands, mailbox, sign, TIN_TILE, WOOD, type FarmBands } from './farms';
 import type { CountryView } from './index';
 import { Vines } from './vines';
 
@@ -436,7 +436,7 @@ export class ValleyView {
       top: false,
     });
     view.add(facade.build(), view.city.materials.facades.get('house')!, { shadow: true, split: false, name: 'lazy-q-house' });
-    pitched(p.plain, hr, wallH, wallH + 2.2, true, 0.7, [0.17, 0.2, 0.2], [0.98, 0.94, 0.84]);
+    ranchRoof(p, bands.tin, hr, wallH, 2.2, 0.7);
     boxC(p.plain, hr.minX + 3, wallH, hr.minZ + 0.8, hr.minX + 4.2, wallH + 3.4, hr.minZ + 2, scaleRgb(STONE, 0.78));
     const porch = hr.maxZ + 3;
     boxC(p.plain, hr.minX, 0, hr.maxZ, hr.maxX, 0.3, porch, scaleRgb(WOOD, 1.1));
@@ -455,7 +455,7 @@ export class ValleyView {
     boxC(p.plain, doorX - 0.8, 2.7, hr.maxZ, doorX + 0.8, 2.9, hr.maxZ + 0.09, [0.95, 0.93, 0.88]);
     // The barn's gambrel roof (its walls are a garage the city draws) in blue-grey tin.
     const gar = layout.garages.find((q) => q.poi === 'ranch_barn')!;
-    barn(p.plain, p.painted, bands, r, gar.height, gar.color, 0x383d42, true);
+    barn(p.plain, p.painted, bands.tin, r, gar.height, gar.color, 0x383d42, true);
     // The gate: two timber posts over the drive's mouth under a lintel, the brand's board on it facing the road and the ranch.
     const board = gateBoard(atlas);
     const gx = r.gate.x;
@@ -482,6 +482,53 @@ export class ValleyView {
   update(night: number): void {
     this.haloMat.opacity = night * 0.85;
     this.halos.visible = night > 0.02;
+  }
+}
+
+/** The ranch house's walls' cream, its trim's white and its roof's slate grey. */
+const CREAM: RGB = [0.98, 0.94, 0.84];
+const TRIM: RGB = [0.95, 0.93, 0.88];
+const SLATE: RGB = [0.3, 0.34, 0.36];
+
+/**
+ * The ranch house's low gable roof over `r`, its ridge along x, `rise` m over the walls' tops at `wallH`, overhanging
+ * by `over`: standing-seam tin on both slopes, boards under the overhangs, a fascia along the eaves, a cap on the ridge;
+ * each gable end in lap boards under barge boards up the rakes, a louvred vent under the apex.
+ */
+function ranchRoof(p: Pieces, tin: readonly [number, number], r: Rect, wallH: number, rise: number, over: number): void {
+  const cz = rectCZ(r);
+  const half = (r.maxZ - r.minZ) / 2;
+  const top = wallH + rise;
+  const [x0, x1] = [r.minX - over, r.maxX + over];
+  const run = (x1 - x0) / TIN_TILE;
+  for (const s of [-1, 1]) {
+    const ez = cz + s * (half + over);
+    face(p.painted, [x0, wallH, ez], [x1, wallH, ez], [x1, top, cz], [x0, top, cz], [0, 1, s], SLATE, [0, tin[0], run, tin[0], run, tin[1], 0, tin[1]]);
+    // The overhang's boards, seen from under it, and the soffit back to the wall.
+    face(p.plain, [x0, wallH - 0.03, ez], [x1, wallH - 0.03, ez], [x1, top - 0.03, cz], [x0, top - 0.03, cz], [0, -1, -s], scaleRgb(TRIM, 0.8));
+    face(p.plain, [x0, wallH - 0.02, ez], [x1, wallH - 0.02, ez], [x1, wallH - 0.02, cz + s * half], [x0, wallH - 0.02, cz + s * half], [0, -1, 0], scaleRgb(TRIM, 0.75));
+    boxC(p.plain, x0, wallH - 0.2, Math.min(ez, ez + s * 0.06), x1, wallH + 0.04, Math.max(ez, ez + s * 0.06), TRIM);
+  }
+  beam(p.plain, [x0 - 0.04, top + 0.02, cz], [x1 + 0.04, top + 0.02, cz], 0.16, scaleRgb(SLATE, 0.7));
+  const courses = Math.ceil(rise / 0.22);
+  for (const [pe, s] of [[r.minX, -1], [r.maxX, 1]] as const) {
+    const out: V = [s, 0, 0];
+    const at = (y: number) => half * Math.max(0, 1 - (y - wallH) / rise);
+    // Lap boards, each course's foot standing out over the one below, alternately a shade lighter.
+    for (let k = 0; k < courses; k++) {
+      const ya = wallH + (rise * k) / courses;
+      const yb = wallH + (rise * (k + 1)) / courses;
+      const c = scaleRgb(CREAM, k % 2 === 0 ? 1 : 0.95);
+      // The top course comes to the apex: a triangle, since a quad with two corners on one point has no normal to light it by.
+      if (k === courses - 1) tri(p.plain, [pe + s * 0.035, ya, cz - at(ya)], [pe + s * 0.035, ya, cz + at(ya)], [pe + s * 0.005, yb, cz], out, c);
+      else face(p.plain, [pe + s * 0.035, ya, cz - at(ya)], [pe + s * 0.035, ya, cz + at(ya)], [pe + s * 0.005, yb, cz + at(yb)], [pe + s * 0.005, yb, cz - at(yb)], out, c);
+    }
+    const vy = wallH + rise * 0.38;
+    boxC(p.plain, Math.min(pe, pe + s * 0.08), vy, cz - 0.4, Math.max(pe, pe + s * 0.08), vy + 0.6, cz + 0.4, TRIM);
+    for (let k = 0; k < 4; k++) face(p.plain, [pe + s * 0.085, vy + 0.08 + k * 0.12, cz - 0.3], [pe + s * 0.085, vy + 0.08 + k * 0.12, cz + 0.3], [pe + s * 0.085, vy + 0.15 + k * 0.12, cz + 0.3], [pe + s * 0.085, vy + 0.15 + k * 0.12, cz - 0.3], out, [0.12, 0.12, 0.13]);
+    // Barge boards up both rakes at the roof's end.
+    const xe = s < 0 ? x0 + 0.06 : x1 - 0.06;
+    for (const q of [-1, 1]) beam(p.plain, [xe, wallH - 0.1, cz + q * (half + over)], [xe, top - 0.06, cz], 0.22, TRIM);
   }
 }
 

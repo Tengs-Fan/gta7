@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { clamp, clamp01 } from '../../core/math';
 import { Rng } from '../../core/rng';
+import { attractionOf } from '../../world/attractions';
 import { CURB_H } from '../../world/constants';
 import {
   SPECIALS, blockOf, hashInts, rectD, rectW,
@@ -573,7 +574,8 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
         cell = door ? doorCell : CELLS.houseWindows;
         cls = FRONT_HOME;
         tint = wallColor;
-        if (door) porch(decor, ax, az, ux, uz, doorAlong, y0, b);
+        // Hollister Farm's farmhouse wears a farmhouse porch across its front instead (render/city/attractions.ts).
+        if (door && b.id !== attractionOf(view.world.layout, 'farm').anchors.house) porch(decor, ax, az, ux, uz, doorAlong, y0, b);
         break;
       }
       case 'loading':
